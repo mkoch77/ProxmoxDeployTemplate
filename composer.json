@@ -1,0 +1,13 @@
+{
+    "name": "proxmox/deploy-template",
+    "description": "Proxmox VE Template Deployment Web Interface",
+    "type": "project",
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        }
+    },
+    "require": {
+        "php": ">=8.1"
+    }
+}
