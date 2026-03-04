@@ -3,11 +3,11 @@
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 use App\Config;
-use App\Session;
+use App\Bootstrap;
 use App\Response;
 use App\Helpers;
 
-Session::start();
+Bootstrap::init();
 
 try {
     $api = Helpers::createAPI();

@@ -2,17 +2,33 @@
 
 require_once __DIR__ . '/../../vendor/autoload.php';
 
-use App\Session;
+use App\Bootstrap;
+use App\Auth;
 use App\Request;
 use App\Response;
 use App\Helpers;
 
-Session::start();
+Bootstrap::init();
 Request::requireMethod('POST');
 Request::validateCsrf();
 
 $body = Request::jsonBody();
 Request::requireParams(['node', 'type', 'vmid', 'action'], $body);
+
+// Permission check based on action
+$permMap = [
+    'start' => 'vm.start',
+    'stop' => 'vm.stop',
+    'shutdown' => 'vm.shutdown',
+    'reboot' => 'vm.reboot',
+    'reset' => 'vm.stop',
+];
+$requiredPerm = $permMap[$body['action']] ?? null;
+if ($requiredPerm) {
+    Auth::requirePermission($requiredPerm);
+} else {
+    Auth::requireAuth();
+}
 
 if (!Helpers::validateNodeName($body['node'])) {
     Response::error('Invalid node name', 400);

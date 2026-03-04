@@ -24,7 +24,7 @@ const API = {
             return data.data ?? data;
         } catch (err) {
             if (err.name !== 'AbortError') {
-                Toast.error(err.message || 'Anfrage fehlgeschlagen');
+                Toast.error(err.message || 'Request failed');
             }
             throw err;
         }
@@ -92,6 +92,10 @@ const API = {
         return this.post('api/power.php', { node, type, vmid, action });
     },
 
+    migrate(node, type, vmid, target, online = true) {
+        return this.post('api/migrate.php', { node, type, vmid, target, online });
+    },
+
     getTasks(node, limit = 50) {
         return this.get('api/tasks.php', { node, limit });
     },
@@ -102,5 +106,53 @@ const API = {
 
     getTaskLog(node, upid) {
         return this.get('api/task-log.php', { node, upid });
+    },
+
+    // --- New endpoints ---
+
+    getClusterHealth() {
+        return this.get('api/cluster-health.php');
+    },
+
+    getMaintenanceList() {
+        return this.get('api/maintenance.php');
+    },
+
+    getMaintenanceNodeStatus(node) {
+        return this.get('api/maintenance-status.php', { node });
+    },
+
+    getUsers() {
+        return this.get('api/users.php');
+    },
+
+    // --- Loadbalancer ---
+
+    getLoadbalancer() {
+        return this.get('api/loadbalancer.php');
+    },
+
+    updateLoadbalancerSettings(settings) {
+        return this.post('api/loadbalancer.php?action=settings', settings);
+    },
+
+    runLoadbalancer() {
+        return this.post('api/loadbalancer.php?action=run');
+    },
+
+    applyLoadbalancerRecommendation(recommendationId) {
+        return this.post('api/loadbalancer.php?action=apply', { recommendation_id: recommendationId });
+    },
+
+    applyAllLoadbalancerRecommendations(runId) {
+        return this.post('api/loadbalancer.php?action=apply-all', { run_id: runId });
+    },
+
+    getLoadbalancerHistory(limit = 20, offset = 0) {
+        return this.get('api/loadbalancer-history.php', { limit, offset });
+    },
+
+    getLoadbalancerRunDetail(runId) {
+        return this.get('api/loadbalancer-history.php', { run_id: runId });
     },
 };

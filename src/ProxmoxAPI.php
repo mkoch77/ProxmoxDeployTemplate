@@ -280,4 +280,27 @@ class ProxmoxAPI
         }
         return $this->get("/nodes/{$node}/network", $params);
     }
+
+    // --- HA ---
+
+    public function getHAStatus(): array
+    {
+        return $this->get('/cluster/ha/status/current');
+    }
+
+    public function getHAResources(): array
+    {
+        return $this->get('/cluster/ha/resources');
+    }
+
+    // --- Migration ---
+
+    public function migrateGuest(string $node, string $type, int $vmid, string $target, bool $online = true): array
+    {
+        $params = ['target' => $target];
+        if ($online) {
+            $params['online'] = 1;
+        }
+        return $this->post("/nodes/{$node}/{$type}/{$vmid}/migrate", $params);
+    }
 }

@@ -68,3 +68,6 @@ const Utils = {
         return (cpu * 100).toFixed(1) + '%';
     }
 };
+
+// Global alias used by components
+function escapeHtml(str) { return Utils.escapeHtml(str); }

@@ -2,13 +2,15 @@
 
 require_once __DIR__ . '/../../vendor/autoload.php';
 
-use App\Session;
+use App\Bootstrap;
+use App\Auth;
 use App\Request;
 use App\Response;
 use App\Helpers;
 
-Session::start();
+Bootstrap::init();
 Request::requireMethod('GET');
+Auth::requirePermission('template.deploy');
 Request::requireParams(['node'], $_GET);
 
 $node = Request::get('node');

@@ -30,18 +30,18 @@ const Tasks = {
             <div class="section-header">
                 <h2><i class="bi bi-terminal-fill"></i>Tasks</h2>
                 <button class="btn btn-outline-light btn-sm" onclick="Tasks.loadTasks()">
-                    <i class="bi bi-arrow-clockwise"></i> Aktualisieren
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
                 </button>
             </div>
             <div class="filter-bar d-flex gap-2 mb-3">
                 <select id="tasks-node-select" class="form-select form-select-sm" style="width:auto;" onchange="Tasks.selectNode(this.value)">
-                    <option value="">Node waehlen...</option>
+                    <option value="">Select node...</option>
                 </select>
             </div>
             <div id="tasks-table-container">
                 <div class="text-center p-5" style="color:var(--text-muted)">
                     <i class="bi bi-terminal" style="font-size:2.5rem;opacity:0.3"></i>
-                    <p class="mt-2 mb-0">Bitte Node auswaehlen</p>
+                    <p class="mt-2 mb-0">Please select a node</p>
                 </div>
             </div>`;
     },
@@ -79,7 +79,7 @@ const Tasks = {
             const tasks = await API.getTasks(this.currentNode);
             this.renderTasks(tasks);
         } catch (err) {
-            container.innerHTML = `<div class="alert alert-danger" style="border-radius:var(--radius-md)">Fehler: ${Utils.escapeHtml(err.message)}</div>`;
+            container.innerHTML = `<div class="alert alert-danger" style="border-radius:var(--radius-md)">Error: ${Utils.escapeHtml(err.message)}</div>`;
         }
     },
 
@@ -90,7 +90,7 @@ const Tasks = {
             container.innerHTML = `
                 <div class="text-center p-5" style="color:var(--text-muted)">
                     <i class="bi bi-check-circle" style="font-size:2.5rem;opacity:0.3"></i>
-                    <p class="mt-2 mb-0">Keine Tasks gefunden</p>
+                    <p class="mt-2 mb-0">No tasks found</p>
                 </div>`;
             return;
         }
@@ -99,12 +99,12 @@ const Tasks = {
             <table class="table table-dark table-hover mb-0">
                 <thead>
                     <tr>
-                        <th>Zeit</th>
-                        <th>Typ</th>
+                        <th>Time</th>
+                        <th>Type</th>
                         <th>VMID</th>
-                        <th>Benutzer</th>
+                        <th>User</th>
                         <th>Status</th>
-                        <th style="text-align:right">Aktion</th>
+                        <th style="text-align:right">Action</th>
                     </tr>
                 </thead>
                 <tbody>`;
@@ -114,7 +114,7 @@ const Tasks = {
                                (t.status && t.status !== 'running') ? 'var(--accent-red)' : 'var(--accent-amber)';
             const statusIcon = t.status === 'OK' ? 'bi-check-circle-fill' :
                               (t.status && t.status !== 'running') ? 'bi-x-circle-fill' : 'bi-hourglass-split';
-            const displayStatus = t.status || 'laufend';
+            const displayStatus = t.status || 'running';
 
             html += `<tr>
                 <td>${Utils.formatDate(t.starttime)}</td>
@@ -136,7 +136,7 @@ const Tasks = {
 
     async showLog(node, upid) {
         const logContent = document.getElementById('task-log-content');
-        logContent.textContent = 'Lade...';
+        logContent.textContent = 'Loading...';
 
         const modal = new bootstrap.Modal(document.getElementById('taskLogModal'));
         modal.show();
@@ -146,10 +146,10 @@ const Tasks = {
             if (Array.isArray(logLines) && logLines.length > 0) {
                 logContent.textContent = logLines.map(l => l.t || l.d || '').join('\n');
             } else {
-                logContent.textContent = '(Keine Log-Eintraege)';
+                logContent.textContent = '(No log entries)';
             }
         } catch (err) {
-            logContent.textContent = 'Fehler: ' + err.message;
+            logContent.textContent = 'Error: ' + err.message;
         }
     }
 };

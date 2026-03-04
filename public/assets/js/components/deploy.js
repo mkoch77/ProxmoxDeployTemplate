@@ -29,7 +29,7 @@ const Deploy = {
             const targetNode = template.node;
             this.loadNodeResources(targetNode);
         } catch (err) {
-            body.innerHTML = `<div class="alert alert-danger">Fehler beim Laden: ${Utils.escapeHtml(err.message)}</div>`;
+            body.innerHTML = `<div class="alert alert-danger">Failed to load: ${Utils.escapeHtml(err.message)}</div>`;
         }
     },
 
@@ -46,7 +46,7 @@ const Deploy = {
                     <span style="color:var(--text-muted)" class="ms-2">ID: ${template.vmid} | ${Utils.typeLabel(template.type)} | ${template.node}</span>
                 </div>
 
-                <h6 class="text-muted mt-3 mb-2"><i class="bi bi-gear"></i> Grundeinstellungen</h6>
+                <h6 class="text-muted mt-3 mb-2"><i class="bi bi-gear"></i> Basic Settings</h6>
                 <div class="row g-2">
                     <div class="col-md-6">
                         <label class="form-label">VM Name *</label>
@@ -57,7 +57,7 @@ const Deploy = {
                         <input type="number" class="form-control" id="deploy-vmid" value="${vmid}" required min="100">
                     </div>
                     <div class="col-md-3">
-                        <label class="form-label">Clone-Typ</label>
+                        <label class="form-label">Clone Type</label>
                         <select class="form-select" id="deploy-full">
                             <option value="1" selected>Full Clone</option>
                             <option value="0">Linked Clone</option>
@@ -66,7 +66,7 @@ const Deploy = {
                 </div>
                 <div class="row g-2 mt-1">
                     <div class="col-md-6">
-                        <label class="form-label">Ziel-Node</label>
+                        <label class="form-label">Target Node</label>
                         <select class="form-select" id="deploy-target-node" onchange="Deploy.loadNodeResources(this.value)">
                             ${nodesOptions}
                         </select>
@@ -74,38 +74,38 @@ const Deploy = {
                     <div class="col-md-6">
                         <label class="form-label">Storage</label>
                         <select class="form-select" id="deploy-storage">
-                            <option value="">Standard (vom Template)</option>
+                            <option value="">Default (from template)</option>
                         </select>
                     </div>
                 </div>
 
-                <h6 class="text-muted mt-4 mb-2"><i class="bi bi-cpu"></i> Ressourcen</h6>
+                <h6 class="text-muted mt-4 mb-2"><i class="bi bi-cpu"></i> Resources</h6>
                 <div class="row g-2">
                     <div class="col-md-4">
                         <label class="form-label">CPU Cores</label>
-                        <input type="number" class="form-control" id="deploy-cores" placeholder="Wie Template" min="1" max="128">
+                        <input type="number" class="form-control" id="deploy-cores" placeholder="From template" min="1" max="128">
                     </div>
                     <div class="col-md-4">
                         <label class="form-label">RAM (MB)</label>
-                        <input type="number" class="form-control" id="deploy-memory" placeholder="Wie Template" min="128" step="128">
+                        <input type="number" class="form-control" id="deploy-memory" placeholder="From template" min="128" step="128">
                     </div>
                     <div class="col-md-4">
                         <label class="form-label">Disk Resize</label>
-                        <input type="text" class="form-control" id="deploy-disk-resize" placeholder="z.B. +10G">
+                        <input type="text" class="form-control" id="deploy-disk-resize" placeholder="e.g. +10G">
                     </div>
                 </div>
 
-                <h6 class="text-muted mt-4 mb-2"><i class="bi bi-ethernet"></i> Netzwerk</h6>
+                <h6 class="text-muted mt-4 mb-2"><i class="bi bi-ethernet"></i> Network</h6>
                 <div class="row g-2">
                     <div class="col-md-6">
                         <label class="form-label">Bridge</label>
                         <select class="form-select" id="deploy-bridge">
-                            <option value="">Wie Template</option>
+                            <option value="">From template</option>
                         </select>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label">VLAN Tag</label>
-                        <input type="number" class="form-control" id="deploy-vlan" placeholder="Kein VLAN" min="1" max="4094">
+                        <input type="number" class="form-control" id="deploy-vlan" placeholder="No VLAN" min="1" max="4094">
                     </div>
                 </div>
 
@@ -121,23 +121,23 @@ const Deploy = {
                     <div class="row g-2">
                         <div class="col-md-6">
                             <label class="form-label">Hostname</label>
-                            <input type="text" class="form-control" id="deploy-ci-hostname" placeholder="Wie VM Name">
+                            <input type="text" class="form-control" id="deploy-ci-hostname" placeholder="Same as VM name">
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label">Benutzer</label>
-                            <input type="text" class="form-control" id="deploy-ci-user" placeholder="z.B. deploy">
+                            <label class="form-label">User</label>
+                            <input type="text" class="form-control" id="deploy-ci-user" placeholder="e.g. deploy">
                         </div>
                     </div>
                     <div class="row g-2 mt-1">
                         <div class="col-md-6">
-                            <label class="form-label">Passwort</label>
+                            <label class="form-label">Password</label>
                             <input type="password" class="form-control" id="deploy-ci-password">
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label">IP-Konfiguration</label>
+                            <label class="form-label">IP Configuration</label>
                             <select class="form-select" id="deploy-ci-iptype" onchange="Deploy.toggleStaticIp()">
                                 <option value="dhcp">DHCP</option>
-                                <option value="static">Statisch</option>
+                                <option value="static">Static</option>
                             </select>
                         </div>
                     </div>
@@ -168,9 +168,9 @@ const Deploy = {
                 </div>
 
                 <div class="mt-4 d-flex gap-2 justify-content-end">
-                    <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Abbrechen</button>
+                    <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Cancel</button>
                     <button type="submit" class="btn btn-primary" id="deploy-submit-btn">
-                        <i class="bi bi-rocket-takeoff-fill"></i> Deployen
+                        <i class="bi bi-rocket-takeoff-fill"></i> Deploy
                     </button>
                 </div>
             </form>`;
@@ -184,14 +184,14 @@ const Deploy = {
             ]);
 
             const storageSelect = document.getElementById('deploy-storage');
-            storageSelect.innerHTML = '<option value="">Standard (vom Template)</option>';
+            storageSelect.innerHTML = '<option value="">Default (from template)</option>';
             for (const s of storages) {
-                const free = s.avail ? ` (${Utils.formatBytes(s.avail)} frei)` : '';
+                const free = s.avail ? ` (${Utils.formatBytes(s.avail)} free)` : '';
                 storageSelect.innerHTML += `<option value="${s.storage}">${s.storage} [${s.type}]${free}</option>`;
             }
 
             const bridgeSelect = document.getElementById('deploy-bridge');
-            bridgeSelect.innerHTML = '<option value="">Wie Template</option>';
+            bridgeSelect.innerHTML = '<option value="">From template</option>';
             for (const n of networks) {
                 bridgeSelect.innerHTML += `<option value="${n.iface}">${n.iface}${n.comments ? ' - ' + n.comments : ''}</option>`;
             }
@@ -215,7 +215,7 @@ const Deploy = {
 
         const btn = document.getElementById('deploy-submit-btn');
         btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Deploye...';
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Deploying...';
 
         const template = this.currentTemplate;
         const params = {
@@ -287,14 +287,14 @@ const Deploy = {
 
         try {
             const result = await API.clone(params);
-            Toast.success(`VM/CT "${params.name}" (ID: ${params.newid}) erfolgreich deployt!`);
+            Toast.success(`VM/CT "${params.name}" (ID: ${params.newid}) deployed successfully!`);
             this.getModal().hide();
 
             if (result.warning) {
                 Toast.warning(result.warning);
             }
 
-            // Refresh dashboard
+            // Refresh dashboard after a short delay
             if (typeof Dashboard !== 'undefined' && Dashboard.refresh) {
                 setTimeout(() => Dashboard.refresh(), 3000);
             }
@@ -302,7 +302,7 @@ const Deploy = {
             // Error already shown
         } finally {
             btn.disabled = false;
-            btn.innerHTML = '<i class="bi bi-rocket-takeoff"></i> Deployen';
+            btn.innerHTML = '<i class="bi bi-rocket-takeoff"></i> Deploy';
         }
     }
 };

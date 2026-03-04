@@ -2,14 +2,16 @@
 
 require_once __DIR__ . '/../../vendor/autoload.php';
 
-use App\Session;
+use App\Bootstrap;
+use App\Auth;
 use App\Request;
 use App\Response;
 use App\Helpers;
 
-Session::start();
+Bootstrap::init();
 Request::requireMethod('POST');
 Request::validateCsrf();
+Auth::requirePermission('template.deploy');
 
 $body = Request::jsonBody();
 Request::requireParams(['source_node', 'source_type', 'source_vmid', 'newid', 'name'], $body);
