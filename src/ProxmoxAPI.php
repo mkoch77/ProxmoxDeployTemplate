@@ -4,20 +4,24 @@ namespace App;
 
 class ProxmoxAPI
 {
-    private string $host;
+    /** @var string[] */
+    private array $hosts;
     private int $port;
     private string $tokenId;
     private string $tokenSecret;
     private bool $verifySSL;
 
+    /**
+     * @param string|string[] $host  Primary host or list of hosts (tried in order on failure).
+     */
     public function __construct(
-        string $host,
+        string|array $host,
         int $port,
         string $tokenId,
         string $tokenSecret,
         bool $verifySSL = false
     ) {
-        $this->host = $host;
+        $this->hosts = is_array($host) ? array_values(array_filter($host)) : [$host];
         $this->port = $port;
         $this->tokenId = $tokenId;
         $this->tokenSecret = $tokenSecret;
@@ -26,74 +30,84 @@ class ProxmoxAPI
 
     // --- Low-level HTTP ---
 
-    private function baseUrl(): string
+    private function baseUrl(string $host): string
     {
-        return "https://{$this->host}:{$this->port}/api2/json";
+        return "https://{$host}:{$this->port}/api2/json";
     }
 
     private function request(string $method, string $path, array $params = []): array
     {
-        $url = $this->baseUrl() . $path;
-        $ch = curl_init();
+        $lastError = null;
 
-        $opts = [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_SSL_VERIFYPEER => $this->verifySSL,
-            CURLOPT_SSL_VERIFYHOST => $this->verifySSL ? 2 : 0,
-            CURLOPT_TIMEOUT        => 120,
-            CURLOPT_HTTPHEADER     => [
-                'Authorization: PVEAPIToken=' . $this->tokenId . '=' . $this->tokenSecret,
-            ],
-        ];
+        foreach ($this->hosts as $host) {
+            $url = $this->baseUrl($host) . $path;
+            $ch = curl_init();
 
-        switch (strtoupper($method)) {
-            case 'GET':
-                if (!empty($params)) {
-                    $url .= '?' . http_build_query($params);
-                }
-                break;
-            case 'POST':
-                $opts[CURLOPT_POST] = true;
-                $opts[CURLOPT_POSTFIELDS] = http_build_query($params);
-                break;
-            case 'PUT':
-                $opts[CURLOPT_CUSTOMREQUEST] = 'PUT';
-                $opts[CURLOPT_POSTFIELDS] = http_build_query($params);
-                break;
-            case 'DELETE':
-                $opts[CURLOPT_CUSTOMREQUEST] = 'DELETE';
-                if (!empty($params)) {
-                    $url .= '?' . http_build_query($params);
-                }
-                break;
-        }
+            $opts = [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_SSL_VERIFYPEER => $this->verifySSL,
+                CURLOPT_SSL_VERIFYHOST => $this->verifySSL ? 2 : 0,
+                CURLOPT_CONNECTTIMEOUT => 2,
+                CURLOPT_TIMEOUT        => 8,
+                CURLOPT_HTTPHEADER     => [
+                    'Authorization: PVEAPIToken=' . $this->tokenId . '=' . $this->tokenSecret,
+                ],
+            ];
 
-        $opts[CURLOPT_URL] = $url;
-        curl_setopt_array($ch, $opts);
-
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $error = curl_error($ch);
-        curl_close($ch);
-
-        if ($response === false) {
-            throw new \RuntimeException('Proxmox API request failed: ' . $error);
-        }
-
-        $data = json_decode($response, true);
-        if ($data === null) {
-            throw new \RuntimeException('Invalid JSON response from Proxmox API');
-        }
-
-        if ($httpCode >= 400) {
-            $msg = $data['errors'] ?? $data['message'] ?? 'Unknown error';
-            if (is_array($msg)) {
-                $msg = json_encode($msg);
+            switch (strtoupper($method)) {
+                case 'GET':
+                    if (!empty($params)) {
+                        $url .= '?' . http_build_query($params);
+                    }
+                    break;
+                case 'POST':
+                    $opts[CURLOPT_POST] = true;
+                    $opts[CURLOPT_POSTFIELDS] = http_build_query($params);
+                    break;
+                case 'PUT':
+                    $opts[CURLOPT_CUSTOMREQUEST] = 'PUT';
+                    $opts[CURLOPT_POSTFIELDS] = http_build_query($params);
+                    break;
+                case 'DELETE':
+                    $opts[CURLOPT_CUSTOMREQUEST] = 'DELETE';
+                    if (!empty($params)) {
+                        $url .= '?' . http_build_query($params);
+                    }
+                    break;
             }
-            throw new \RuntimeException('Proxmox API error (' . $httpCode . '): ' . $msg);
+
+            $opts[CURLOPT_URL] = $url;
+            curl_setopt_array($ch, $opts);
+
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $error = curl_error($ch);
+            curl_close($ch);
+
+            // Connection failed → try next host
+            if ($response === false) {
+                $lastError = new \RuntimeException('Proxmox API request failed: ' . $error);
+                continue;
+            }
+
+            $data = json_decode($response, true);
+            if ($data === null) {
+                $lastError = new \RuntimeException('Invalid JSON response from Proxmox API');
+                continue;
+            }
+
+            if ($httpCode >= 400) {
+                $msg = $data['errors'] ?? $data['message'] ?? 'Unknown error';
+                if (is_array($msg)) {
+                    $msg = json_encode($msg);
+                }
+                throw new \RuntimeException('Proxmox API error (' . $httpCode . '): ' . $msg);
+            }
+
+            return $data;
         }
 
-        return $data;
+        throw $lastError ?? new \RuntimeException('No Proxmox hosts configured');
     }
 
     public function get(string $path, array $params = []): array
@@ -281,7 +295,22 @@ class ProxmoxAPI
         return $this->get("/nodes/{$node}/network", $params);
     }
 
+    public function getLxcInterfaces(string $node, int $vmid): array
+    {
+        return $this->get("/nodes/{$node}/lxc/{$vmid}/interfaces");
+    }
+
+    public function getQemuAgentNetworks(string $node, int $vmid): array
+    {
+        return $this->get("/nodes/{$node}/qemu/{$vmid}/agent/network-get-interfaces");
+    }
+
     // --- HA ---
+
+    public function getClusterStatus(): array
+    {
+        return $this->get('/cluster/status');
+    }
 
     public function getHAStatus(): array
     {
@@ -291,6 +320,37 @@ class ProxmoxAPI
     public function getHAResources(): array
     {
         return $this->get('/cluster/ha/resources');
+    }
+
+    public function addHAResource(string $sid, string $state = 'started', string $group = ''): array
+    {
+        $params = ['sid' => $sid, 'state' => $state];
+        if ($group !== '') {
+            $params['group'] = $group;
+        }
+        return $this->post('/cluster/ha/resources', $params);
+    }
+
+    public function updateHAResource(string $sid, array $data): array
+    {
+        return $this->put('/cluster/ha/resources/' . rawurlencode($sid), $data);
+    }
+
+    public function removeHAResource(string $sid): array
+    {
+        return $this->delete('/cluster/ha/resources/' . rawurlencode($sid));
+    }
+
+    public function getHAGroups(): array
+    {
+        return $this->get('/cluster/ha/groups');
+    }
+
+    // --- Delete ---
+
+    public function deleteGuest(string $node, string $type, int $vmid): array
+    {
+        return $this->delete("/nodes/{$node}/{$type}/{$vmid}");
     }
 
     // --- Migration ---

@@ -18,7 +18,7 @@ const Dashboard = {
 
     startAutoRefresh() {
         this.stopAutoRefresh();
-        this.refreshInterval = setInterval(() => this.loadData(), 10000);
+        this.refreshInterval = setInterval(() => this.loadData(true), 10000);
     },
 
     stopAutoRefresh() {
@@ -28,11 +28,12 @@ const Dashboard = {
         }
     },
 
-    async loadData() {
+    async loadData(silent = false) {
         try {
+            const fetch = silent ? API.getSilent.bind(API) : API.get.bind(API);
             const [guests, nodes] = await Promise.all([
-                API.getGuests(),
-                API.getNodes(),
+                fetch('api/guests.php'),
+                fetch('api/nodes.php'),
             ]);
             this.guests = guests;
             this.nodes = nodes;
@@ -40,7 +41,7 @@ const Dashboard = {
             // Load pending loadbalancer recommendations (non-blocking)
             this.pendingMigrations = {};
             try {
-                const lb = await API.getLoadbalancer();
+                const lb = silent ? await API.getSilent('api/loadbalancer.php') : await API.getLoadbalancer();
                 if (lb.latest_run?.recommendations) {
                     for (const rec of lb.latest_run.recommendations) {
                         if (rec.status === 'pending') {
@@ -52,12 +53,12 @@ const Dashboard = {
 
             this.updateView();
         } catch (err) {
-            // Error shown by API
+            // Error shown by API (only when silent=false)
         }
     },
 
     async refresh() {
-        await this.loadData();
+        await this.loadData(false);
     },
 
     render() {
@@ -66,12 +67,10 @@ const Dashboard = {
             <div class="section-header">
                 <h2><i class="bi bi-grid-1x2-fill"></i>Dashboard</h2>
                 <div class="d-flex gap-2">
-                    ${Permissions.has('vm.start') ? `
+                    ${Permissions.isAdmin() ? `
                         <button class="btn btn-outline-success btn-sm" onclick="Dashboard.startAll()">
                             <i class="bi bi-play-fill"></i> Start All
                         </button>
-                    ` : ''}
-                    ${Permissions.has('vm.shutdown') ? `
                         <button class="btn btn-outline-danger btn-sm" onclick="Dashboard.shutdownAll()">
                             <i class="bi bi-power"></i> Shutdown All
                         </button>
@@ -84,31 +83,31 @@ const Dashboard = {
 
             <div id="stats-row" class="row g-3 mb-4">
                 <div class="col-6 col-lg-3">
-                    <div class="stat-card">
+                    <div class="stat-card stat-card-centered">
                         <div class="stat-icon blue"><i class="bi bi-hdd-stack-fill"></i></div>
                         <div class="stat-value" id="stat-total">-</div>
-                        <div class="stat-label">Total</div>
+                        <div class="stat-label">VMs/CTs Total</div>
                     </div>
                 </div>
                 <div class="col-6 col-lg-3">
-                    <div class="stat-card">
-                        <div class="stat-icon green"><i class="bi bi-play-circle-fill"></i></div>
-                        <div class="stat-value" style="color:var(--accent-green)" id="stat-running">-</div>
-                        <div class="stat-label">Running</div>
+                    <div class="stat-card stat-card-centered">
+                        <div class="stat-icon blue"><i class="bi bi-play-circle-fill"></i></div>
+                        <div class="stat-value" id="stat-running">-</div>
+                        <div class="stat-label">VMs Running</div>
                     </div>
                 </div>
                 <div class="col-6 col-lg-3">
-                    <div class="stat-card">
-                        <div class="stat-icon red"><i class="bi bi-stop-circle-fill"></i></div>
-                        <div class="stat-value" style="color:var(--accent-red)" id="stat-stopped">-</div>
-                        <div class="stat-label">Stopped</div>
+                    <div class="stat-card stat-card-centered">
+                        <div class="stat-icon blue"><i class="bi bi-box-fill"></i></div>
+                        <div class="stat-value" id="stat-stopped">-</div>
+                        <div class="stat-label">CTs Running</div>
                     </div>
                 </div>
                 <div class="col-6 col-lg-3">
-                    <div class="stat-card">
+                    <div class="stat-card stat-card-centered">
                         <div class="stat-icon purple"><i class="bi bi-hdd-rack-fill"></i></div>
-                        <div class="stat-value" style="color:var(--accent-purple)" id="stat-nodes">-</div>
-                        <div class="stat-label">Nodes</div>
+                        <div class="stat-value" id="stat-nodes">-</div>
+                        <div class="stat-label">Cluster Nodes</div>
                     </div>
                 </div>
             </div>
@@ -175,6 +174,7 @@ const Dashboard = {
             this.currentSort.col = col;
             this.currentSort.dir = 'asc';
         }
+        this._lastTableKey = '';
         this.updateView();
     },
 
@@ -260,12 +260,16 @@ const Dashboard = {
 
     updateView() {
         // Update stats
-        const running = this.guests.filter(g => g.status === 'running').length;
-        const stopped = this.guests.filter(g => g.status === 'stopped').length;
-        document.getElementById('stat-total').textContent = this.guests.length;
-        document.getElementById('stat-running').textContent = running;
-        document.getElementById('stat-stopped').textContent = stopped;
-        document.getElementById('stat-nodes').textContent = this.nodes.length;
+        const total = this.guests.length;
+        const vmsTotal   = this.guests.filter(g => g.type === 'qemu').length;
+        const vmsRunning = this.guests.filter(g => g.type === 'qemu' && g.status === 'running').length;
+        const ctsRunning = this.guests.filter(g => g.type === 'lxc' && g.status === 'running').length;
+        const ctsTotal   = this.guests.filter(g => g.type === 'lxc').length;
+        document.getElementById('stat-total').textContent = total;
+        document.getElementById('stat-running').textContent = `${vmsRunning}/${vmsTotal}`;
+        document.getElementById('stat-stopped').textContent = `${ctsRunning}/${ctsTotal}`;
+        const nodesOnline = this.nodes.filter(n => n.status === 'online').length;
+        document.getElementById('stat-nodes').textContent = `${nodesOnline}/${this.nodes.length}`;
 
         // Update node filter dropdown
         const nodeSelect = document.getElementById('filter-node');
@@ -323,6 +327,7 @@ const Dashboard = {
         const container = document.getElementById('guest-table-container');
 
         if (guests.length === 0) {
+            this._lastTableKey = '';
             container.innerHTML = `
                 <div class="text-center p-5" style="color:var(--text-muted)">
                     <i class="bi bi-inbox" style="font-size:2.5rem;opacity:0.3"></i>
@@ -331,7 +336,24 @@ const Dashboard = {
             return;
         }
 
-        const cols = [
+        // If the set of VMs and their statuses/nodes hasn't changed, update only
+        // the frequently-changing cells in-place to avoid flickering.
+        const tableKey = guests.map(g => `${g.vmid}:${g.node}:${g.status}`).join('|');
+        if (tableKey === this._lastTableKey && container.querySelector('tbody')) {
+            for (const g of guests) {
+                const id = `${g.vmid}-${g.node}`;
+                const cpuEl    = document.getElementById(`cell-cpu-${id}`);
+                const ramEl    = document.getElementById(`cell-ram-${id}`);
+                const uptimeEl = document.getElementById(`cell-uptime-${id}`);
+                if (cpuEl)    cpuEl.innerHTML    = g.status === 'running' ? Utils.cpuPercent(g.cpu) : '<span style="color:var(--text-muted)">-</span>';
+                if (ramEl)    ramEl.innerHTML    = g.status === 'running' ? Utils.formatBytes(g.mem) + ' / ' + Utils.formatBytes(g.maxmem) : '<span style="color:var(--text-muted)">-</span>';
+                if (uptimeEl) uptimeEl.innerHTML = g.status === 'running' ? Utils.formatUptime(g.uptime) : '<span style="color:var(--text-muted)">-</span>';
+            }
+            return;
+        }
+        this._lastTableKey = tableKey;
+
+        const sortableCols = [
             { key: 'vmid', label: 'VMID' },
             { key: 'name', label: 'Name' },
             { key: 'type', label: 'Type' },
@@ -341,68 +363,207 @@ const Dashboard = {
             { key: 'cpu', label: 'CPU' },
             { key: 'ram', label: 'RAM' },
             { key: 'uptime', label: 'Uptime' },
+            { key: 'tags', label: 'Tags' },
         ];
 
         let html = `<table class="table table-dark table-hover mb-0">
             <thead>
                 <tr>`;
 
-        for (const c of cols) {
+        for (const c of sortableCols) {
             html += `<th class="sortable-th" onclick="Dashboard.setSort('${c.key}')" style="cursor:pointer;user-select:none">${c.label} ${this.sortIcon(c.key)}</th>`;
         }
+        html += `<th>IP</th>`;
         html += `<th style="text-align:right">Actions</th>
                 </tr>
             </thead>
             <tbody>`;
 
         for (const g of guests) {
+            const id = `${g.vmid}-${g.node}`;
             const targetNode = this.pendingMigrations[g.vmid];
-            const isPending = !!targetNode;
-            const migrationHint = isPending
+            const migrationHint = targetNode
                 ? ` <i class="bi bi-shuffle" style="color:var(--accent-purple);font-size:0.75em" title="Pending migration to ${Utils.escapeHtml(targetNode)}"></i>`
                 : '';
             const osText = this.osLabel(g.ostype, g.type);
 
-            html += `<tr>
+            const tagsHtml = g.tags
+                ? g.tags.split(';').filter(Boolean).map(t =>
+                    `<span class="badge vm-tag me-1">${Utils.escapeHtml(t.trim())}</span>`).join('')
+                : '<span style="color:var(--text-muted)">-</span>';
+
+            html += `<tr class="vm-row" style="cursor:pointer" onclick="Dashboard.openVmDetail(event,${g.vmid},'${Utils.escapeHtml(g.node)}','${Utils.escapeHtml(g.type)}')">
                 <td><strong style="color:var(--accent-blue)">${g.vmid}</strong></td>
                 <td>${Utils.escapeHtml(g.name || '-')}</td>
                 <td><i class="bi ${Utils.typeIcon(g.type)}" style="opacity:0.6"></i> ${Utils.typeLabel(g.type)}</td>
                 <td style="color:var(--text-secondary)">${Utils.escapeHtml(g.node)}${migrationHint}</td>
                 <td style="color:var(--text-secondary)">${Utils.escapeHtml(osText)}</td>
                 <td><span class="badge ${Utils.statusBadgeClass(g.status)}"><i class="bi ${Utils.statusIcon(g.status)}"></i> ${g.status}</span></td>
-                <td>${g.status === 'running' ? Utils.cpuPercent(g.cpu) : '<span style="color:var(--text-muted)">-</span>'}</td>
-                <td>${g.status === 'running' ? Utils.formatBytes(g.mem) + ' / ' + Utils.formatBytes(g.maxmem) : '<span style="color:var(--text-muted)">-</span>'}</td>
-                <td>${g.status === 'running' ? Utils.formatUptime(g.uptime) : '<span style="color:var(--text-muted)">-</span>'}</td>
-                <td style="text-align:right">${this.renderActions(g)}</td>
+                <td id="cell-cpu-${id}">${g.status === 'running' ? Utils.cpuPercent(g.cpu) : '<span style="color:var(--text-muted)">-</span>'}</td>
+                <td id="cell-ram-${id}">${g.status === 'running' ? Utils.formatBytes(g.mem) + ' / ' + Utils.formatBytes(g.maxmem) : '<span style="color:var(--text-muted)">-</span>'}</td>
+                <td id="cell-uptime-${id}">${g.status === 'running' ? Utils.formatUptime(g.uptime) : '<span style="color:var(--text-muted)">-</span>'}</td>
+                <td>${tagsHtml}</td>
+                <td><span id="guest-ip-${id}" class="text-muted small">${g.status === 'running' ? '...' : '-'}</span></td>
+                <td style="text-align:right" onclick="event.stopPropagation()">${this.renderActions(g)}</td>
             </tr>`;
         }
 
         html += '</tbody></table>';
         container.innerHTML = html;
+
+        // Load IPs asynchronously for running guests
+        const running = guests.filter(g => g.status === 'running');
+        Promise.allSettled(running.map(async g => {
+            try {
+                const result = await API.getGuestIPs(g.node, g.type, g.vmid);
+                const el = document.getElementById(`guest-ip-${g.vmid}-${g.node}`);
+                if (!el) return;
+                const ips = (result.ips || []).filter(ip => ip);
+                el.textContent = ips.length > 0 ? ips[0] : '-';
+                if (ips.length > 1) {
+                    el.title = ips.join(', ');
+                    el.style.cursor = 'help';
+                }
+            } catch (_) {}
+        }));
+    },
+
+    async showInstallAgent(vmid, node, ostype) {
+        const manualCmd = 'apt-get install -y qemu-guest-agent && systemctl enable --now qemu-guest-agent';
+        const body = document.getElementById('install-agent-body');
+
+        const renderIdle = (detectedIp) => {
+            body.innerHTML = `
+                <p class="text-muted small mb-3">Install the QEMU Guest Agent inside the VM to enable IP address detection and other features.</p>
+                <div class="position-relative mb-3">
+                    <pre class="log-viewer p-3" id="agent-cmd-pre" style="font-size:0.85rem;border-radius:var(--radius-sm)">${Utils.escapeHtml(manualCmd)}</pre>
+                    <button id="agent-copy-btn" class="btn btn-sm btn-outline-light position-absolute top-0 end-0 m-2" title="Copy to clipboard">
+                        <i class="bi bi-clipboard"></i>
+                    </button>
+                </div>
+                <div class="sidebar-divider mb-3"></div>
+                <p class="small mb-2"><i class="bi bi-lightning-fill me-1" style="color:var(--accent-green)"></i><strong>Auto-Install</strong> — SSHs from the Proxmox node into the VM and runs the command automatically.</p>
+                <div class="input-group input-group-sm mb-2">
+                    <span class="input-group-text" style="background:var(--bg-secondary);border-color:var(--border-color);color:var(--text-muted)">VM IP</span>
+                    <input type="text" id="agent-ip-input" class="form-control" placeholder="e.g. 192.168.1.100"
+                        value="${Utils.escapeHtml(detectedIp || '')}"
+                        style="background:var(--bg-secondary);border-color:var(--border-color);color:var(--text-primary)">
+                    <button id="agent-auto-btn" class="btn btn-success">
+                        <i class="bi bi-lightning-fill me-1"></i>Install
+                    </button>
+                </div>
+                <p class="text-muted small mb-0"><i class="bi bi-info-circle me-1"></i>Requires key-based SSH access from the Proxmox node to the VM (root@IP).</p>
+            `;
+            body.querySelector('#agent-copy-btn').addEventListener('click', () => {
+                navigator.clipboard.writeText(manualCmd).then(() => Toast.success('Copied!'));
+            });
+            body.querySelector('#agent-auto-btn').addEventListener('click', () => {
+                const ip = body.querySelector('#agent-ip-input').value.trim();
+                if (!ip) { Toast.error('Please enter the VM IP address'); return; }
+                this._runAgentInstall(node, ip, body);
+            });
+        };
+
+        const bsModal = new bootstrap.Modal(document.getElementById('installAgentModal'));
+        bsModal.show();
+
+        // Try to detect IP — works for static cloud-init IPs even without the agent
+        renderIdle(null);
+        try {
+            const result = await API.getGuestIPs(node, 'qemu', vmid);
+            const ips = (result.ips || []).filter(ip => ip);
+            renderIdle(ips[0] || null);
+        } catch (_) { /* leave field empty */ }
+    },
+
+    async _runAgentInstall(node, vmIp, body) {
+        body.innerHTML = `
+            <div class="mb-2 small text-muted"><i class="bi bi-terminal me-1"></i>Connecting to <strong>${Utils.escapeHtml(vmIp)}</strong> via ${Utils.escapeHtml(node)}...</div>
+            <pre id="agent-log" class="log-viewer p-3" style="font-size:0.8rem;max-height:300px;overflow-y:auto;border-radius:var(--radius-sm)"></pre>
+            <div id="agent-status" class="mt-2 small text-muted">Running...</div>
+        `;
+
+        const log = body.querySelector('#agent-log');
+        const statusEl = body.querySelector('#agent-status');
+
+        let token;
+        try {
+            const res = await API.startAgentInstall(node, vmIp);
+            token = res.token;
+        } catch (err) {
+            statusEl.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>Failed to start session: ${Utils.escapeHtml(err.message || '')}</span>`;
+            return;
+        }
+
+        const es = new EventSource('api/terminal-output.php?token=' + encodeURIComponent(token));
+
+        es.addEventListener('data', (e) => {
+            const text = new TextDecoder().decode(Uint8Array.from(atob(e.data), c => c.charCodeAt(0)));
+            log.textContent += text;
+            log.scrollTop = log.scrollHeight;
+        });
+
+        es.addEventListener('done', (e) => {
+            es.close();
+            const result = JSON.parse(e.data);
+            if (result.success) {
+                statusEl.innerHTML = '<span style="color:var(--accent-green)"><i class="bi bi-check-circle-fill me-1"></i>Agent installed successfully! IP addresses will now be detected automatically.</span>';
+                setTimeout(() => this.loadData(), 2000);
+            } else {
+                statusEl.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>Installation failed (exit code ${result.exit_code}). Check the log above for details.</span>`;
+            }
+        });
+
+        es.addEventListener('error', (e) => {
+            es.close();
+            let msg = 'Connection error';
+            try { msg = JSON.parse(e.data).message; } catch (_) {}
+            statusEl.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle me-1"></i>${Utils.escapeHtml(msg)}</span>`;
+        });
+
+        es.onerror = () => {
+            es.close();
+            if (statusEl.textContent === 'Running...') {
+                statusEl.innerHTML = '<span class="text-danger"><i class="bi bi-x-circle me-1"></i>Connection lost.</span>';
+            }
+        };
     },
 
     renderActions(guest) {
         let html = '';
 
-        // Migrate button (dropdown with node selection)
-        if (Permissions.has('vm.migrate') && this.nodes.length > 1) {
+        const running = guest.status === 'running';
+        const dis = (cond) => cond ? '' : 'disabled style="opacity:0.35;pointer-events:none"';
+
+        // Install Agent button — disabled for LXC or when not running
+        const agentActive = guest.type === 'qemu' && running;
+        html += `<button class="btn btn-outline-secondary btn-action me-1" title="Install QEMU Guest Agent" ${dis(agentActive)}
+            onclick="event.stopPropagation();Dashboard.showInstallAgent(${guest.vmid},'${Utils.escapeHtml(guest.node)}','${Utils.escapeHtml(guest.ostype || '')}')">
+            <i class="bi bi-cpu"></i>
+        </button>`;
+
+        // Migrate button — disabled when not running or no target nodes available
+        if (Permissions.has('vm.migrate')) {
             const otherNodes = this.nodes.filter(n => n.node !== guest.node && n.status === 'online');
-            if (otherNodes.length > 0) {
+            if (running && otherNodes.length > 0) {
                 const dropId = `migrate-drop-${guest.vmid}`;
                 html += `<div class="btn-group me-1">
-                    <button class="btn btn-outline-light btn-action dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" title="Migrate">
+                    <button class="btn btn-outline-light btn-action dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" title="Migrate to another node">
                         <i class="bi bi-shuffle"></i>
                     </button>
                     <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end" id="${dropId}">
                         <li><span class="dropdown-item-text" style="font-size:0.75rem;color:var(--text-muted)">Migrate to...</span></li>
                         <li><hr class="dropdown-divider"></li>`;
                 for (const n of otherNodes) {
-                    const online = guest.status === 'running' ? 'true' : 'false';
-                    html += `<li><a class="dropdown-item" href="#" onclick="event.preventDefault();Dashboard.migrateGuest('${guest.node}','${guest.type}',${guest.vmid},'${n.node}',${online},'${Utils.escapeHtml(guest.name || '')}')">
+                    html += `<li><a class="dropdown-item" href="#" onclick="event.preventDefault();Dashboard.migrateGuest('${guest.node}','${guest.type}',${guest.vmid},'${n.node}',true,'${Utils.escapeHtml(guest.name || '')}')">
                         <i class="bi bi-hdd-rack" style="opacity:0.5"></i> ${Utils.escapeHtml(n.node)}
                     </a></li>`;
                 }
                 html += `</ul></div>`;
+            } else {
+                html += `<button class="btn btn-outline-light btn-action me-1" disabled style="opacity:0.35;pointer-events:none" title="Migrate to another node">
+                    <i class="bi bi-shuffle"></i>
+                </button>`;
             }
         }
 
@@ -455,6 +616,136 @@ const Dashboard = {
         const msg = `${ok}/${running.length} shutdown initiated` + (fail > 0 ? ` (${fail} failed)` : '');
         fail > 0 ? Toast.error(msg) : Toast.success(msg);
         setTimeout(() => this.loadData(), 3000);
+    },
+
+    openVmDetail(event, vmid, node, type) {
+        // Don't open if clicking inside action buttons
+        if (event.target.closest('button, .dropdown-menu, a')) return;
+        const guest = this.guests.find(g => g.vmid == vmid && g.node === node);
+        if (!guest) return;
+
+        const modal = document.getElementById('vmDetailModal');
+        const body = document.getElementById('vm-detail-body');
+        const title = document.getElementById('vm-detail-title');
+
+        title.innerHTML = `<i class="bi ${Utils.typeIcon(type)} me-2"></i>${Utils.escapeHtml(guest.name || String(vmid))} <small class="text-muted fs-6">(${vmid})</small>`;
+
+        const cpuPct = guest.status === 'running' ? Utils.cpuPercent(guest.cpu) : '-';
+        const memUsed = guest.status === 'running' ? Utils.formatBytes(guest.mem) : '-';
+        const memMax = Utils.formatBytes(guest.maxmem);
+        const diskUsed = guest.maxdisk > 0 ? Utils.formatBytes(guest.disk || 0) : '-';
+        const diskMax = guest.maxdisk > 0 ? Utils.formatBytes(guest.maxdisk) : '-';
+        const memPct = guest.maxmem > 0 ? Math.round((guest.mem / guest.maxmem) * 100) : 0;
+        const diskPct = guest.maxdisk > 0 ? Math.round(((guest.disk || 0) / guest.maxdisk) * 100) : 0;
+
+        body.innerHTML = `
+            <div class="row g-3 mb-3">
+                <div class="col-6">
+                    <div class="text-muted small mb-1">Status</div>
+                    <span class="badge ${Utils.statusBadgeClass(guest.status)}"><i class="bi ${Utils.statusIcon(guest.status)}"></i> ${guest.status}</span>
+                </div>
+                <div class="col-6">
+                    <div class="text-muted small mb-1">Node</div>
+                    <strong>${Utils.escapeHtml(guest.node)}</strong>
+                </div>
+                <div class="col-6">
+                    <div class="text-muted small mb-1">Type</div>
+                    <span><i class="bi ${Utils.typeIcon(type)}" style="opacity:0.7"></i> ${Utils.typeLabel(type)}</span>
+                </div>
+                <div class="col-6">
+                    <div class="text-muted small mb-1">OS</div>
+                    <span>${Utils.escapeHtml(Dashboard.osLabel(guest.ostype, type))}</span>
+                </div>
+                ${guest.status === 'running' ? `
+                <div class="col-6">
+                    <div class="text-muted small mb-1">IP Address</div>
+                    <span id="vm-detail-ip" class="text-muted small">Loading...</span>
+                </div>
+                ` : ''}
+                ${guest.status === 'running' ? `
+                <div class="col-6">
+                    <div class="text-muted small mb-1">Uptime</div>
+                    <span>${Utils.formatUptime(guest.uptime || 0)}</span>
+                </div>
+                <div class="col-6">
+                    <div class="text-muted small mb-1">CPU Usage</div>
+                    <span>${cpuPct}</span>
+                </div>
+                ` : ''}
+            </div>
+
+            ${guest.maxmem > 0 ? `
+            <div class="mb-3">
+                <div class="d-flex justify-content-between mb-1">
+                    <small class="text-muted">RAM</small>
+                    <small>${memUsed} / ${memMax}</small>
+                </div>
+                <div class="resource-bar"><div class="progress"><div class="progress-bar ${memPct >= 90 ? 'level-danger' : memPct >= 70 ? 'level-warn' : 'level-ok'}" style="width:${memPct}%"></div></div></div>
+            </div>` : ''}
+
+            ${guest.maxdisk > 0 ? `
+            <div class="mb-3">
+                <div class="d-flex justify-content-between mb-1">
+                    <small class="text-muted">Disk</small>
+                    <small>${diskUsed} / ${diskMax}</small>
+                </div>
+                <div class="resource-bar"><div class="progress"><div class="progress-bar ${diskPct >= 90 ? 'level-danger' : diskPct >= 70 ? 'level-warn' : 'level-ok'}" style="width:${diskPct}%"></div></div></div>
+            </div>` : ''}
+
+            <div class="mt-3 d-flex gap-2 justify-content-end">
+                ${this.renderActions(guest)}
+            </div>
+
+            <div id="vm-detail-config" class="mt-4">
+                <div class="text-muted small text-center"><i class="bi bi-arrow-repeat me-1"></i>Loading config...</div>
+            </div>
+        `;
+
+        const bsModal = new bootstrap.Modal(modal);
+        bsModal.show();
+
+        // Load IP async (running guests only)
+        if (guest.status === 'running') {
+            API.getGuestIPs(node, type, vmid).then(result => {
+                const el = document.getElementById('vm-detail-ip');
+                if (!el) return;
+                const ips = (result.ips || []).filter(ip => ip);
+                el.textContent = ips.length > 0 ? ips.join(', ') : '-';
+                el.classList.remove('text-muted');
+            }).catch(() => {
+                const el = document.getElementById('vm-detail-ip');
+                if (el) el.textContent = '-';
+            });
+        }
+
+        // Load config async
+        API.getGuestConfig(node, type, vmid).then(cfg => {
+            const el = document.getElementById('vm-detail-config');
+            if (!el) return;
+            const rows = [
+                ['Cores', cfg.cores ?? cfg.cpulimit ?? '-'],
+                ['Memory', cfg.memory ? Utils.formatBytes(cfg.memory * 1024 * 1024) : '-'],
+                ['Network', cfg.net0 ? cfg.net0.split(',')[0] : '-'],
+                ['Boot disk', cfg.scsi0 || cfg.virtio0 || cfg.ide2 || cfg.rootfs || '-'],
+                ['Description', cfg.description ? Utils.escapeHtml(cfg.description.substring(0, 100)) : '-'],
+            ].filter(([, v]) => v !== '-');
+
+            el.innerHTML = rows.length > 0 ? `
+                <div class="sidebar-divider mb-3"></div>
+                <div class="text-muted small mb-2 text-uppercase" style="letter-spacing:.06em">Configuration</div>
+                <div class="row g-2">
+                    ${rows.map(([k, v]) => `
+                        <div class="col-6">
+                            <div class="text-muted small">${k}</div>
+                            <div style="font-size:.9rem">${v}</div>
+                        </div>
+                    `).join('')}
+                </div>
+            ` : '';
+        }).catch(() => {
+            const el = document.getElementById('vm-detail-config');
+            if (el) el.innerHTML = '';
+        });
     },
 
     async migrateGuest(node, type, vmid, target, online, name) {

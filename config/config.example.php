@@ -2,6 +2,7 @@
 
 return [
     'PROXMOX_HOST'         => '192.168.1.100',
+    'PROXMOX_FALLBACK_HOSTS' => '192.168.12.76,192.168.12.77',
     'PROXMOX_PORT'         => 8006,
     'PROXMOX_VERIFY_SSL'   => false,
     'PROXMOX_TOKEN_ID'     => 'root@pam!deploy',

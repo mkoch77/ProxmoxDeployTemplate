@@ -27,8 +27,23 @@ try {
         $guests = array_values(array_filter($guests, fn($g) => $g['type'] === $typeFilter));
     }
 
-    // Enrich with OS type from guest config
+    // Build set of online nodes to avoid calling getGuestConfig on unreachable nodes
+    $onlineNodes = [];
+    try {
+        $nodesResult = $api->getNodes();
+        foreach ($nodesResult['data'] ?? [] as $n) {
+            if (($n['status'] ?? '') === 'online') {
+                $onlineNodes[$n['node']] = true;
+            }
+        }
+    } catch (\Exception $e) { /* fall through — will skip config enrichment */ }
+
+    // Enrich with OS type from guest config (online nodes only)
     foreach ($guests as &$guest) {
+        if (!isset($onlineNodes[$guest['node']])) {
+            $guest['ostype'] = null;
+            continue;
+        }
         try {
             $config = $api->getGuestConfig($guest['node'], $guest['type'], (int)$guest['vmid']);
             $guest['ostype'] = $config['data']['ostype'] ?? null;

@@ -55,11 +55,21 @@ try {
     $resources = $api->getClusterResources('vm');
     $totalVms = 0;
     $totalRunning = 0;
+    $totalQemu = 0;
+    $totalQemuRunning = 0;
+    $totalLxc = 0;
+    $totalLxcRunning = 0;
     foreach ($resources['data'] ?? [] as $item) {
         if (empty($item['template'])) {
             $totalVms++;
-            if (($item['status'] ?? '') === 'running') {
-                $totalRunning++;
+            $isRunning = ($item['status'] ?? '') === 'running';
+            if ($isRunning) $totalRunning++;
+            if (($item['type'] ?? '') === 'qemu') {
+                $totalQemu++;
+                if ($isRunning) $totalQemuRunning++;
+            } elseif (($item['type'] ?? '') === 'lxc') {
+                $totalLxc++;
+                if ($isRunning) $totalLxcRunning++;
             }
         }
     }
@@ -87,14 +97,26 @@ try {
         }
     }
 
-    // Build VM name lookup from cluster resources
+    // Build VM name lookup + guests list from cluster resources
     $vmNames = [];
+    $guests = [];
     foreach ($resources['data'] ?? [] as $item) {
         $vmid = $item['vmid'] ?? null;
         if ($vmid) {
             $vmNames[$vmid] = $item['name'] ?? '';
         }
+        if (empty($item['template']) && $vmid) {
+            $guests[] = [
+                'vmid'   => (int)$vmid,
+                'name'   => $item['name'] ?? '',
+                'type'   => $item['type'] ?? 'qemu',
+                'node'   => $item['node'] ?? '',
+                'status' => $item['status'] ?? '',
+            ];
+        }
     }
+    // Sort guests by name then vmid
+    usort($guests, fn($a, $b) => ($a['name'] ?: (string)$a['vmid']) <=> ($b['name'] ?: (string)$b['vmid']));
 
     // HA status (may not be available)
     $ha = null;
@@ -137,10 +159,15 @@ try {
             'total_maxdisk' => $totalMaxDisk,
             'total_vms' => $totalVms,
             'total_running' => $totalRunning,
+            'total_qemu' => $totalQemu,
+            'total_qemu_running' => $totalQemuRunning,
+            'total_lxc' => $totalLxc,
+            'total_lxc_running' => $totalLxcRunning,
             'total_nodes' => count($nodes),
             'nodes_online' => $nodesOnline,
         ],
         'storage' => array_values($storages),
+        'guests' => $guests,
         'ha' => $ha,
     ]);
 } catch (\Exception $e) {

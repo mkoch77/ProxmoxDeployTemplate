@@ -11,6 +11,9 @@ const App = {
         users: typeof Users !== 'undefined' ? Users : null,
     },
 
+    _warningInterval: null,
+    _warnings: [],
+
     init() {
         // Remove null pages (not loaded due to missing permissions)
         Object.keys(this.pages).forEach(k => {
@@ -21,6 +24,21 @@ const App = {
         this.checkConnection();
         this.setupRouter();
         this.navigate(this.getHash());
+        this.restoreSidebarState();
+        this.checkClusterHealth();
+        this._warningInterval = setInterval(() => this.checkClusterHealth(), 60000);
+    },
+
+    toggleSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        const collapsed = sidebar.classList.toggle('sidebar-collapsed');
+        localStorage.setItem('sidebar_collapsed', collapsed ? '1' : '0');
+    },
+
+    restoreSidebarState() {
+        if (localStorage.getItem('sidebar_collapsed') === '1') {
+            document.getElementById('sidebar')?.classList.add('sidebar-collapsed');
+        }
     },
 
     getHash() {
@@ -106,6 +124,63 @@ const App = {
         } catch (e) {
             // Non-critical, ignore
         }
+    },
+
+    async checkClusterHealth() {
+        try {
+            const data = await API.getSilent('api/cluster-health.php');
+            const warnings = [];
+            const maintNodes = (data.nodes || [])
+                .filter(n => n.maintenance)
+                .map(n => n.node);
+
+            // Offline nodes (not in maintenance)
+            for (const node of (data.nodes || [])) {
+                if (node.status !== 'online' && !node.maintenance) {
+                    warnings.push({ level: 'danger', msg: `Node <strong>${Utils.escapeHtml(node.node)}</strong> is offline` });
+                }
+            }
+
+            // Storage critical (≥90%) or full
+            for (const s of (data.storage || [])) {
+                if (s.total > 0) {
+                    const pct = Math.round((s.used / s.total) * 100);
+                    if (pct >= 95) {
+                        warnings.push({ level: 'danger', msg: `Storage <strong>${Utils.escapeHtml(s.storage)}</strong> is critically full (${pct}%)` });
+                    } else if (pct >= 85) {
+                        warnings.push({ level: 'warning', msg: `Storage <strong>${Utils.escapeHtml(s.storage)}</strong> is almost full (${pct}%)` });
+                    }
+                }
+            }
+
+            this._warnings = warnings;
+            const btn = document.getElementById('cluster-warnings-btn');
+            const cnt = document.getElementById('cluster-warnings-count');
+            if (!btn) return;
+
+            if (warnings.length === 0) {
+                btn.classList.add('d-none');
+            } else {
+                btn.classList.remove('d-none');
+                const dangers = warnings.filter(w => w.level === 'danger').length;
+                cnt.textContent = warnings.length;
+                btn.style.color = dangers > 0 ? 'var(--bs-danger)' : 'var(--bs-warning)';
+            }
+        } catch (_) { /* silent */ }
+    },
+
+    showClusterWarnings() {
+        const body = document.getElementById('cluster-warnings-body');
+        if (!body) return;
+        if (this._warnings.length === 0) {
+            body.innerHTML = '<p class="text-muted mb-0">No active alerts.</p>';
+        } else {
+            body.innerHTML = this._warnings.map(w => `
+                <div class="alert alert-${w.level === 'danger' ? 'danger' : 'warning'} py-2 mb-2">
+                    <i class="bi bi-${w.level === 'danger' ? 'x-circle-fill' : 'exclamation-triangle-fill'} me-2"></i>${w.msg}
+                </div>`).join('');
+        }
+        new bootstrap.Modal(document.getElementById('clusterWarningsModal')).show();
     },
 
     async logout() {

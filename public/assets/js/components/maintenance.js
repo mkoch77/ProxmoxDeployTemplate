@@ -148,13 +148,21 @@ const Maintenance = {
     },
 
     renderNodeContent(nodeName, maint) {
+        // maint can be a raw DB row (migration_tasks as JSON string)
+        // or an enriched API response (migrations as parsed array).
+        const migrations = maint
+            ? (Array.isArray(maint.migrations)
+                ? maint.migrations
+                : JSON.parse(maint.migration_tasks || '[]'))
+            : [];
+
         // During migration (entering or leaving): show migration progress
-        if (maint && maint.migrations && maint.migrations.length > 0) {
+        if (maint && migrations.length > 0) {
             const isLeaving = maint.status === 'leaving';
             return `
                 ${isLeaving ? '<div class="text-muted small mb-2"><i class="bi bi-arrow-left-right me-1"></i>Back-migration:</div>' : ''}
                 <div class="migration-list">
-                    ${maint.migrations.map(m => {
+                    ${migrations.map(m => {
                         let icon, statusClass;
                         switch (m.status) {
                             case 'completed':

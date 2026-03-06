@@ -69,10 +69,12 @@ if (in_array($maintNode['status'], ['entering', 'leaving']) && !empty($migration
         $stmt = $db->prepare('UPDATE maintenance_nodes SET migration_tasks = ? WHERE node_name = ?');
         $stmt->execute([json_encode($migrations), $nodeName]);
 
-        // If all done, update status
+        // If all done, update status.
+        // Always transition to 'maintenance' even if some migrations failed —
+        // otherwise the node stays stuck in 'entering' and the Exit button never appears.
         if ($allDone) {
             if ($maintNode['status'] === 'entering') {
-                $newStatus = $allSuccess ? 'maintenance' : 'entering';
+                $newStatus = 'maintenance';
                 $stmt = $db->prepare('UPDATE maintenance_nodes SET status = ? WHERE node_name = ?');
                 $stmt->execute([$newStatus, $nodeName]);
                 $maintNode['status'] = $newStatus;

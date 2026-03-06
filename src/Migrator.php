@@ -37,6 +37,8 @@ class Migrator
             5 => self::migration005(),
             6 => self::migration006(),
             7 => self::migration007(),
+            8 => self::migration008(),
+            9 => self::migration009(),
         ];
     }
 
@@ -234,6 +236,34 @@ class Migrator
     {
         return "
             ALTER TABLE drs_runs ADD COLUMN skipped_reasons TEXT DEFAULT NULL;
+        ";
+    }
+
+    private static function migration008(): string
+    {
+        return "
+            INSERT OR IGNORE INTO permissions (key, description) VALUES
+                ('vm.delete', 'Delete VMs/CTs');
+
+            INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
+                SELECT r.id, p.id FROM roles r, permissions p
+                WHERE r.name = 'admin' AND p.key = 'vm.delete';
+        ";
+    }
+
+    private static function migration009(): string
+    {
+        return "
+            INSERT OR IGNORE INTO permissions (key, description) VALUES
+                ('cluster.ha', 'Manage HA resources');
+
+            INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
+                SELECT r.id, p.id FROM roles r, permissions p
+                WHERE r.name = 'admin' AND p.key = 'cluster.ha';
+
+            INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
+                SELECT r.id, p.id FROM roles r, permissions p
+                WHERE r.name = 'operator' AND p.key = 'cluster.ha';
         ";
     }
 }

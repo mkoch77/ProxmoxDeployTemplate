@@ -243,11 +243,15 @@ body {
 /* ===== Sidebar ===== */
 #wrapper {
     min-height: calc(100vh - 64px);
+    align-items: flex-start;
 }
 
 #sidebar {
+    position: sticky;
+    top: 64px;
     width: 240px;
-    min-height: calc(100vh - 64px);
+    height: calc(100vh - 64px);
+    overflow-y: auto;
     background: var(--bg-secondary);
     border-right: 1px solid var(--border-color);
     display: flex;
@@ -340,6 +344,7 @@ body {
 
 /* ===== Stat Cards ===== */
 .stat-card {
+    height: 100%;
     background: var(--bg-card);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
@@ -489,6 +494,10 @@ body {
     margin-bottom: 1rem;
 }
 
+.filter-bar .form-select {
+    width: auto;
+}
+
 /* ===== Forms ===== */
 .form-control, .form-select {
     background-color: var(--bg-secondary);
@@ -496,8 +505,18 @@ body {
     color: var(--text-primary);
     border-radius: var(--radius-sm);
     font-size: 0.9rem;
-    padding: 0.55rem 0.85rem;
     transition: all 0.2s;
+}
+
+.form-control {
+    padding: 0.55rem 0.85rem;
+}
+
+/* Keep Bootstrap's right-padding (2.25rem) for the dropdown chevron */
+.form-select {
+    padding-top: 0.55rem;
+    padding-bottom: 0.55rem;
+    padding-left: 0.85rem;
 }
 
 .form-control:focus, .form-select:focus {
@@ -560,6 +579,9 @@ body {
     padding: 0.3rem 0.6rem;
     font-size: 0.8rem;
     border-radius: var(--radius-sm);
+}
+.btn-action.dropdown-toggle::after {
+    display: none;
 }
 
 .btn-success {
@@ -777,6 +799,13 @@ body {
     color: var(--accent-amber);
 }
 
+.vm-tag {
+    background: rgba(99, 102, 241, 0.15);
+    color: #a5b4fc;
+    font-size: 0.72em;
+    font-weight: 500;
+}
+
 /* ===== Resource Progress Bars ===== */
 .resource-bar .progress {
     background: var(--bg-elevated);
@@ -902,4 +931,185 @@ body {
 .sortable-th:hover {
     color: var(--text-primary) !important;
     background: rgba(255, 255, 255, 0.04);
+}
+
+/* ===== Centered Stat Cards ===== */
+.stat-card-centered {
+    text-align: center;
+}
+
+.stat-card-centered .stat-icon {
+    margin: 0 auto 0.85rem;
+}
+
+/* ===== Sidebar Toggle Button ===== */
+.sidebar-toggle-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    color: var(--text-muted);
+    background: transparent;
+    margin-bottom: 0.75rem;
+    transition: all 0.2s;
+    font-size: 1rem;
+}
+
+.sidebar-toggle-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+/* ===== Collapsed Sidebar ===== */
+#sidebar {
+    transition: width 0.25s ease;
+}
+
+#sidebar.sidebar-collapsed {
+    width: 64px;
+    padding: 1rem 0.5rem;
+}
+
+#sidebar.sidebar-collapsed .sidebar-link span,
+#sidebar.sidebar-collapsed .sidebar-footer {
+    display: none;
+}
+
+#sidebar.sidebar-collapsed .sidebar-link {
+    justify-content: center;
+    padding: 0.65rem;
+}
+
+#sidebar.sidebar-collapsed .sidebar-icon {
+    width: 36px;
+    height: 36px;
+}
+
+#sidebar.sidebar-collapsed .sidebar-toggle-btn {
+    margin: 0 auto 0.75rem;
+}
+
+/* ===== VM Row Hover ===== */
+.vm-row:hover td {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+/* ===== Deploy Tabs ===== */
+.deploy-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.deploy-tab-btn {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text-secondary);
+    padding: 0.6rem 1.25rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-bottom: -1px;
+}
+
+.deploy-tab-btn:hover {
+    color: var(--text-primary);
+}
+
+.deploy-tab-btn.active {
+    color: var(--text-primary);
+    border-bottom-color: var(--text-primary);
+}
+
+/* ===== Community Scripts Grid ===== */
+.community-scripts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 0.75rem;
+}
+
+.cs-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 1rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.cs-card:hover {
+    border-color: var(--border-light);
+    box-shadow: var(--shadow-sm);
+    transform: translateY(-1px);
+}
+
+.cs-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 0.6rem;
+    min-height: 28px;
+}
+
+.cs-card-logo {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+    border-radius: 4px;
+}
+
+.cs-card-name {
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin-bottom: 0.35rem;
+    line-height: 1.3;
+}
+
+.cs-card-desc {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    margin-bottom: 0.5rem;
+}
+
+.cs-card-res {
+    font-size: 0.72rem;
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+/* ===== Install Command Box ===== */
+.install-cmd-box {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 0.6rem 0.85rem;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+    font-size: 0.78rem;
+    word-break: break-all;
+}
+
+.install-cmd-box code {
+    flex: 1;
+    color: var(--accent-green);
+    background: none;
+    padding: 0;
+    font-size: inherit;
+}
+
+/* SSH Terminal Modal */
+#ssh-terminal-container .xterm {
+    height: 500px;
+}
+#ssh-terminal-container .xterm-viewport {
+    overflow-y: auto;
 }

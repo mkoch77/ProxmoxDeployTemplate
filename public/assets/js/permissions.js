@@ -13,4 +13,8 @@ const Permissions = {
     hasAll(permissions) {
         return permissions.every(p => this.has(p));
     },
+
+    isAdmin() {
+        return (this.user.roles || []).includes('admin');
+    },
 };

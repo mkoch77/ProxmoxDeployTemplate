@@ -36,8 +36,15 @@ class Helpers
 
     public static function createAPI(): ProxmoxAPI
     {
+        $primary = Config::get('PROXMOX_HOST');
+        $fallbacks = array_filter(array_map(
+            'trim',
+            explode(',', Config::get('PROXMOX_FALLBACK_HOSTS', ''))
+        ));
+        $hosts = array_values(array_unique(array_merge([$primary], $fallbacks)));
+
         return new ProxmoxAPI(
-            Config::get('PROXMOX_HOST'),
+            $hosts,
             (int) Config::get('PROXMOX_PORT', 8006),
             Config::get('PROXMOX_TOKEN_ID'),
             Config::get('PROXMOX_TOKEN_SECRET'),

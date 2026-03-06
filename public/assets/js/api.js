@@ -2,16 +2,20 @@ const API = {
     csrfToken: document.querySelector('meta[name="csrf-token"]')?.content || '',
 
     async request(url, options = {}) {
+        const silent = options.silent || false;
+        const fetchOptions = { ...options };
+        delete fetchOptions.silent;
+
         const defaults = {
             headers: { 'Content-Type': 'application/json' },
         };
 
-        if (['POST', 'PUT', 'DELETE'].includes(options.method)) {
+        if (['POST', 'PUT', 'DELETE'].includes(fetchOptions.method)) {
             defaults.headers['X-CSRF-Token'] = this.csrfToken;
         }
 
-        const config = { ...defaults, ...options };
-        config.headers = { ...defaults.headers, ...options.headers };
+        const config = { ...defaults, ...fetchOptions };
+        config.headers = { ...defaults.headers, ...fetchOptions.headers };
 
         try {
             const response = await fetch(url, config);
@@ -23,11 +27,17 @@ const API = {
 
             return data.data ?? data;
         } catch (err) {
-            if (err.name !== 'AbortError') {
+            if (!silent && err.name !== 'AbortError') {
                 Toast.error(err.message || 'Request failed');
             }
             throw err;
         }
+    },
+
+    getSilent(url, params = {}) {
+        const query = new URLSearchParams(params).toString();
+        const fullUrl = query ? `${url}?${query}` : url;
+        return this.request(fullUrl, { silent: true });
     },
 
     get(url, params = {}) {
@@ -154,5 +164,43 @@ const API = {
 
     getLoadbalancerRunDetail(runId) {
         return this.get('api/loadbalancer-history.php', { run_id: runId });
+    },
+
+    communityInstall(node, scriptPath) {
+        return this.post('api/community-install.php', { node, script_path: scriptPath });
+    },
+
+    getNodeInfo(node) {
+        return this.get('api/node-info.php', { node });
+    },
+
+    getGuestIPs(node, type, vmid) {
+        return this.get('api/guest-ips.php', { node, type, vmid });
+    },
+
+    startAgentInstall(node, vmIp) {
+        return this.post('api/terminal-start.php', { node, vm_ip: vmIp });
+    },
+
+    deleteGuest(node, type, vmid) {
+        return this.post('api/delete-guest.php', { node, type, vmid });
+    },
+
+    // --- HA ---
+
+    haEnable(sid) {
+        return this.post('api/ha.php', { action: 'enable', sid });
+    },
+
+    haDisable(sid) {
+        return this.post('api/ha.php', { action: 'disable', sid });
+    },
+
+    haAdd(sid, group = '', state = 'started') {
+        return this.post('api/ha.php', { action: 'add', sid, group, state });
+    },
+
+    haRemove(sid) {
+        return this.post('api/ha.php', { action: 'remove', sid });
     },
 };

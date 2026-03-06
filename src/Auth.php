@@ -107,6 +107,7 @@ class Auth
             'email' => $session['email'],
             'auth_provider' => $session['auth_provider'],
             'permissions' => self::getUserPermissions($session['user_id']),
+            'roles' => self::getUserRoles($session['user_id']),
         ];
     }
 
@@ -139,6 +140,19 @@ class Auth
             $stmt->execute([$sessionId]);
         }
         self::clearSessionCookie();
+    }
+
+    public static function getUserRoles(int $userId): array
+    {
+        $db = Database::connection();
+        $stmt = $db->prepare('
+            SELECT r.name
+            FROM roles r
+            JOIN user_roles ur ON ur.role_id = r.id
+            WHERE ur.user_id = ?
+        ');
+        $stmt->execute([$userId]);
+        return $stmt->fetchAll(PDO::FETCH_COLUMN);
     }
 
     public static function getUserPermissions(int $userId): array

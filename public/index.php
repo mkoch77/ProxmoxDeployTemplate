@@ -34,7 +34,7 @@ $perms = $user['permissions'];
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="<?= htmlspecialchars($csrfToken) ?>">
-    <title>ProxmoxVE Cluster Center</title>
+    <title>ProxmoxVE Datacenter Manager</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -45,6 +45,7 @@ $perms = $user['permissions'];
             'username' => $user['username'],
             'display_name' => $user['display_name'],
             'permissions' => $user['permissions'],
+            'roles' => $user['roles'],
             'theme' => $theme,
         ], JSON_HEX_TAG | JSON_HEX_AMP) ?>;
 
@@ -73,11 +74,16 @@ $perms = $user['permissions'];
                 </div>
                 <div>
                     <span class="brand-text">ProxmoxVE</span>
-                    <span class="brand-sub d-none d-sm-inline">Cluster Center</span>
-                    <span class="badge bg-secondary ms-2" style="font-size:0.6rem;vertical-align:middle">v0.1</span>
+                    <span class="brand-sub d-none d-sm-inline">Datacenter Manager</span>
+                    <span class="badge bg-secondary ms-2" style="font-size:0.6rem;vertical-align:middle">v0.2</span>
                 </div>
             </a>
             <div class="d-flex align-items-center gap-3">
+                <button id="cluster-warnings-btn" class="btn btn-link p-0 text-danger d-none" title="Cluster Alerts"
+                    onclick="App.showClusterWarnings()" style="font-size:1.1rem;line-height:1">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    <span id="cluster-warnings-count" class="badge bg-danger ms-1" style="font-size:0.65rem;vertical-align:middle"></span>
+                </button>
                 <span id="connection-status" class="conn-badge connecting">
                     <span class="conn-dot"></span>
                     <span class="conn-text">Connecting...</span>
@@ -110,36 +116,39 @@ $perms = $user['permissions'];
     <div class="d-flex" id="wrapper">
         <!-- Sidebar -->
         <nav id="sidebar">
+            <div class="sidebar-toggle-btn" id="sidebar-toggle" onclick="App.toggleSidebar()" title="Toggle sidebar">
+                <i class="bi bi-layout-sidebar"></i>
+            </div>
             <div class="sidebar-nav">
-                <a href="#dashboard" class="sidebar-link active" data-page="dashboard">
+                <a href="#dashboard" class="sidebar-link active" data-page="dashboard" title="Dashboard">
                     <div class="sidebar-icon"><i class="bi bi-grid-1x2-fill"></i></div>
                     <span>Dashboard</span>
                 </a>
                 <?php if (in_array('cluster.health.view', $perms)): ?>
-                <a href="#health" class="sidebar-link" data-page="health">
+                <a href="#health" class="sidebar-link" data-page="health" title="Cluster Health">
                     <div class="sidebar-icon"><i class="bi bi-heart-pulse-fill"></i></div>
                     <span>Cluster Health</span>
                 </a>
                 <?php endif; ?>
                 <?php if (in_array('cluster.maintenance', $perms)): ?>
-                <a href="#maintenance" class="sidebar-link" data-page="maintenance">
+                <a href="#maintenance" class="sidebar-link" data-page="maintenance" title="Maintenance">
                     <div class="sidebar-icon"><i class="bi bi-wrench-adjustable"></i></div>
                     <span>Maintenance</span>
                 </a>
                 <?php endif; ?>
                 <?php if (in_array('drs.view', $perms)): ?>
-                <a href="#loadbalancing" class="sidebar-link" data-page="loadbalancing">
+                <a href="#loadbalancing" class="sidebar-link" data-page="loadbalancing" title="Loadbalancing">
                     <div class="sidebar-icon"><i class="bi bi-shuffle"></i></div>
                     <span>Loadbalancing</span>
                 </a>
                 <?php endif; ?>
                 <?php if (in_array('template.deploy', $perms)): ?>
-                <a href="#deploy" class="sidebar-link" data-page="deploy">
+                <a href="#deploy" class="sidebar-link" data-page="deploy" title="Deploy">
                     <div class="sidebar-icon"><i class="bi bi-rocket-takeoff-fill"></i></div>
                     <span>Deploy</span>
                 </a>
                 <?php endif; ?>
-                <a href="#tasks" class="sidebar-link" data-page="tasks">
+                <a href="#tasks" class="sidebar-link" data-page="tasks" title="Tasks">
                     <div class="sidebar-icon"><i class="bi bi-terminal-fill"></i></div>
                     <span>Tasks</span>
                 </a>
@@ -160,6 +169,81 @@ $perms = $user['permissions'];
         </main>
     </div>
 
+    <!-- Cluster Warnings Modal -->
+    <div class="modal fade" id="clusterWarningsModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content glass-modal">
+                <div class="modal-header border-danger" style="border-bottom-color:var(--bs-danger)!important">
+                    <h5 class="modal-title text-danger"><i class="bi bi-exclamation-triangle-fill me-2"></i>Cluster Alerts</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="cluster-warnings-body"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Node Info Modal -->
+    <div class="modal fade" id="nodeInfoModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content glass-modal">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="node-info-title"><i class="bi bi-hdd-rack me-2"></i>Node Info</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="node-info-body">
+                    <div class="text-center py-4"><span class="spinner-border text-secondary"></span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- VM Detail Modal -->
+    <div class="modal fade" id="vmDetailModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content glass-modal">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="vm-detail-title"></h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="vm-detail-body"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Community Script Install Modal -->
+    <div class="modal fade" id="communityScriptModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content glass-modal">
+                <div class="modal-header">
+                    <h5 class="modal-title d-flex align-items-center gap-2" id="cs-modal-title"></h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="cs-modal-body"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SSH Terminal Modal — keyboard=false so Bootstrap doesn't steal keys from xterm.js -->
+    <div class="modal fade" id="sshTerminalModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+        <div class="modal-dialog modal-xl modal-dialog-centered">
+            <div class="modal-content glass-modal">
+                <div class="modal-header">
+                    <h5 class="modal-title d-flex align-items-center gap-2">
+                        <i class="bi bi-terminal-fill"></i>
+                        <span id="ssh-terminal-title">Install</span>
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" onclick="Templates.closeTerminal()"></button>
+                </div>
+                <div class="modal-body p-0" style="background:#000">
+                    <div id="ssh-terminal-container" style="padding:8px"></div>
+                </div>
+                <div class="modal-footer justify-content-start py-2">
+                    <span id="ssh-terminal-status" class="text-muted small"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Deploy Modal -->
     <div class="modal fade" id="deployModal" tabindex="-1">
         <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -170,6 +254,54 @@ $perms = $user['permissions'];
                 </div>
                 <div class="modal-body" id="deploy-modal-body">
                     <!-- Filled by deploy.js -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Install Agent Modal -->
+    <div class="modal fade" id="installAgentModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content glass-modal">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-cpu me-2"></i>Install QEMU Guest Agent</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="install-agent-body"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add to HA Modal -->
+    <div class="modal fade" id="addHAModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content glass-modal">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-shield-plus me-2"></i>Add Resource to HA</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Type</label>
+                        <select id="ha-add-type" class="form-select">
+                            <option value="vm">VM (QEMU)</option>
+                            <option value="ct">CT (LXC)</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">VMID</label>
+                        <input type="number" id="ha-add-vmid" class="form-control" placeholder="e.g. 100" min="100" max="999999999">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">HA Group <small class="text-muted">(optional)</small></label>
+                        <input type="text" id="ha-add-group" class="form-control" placeholder="Leave empty for no group">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="Health.submitAddHA()">
+                        <i class="bi bi-shield-plus me-1"></i>Add to HA
+                    </button>
                 </div>
             </div>
         </div>
@@ -194,6 +326,9 @@ $perms = $user['permissions'];
     <div id="toast-container" class="toast-container position-fixed top-0 end-0 p-3" style="z-index:9999;margin-top:70px;"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
     <script src="assets/js/utils.js?v=<?= $v ?>"></script>
     <script src="assets/js/components/toast.js?v=<?= $v ?>"></script>
     <script src="assets/js/permissions.js?v=<?= $v ?>"></script>

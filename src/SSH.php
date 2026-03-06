@@ -52,6 +52,90 @@ class SSH
     }
 
     /**
+     * Execute a long-running install command via SSH.
+     * Returns output + exit code without throwing on failure.
+     * Timeout default: 300 seconds (5 min).
+     */
+    public static function execInstall(string $host, string $command, int $timeout = 300): array
+    {
+        $port = (int) Config::get('SSH_PORT', 22);
+        $user = Config::get('SSH_USER', 'root');
+        $keyPath = Config::get('SSH_KEY_PATH', '');
+        $password = Config::get('SSH_PASSWORD', '');
+
+        $ssh = new SSH2($host, $port, $timeout);
+        $ssh->setTimeout($timeout);
+
+        $authenticated = false;
+
+        if ($keyPath && file_exists($keyPath)) {
+            $keyContents = file_get_contents($keyPath);
+            $key = $password
+                ? PublicKeyLoader::load($keyContents, $password)
+                : PublicKeyLoader::load($keyContents);
+            $authenticated = $ssh->login($user, $key);
+        }
+
+        if (!$authenticated && $password) {
+            $authenticated = $ssh->login($user, $password);
+        }
+
+        if (!$authenticated) {
+            return [
+                'output' => "SSH authentication failed for {$user}@{$host}:{$port}",
+                'exit_code' => 1,
+                'success' => false,
+            ];
+        }
+
+        $output = $ssh->exec($command);
+        $exitCode = $ssh->getExitStatus();
+
+        return [
+            'output' => $output,
+            'exit_code' => $exitCode,
+            'success' => $exitCode === 0,
+        ];
+    }
+
+    /**
+     * Connect to a host and return an SSH2 object with PTY enabled.
+     * Used for interactive terminal sessions.
+     */
+    public static function openInteractiveSession(string $host, int $timeout = 300): SSH2
+    {
+        $port = (int) Config::get('SSH_PORT', 22);
+        $user = Config::get('SSH_USER', 'root');
+        $keyPath = Config::get('SSH_KEY_PATH', '');
+        $password = Config::get('SSH_PASSWORD', '');
+
+        $ssh = new SSH2($host, $port, $timeout);
+        $ssh->setTimeout(0.3);
+
+        $authenticated = false;
+
+        if ($keyPath && file_exists($keyPath)) {
+            $keyContents = file_get_contents($keyPath);
+            $key = $password
+                ? PublicKeyLoader::load($keyContents, $password)
+                : PublicKeyLoader::load($keyContents);
+            $authenticated = $ssh->login($user, $key);
+        }
+
+        if (!$authenticated && $password) {
+            $authenticated = $ssh->login($user, $password);
+        }
+
+        if (!$authenticated) {
+            throw new \RuntimeException("SSH authentication failed for {$user}@{$host}:{$port}");
+        }
+
+        $ssh->enablePTY();
+
+        return $ssh;
+    }
+
+    /**
      * Execute ha-manager maintenance command on the Proxmox host.
      */
     public static function enableNodeMaintenance(string $nodeName): string
