@@ -346,6 +346,13 @@ class ProxmoxAPI
         return $this->get('/cluster/ha/groups');
     }
 
+    // --- Apt / Updates ---
+
+    public function getAptUpdates(string $node): array
+    {
+        return $this->get("/nodes/{$node}/apt/updates");
+    }
+
     // --- Delete ---
 
     public function deleteGuest(string $node, string $type, int $vmid): array
@@ -358,7 +365,10 @@ class ProxmoxAPI
     public function migrateGuest(string $node, string $type, int $vmid, string $target, bool $online = true): array
     {
         $params = ['target' => $target];
-        if ($online) {
+        if ($type === 'lxc') {
+            // LXC live migration is not supported; use restart=1 (stop → migrate → start on target)
+            $params['restart'] = 1;
+        } elseif ($online) {
             $params['online'] = 1;
         }
         return $this->post("/nodes/{$node}/{$type}/{$vmid}/migrate", $params);

@@ -130,6 +130,12 @@ $perms = $user['permissions'];
                     <span>Cluster Health</span>
                 </a>
                 <?php endif; ?>
+                <?php if (in_array('template.deploy', $perms)): ?>
+                <a href="#deploy" class="sidebar-link" data-page="deploy" title="Deploy">
+                    <div class="sidebar-icon"><i class="bi bi-rocket-takeoff-fill"></i></div>
+                    <span>Deploy</span>
+                </a>
+                <?php endif; ?>
                 <?php if (in_array('cluster.maintenance', $perms)): ?>
                 <a href="#maintenance" class="sidebar-link" data-page="maintenance" title="Maintenance">
                     <div class="sidebar-icon"><i class="bi bi-wrench-adjustable"></i></div>
@@ -140,12 +146,6 @@ $perms = $user['permissions'];
                 <a href="#loadbalancing" class="sidebar-link" data-page="loadbalancing" title="Loadbalancing">
                     <div class="sidebar-icon"><i class="bi bi-shuffle"></i></div>
                     <span>Loadbalancing</span>
-                </a>
-                <?php endif; ?>
-                <?php if (in_array('template.deploy', $perms)): ?>
-                <a href="#deploy" class="sidebar-link" data-page="deploy" title="Deploy">
-                    <div class="sidebar-icon"><i class="bi bi-rocket-takeoff-fill"></i></div>
-                    <span>Deploy</span>
                 </a>
                 <?php endif; ?>
                 <a href="#tasks" class="sidebar-link" data-page="tasks" title="Tasks">
@@ -340,6 +340,7 @@ $perms = $user['permissions'];
     <script src="assets/js/components/tasks.js?v=<?= $v ?>"></script>
     <script src="assets/js/components/health.js?v=<?= $v ?>"></script>
     <script src="assets/js/components/maintenance.js?v=<?= $v ?>"></script>
+    <script src="assets/js/components/updater.js?v=<?= $v ?>"></script>
     <script src="assets/js/components/loadbalancer.js?v=<?= $v ?>"></script>
     <script src="assets/js/components/users.js?v=<?= $v ?>"></script>
     <script src="assets/js/app.js?v=<?= $v ?>"></script>

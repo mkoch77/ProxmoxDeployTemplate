@@ -4,8 +4,10 @@ const Maintenance = {
     maintenanceStates: {},
     nodeGuests: {},
     fastPolling: false,
+    activeTab: 'nodes',
 
     async init() {
+        this.activeTab = 'nodes';
         this.render();
         await this.loadData();
         this.startAutoRefresh();
@@ -13,6 +15,7 @@ const Maintenance = {
 
     destroy() {
         this.stopAutoRefresh();
+        if (typeof Updater !== 'undefined') Updater.destroy();
     },
 
     startAutoRefresh() {
@@ -29,21 +32,59 @@ const Maintenance = {
     },
 
     render() {
+        const hasUpdates = typeof Updater !== 'undefined' && Permissions.has('cluster.update');
         const main = document.getElementById('page-content');
         main.innerHTML = `
             <div class="section-header">
-                <h2><i class="bi bi-wrench-adjustable"></i> Maintenance Mode</h2>
+                <h2><i class="bi bi-wrench-adjustable"></i> Maintenance</h2>
             </div>
-            <p class="text-muted mb-4">Put nodes into maintenance mode. All running VMs/CTs will be automatically migrated to other nodes.</p>
-            <div id="maintenance-nodes" class="row g-3"></div>
+            ${hasUpdates ? `
+            <ul class="nav nav-tabs mb-4" id="maintenance-tabs">
+                <li class="nav-item">
+                    <a class="nav-link active" href="#" id="tab-btn-nodes"
+                       onclick="Maintenance.showTab('nodes'); return false;">
+                        <i class="bi bi-wrench me-1"></i>Maintenance Mode
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#" id="tab-btn-updates"
+                       onclick="Maintenance.showTab('updates'); return false;">
+                        <i class="bi bi-arrow-repeat me-1"></i>Updates
+                    </a>
+                </li>
+            </ul>
+            ` : ''}
+            <div id="maintenance-tab-nodes">
+                <p class="text-muted mb-4">Put nodes into maintenance mode. All running VMs/CTs will be automatically migrated to other nodes.</p>
+                <div id="maintenance-nodes" class="row g-3"></div>
+            </div>
+            <div id="maintenance-tab-updates" class="d-none">
+                <div id="updater-wrapper"></div>
+            </div>
         `;
+    },
+
+    showTab(tab) {
+        this.activeTab = tab;
+        document.getElementById('maintenance-tab-nodes')?.classList.toggle('d-none', tab !== 'nodes');
+        document.getElementById('maintenance-tab-updates')?.classList.toggle('d-none', tab !== 'updates');
+        document.getElementById('tab-btn-nodes')?.classList.toggle('active', tab === 'nodes');
+        document.getElementById('tab-btn-updates')?.classList.toggle('active', tab === 'updates');
+
+        if (tab === 'updates') {
+            this.stopAutoRefresh();
+            if (typeof Updater !== 'undefined') Updater.init();
+        } else {
+            if (typeof Updater !== 'undefined') Updater.destroy();
+            this.loadData();
+            this.startAutoRefresh();
+        }
     },
 
     async loadData() {
         try {
-            const [healthData, maintData, guestsData] = await Promise.all([
+            const [healthData, guestsData] = await Promise.all([
                 API.getClusterHealth(),
-                API.getMaintenanceList(),
                 API.getGuests(),
             ]);
 
@@ -58,9 +99,12 @@ const Maintenance = {
                 }
             }
 
+            // Maintenance states come directly from cluster health (same DB source, no extra call needed)
             this.maintenanceStates = {};
-            for (const m of (Array.isArray(maintData) ? maintData : [])) {
-                this.maintenanceStates[m.node_name] = m;
+            for (const node of this.nodes) {
+                if (node.maintenance) {
+                    this.maintenanceStates[node.node] = node.maintenance;
+                }
             }
 
             // Check if we need fast polling (during entering or leaving)
@@ -220,10 +264,12 @@ const Maintenance = {
                     <div class="d-flex align-items-center gap-2 py-1">
                         <i class="bi ${g.type === 'qemu' ? 'bi-pc-display' : 'bi-box'} text-muted"></i>
                         <span>${escapeHtml(g.name || `${g.type} ${g.vmid}`)}</span>
+                        ${g.type === 'lxc' ? '<span class="badge bg-warning text-dark ms-1" title="LXC containers will be stopped during migration" style="font-size:0.65rem">stop/start</span>' : ''}
                         <small class="text-muted ms-auto">${g.vmid}</small>
                     </div>
                 `).join('')}
                 ${guests.length > 8 ? `<div class="text-muted small mt-1">+ ${guests.length - 8} more</div>` : ''}
+                ${cts.length > 0 ? '<div class="text-warning small mt-2"><i class="bi bi-exclamation-triangle me-1"></i>LXC containers will be briefly stopped for migration.</div>' : ''}
             </div>
         `;
     },
@@ -238,7 +284,12 @@ const Maintenance = {
     },
 
     async enterMaintenance(nodeName) {
-        if (!confirm(`Put node "${nodeName}" into maintenance mode?\n\nAll running VMs/CTs will be migrated to other nodes.`)) {
+        const guests = this.nodeGuests[nodeName] || [];
+        const hasLxc = guests.some(g => g.type === 'lxc');
+        const lxcNote = hasLxc
+            ? '\n\n⚠ LXC containers cannot be live-migrated and will be stopped, moved, then restarted on the target node.'
+            : '';
+        if (!confirm(`Put node "${nodeName}" into maintenance mode?\n\nAll running VMs/CTs will be migrated to other nodes.${lxcNote}`)) {
             return;
         }
 

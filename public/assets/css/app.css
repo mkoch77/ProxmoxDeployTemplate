@@ -319,7 +319,7 @@ body {
     flex: 1;
     min-height: calc(100vh - 64px);
     background: var(--bg-primary);
-    overflow-x: hidden;
+    overflow-x: clip;
 }
 
 /* ===== Section Header ===== */
@@ -1024,6 +1024,16 @@ body {
 .deploy-tab-btn.active {
     color: var(--text-primary);
     border-bottom-color: var(--text-primary);
+}
+
+/* ===== Sticky Filter Bar ===== */
+.filter-bar {
+    position: sticky;
+    top: 64px;
+    z-index: 20;
+    background: var(--bg-primary);
+    padding: 0.6rem 0;
+    margin-bottom: 0.75rem;
 }
 
 /* ===== Community Scripts Grid ===== */

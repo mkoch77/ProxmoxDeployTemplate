@@ -39,6 +39,7 @@ class Migrator
             7 => self::migration007(),
             8 => self::migration008(),
             9 => self::migration009(),
+           10 => self::migration010(),
         ];
     }
 
@@ -264,6 +265,28 @@ class Migrator
             INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
                 SELECT r.id, p.id FROM roles r, permissions p
                 WHERE r.name = 'operator' AND p.key = 'cluster.ha';
+        ";
+    }
+
+    private static function migration010(): string
+    {
+        return "
+            CREATE TABLE IF NOT EXISTS rolling_update_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nodes TEXT NOT NULL,
+                node_statuses TEXT NOT NULL DEFAULT '{}',
+                status TEXT NOT NULL DEFAULT 'running',
+                started_by INTEGER,
+                started_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (started_by) REFERENCES users(id)
+            );
+
+            INSERT OR IGNORE INTO permissions (key, description) VALUES
+                ('cluster.update', 'Run rolling node updates');
+
+            INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
+                SELECT r.id, p.id FROM roles r, permissions p
+                WHERE r.name = 'admin' AND p.key = 'cluster.update';
         ";
     }
 }

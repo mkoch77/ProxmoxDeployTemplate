@@ -53,6 +53,13 @@ const API = {
         });
     },
 
+    delete(url, body = {}) {
+        return this.request(url, {
+            method: 'DELETE',
+            body: JSON.stringify(body),
+        });
+    },
+
     // --- Endpoints ---
 
     checkAuth() {
@@ -202,5 +209,43 @@ const API = {
 
     haRemove(sid) {
         return this.post('api/ha.php', { action: 'remove', sid });
+    },
+
+    // --- Rolling Update ---
+
+    getRollingUpdateSession() {
+        return this.getSilent('api/rolling-update.php');
+    },
+
+    startRollingUpdate(nodes) {
+        return this.post('api/rolling-update.php', { action: 'start', nodes });
+    },
+
+    updateRollingNode(id, node, step, log = null, upgraded = null, error = null) {
+        return this.post('api/rolling-update.php', { action: 'update-node', id, node, step, log, upgraded, error });
+    },
+
+    finishRollingUpdate(id, status = 'completed') {
+        return this.post('api/rolling-update.php', { action: 'finish', id, status });
+    },
+
+    checkNodeUpdates(node) {
+        return this.getSilent('api/node-update.php', { node });
+    },
+
+    runNodeUpdate(node) {
+        return this.post('api/node-update.php', { node });
+    },
+
+    enterMaintenance(node) {
+        return this.post('api/maintenance.php', { node });
+    },
+
+    leaveMaintenance(node) {
+        return this.delete('api/maintenance.php', { node });
+    },
+
+    getMaintenanceStatus(node) {
+        return this.getSilent('api/maintenance-status.php', { node });
     },
 };

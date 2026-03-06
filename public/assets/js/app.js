@@ -130,9 +130,6 @@ const App = {
         try {
             const data = await API.getSilent('api/cluster-health.php');
             const warnings = [];
-            const maintNodes = (data.nodes || [])
-                .filter(n => n.maintenance)
-                .map(n => n.node);
 
             // Offline nodes (not in maintenance)
             for (const node of (data.nodes || [])) {
@@ -141,7 +138,16 @@ const App = {
                 }
             }
 
-            // Storage critical (≥90%) or full
+            // Nodes in maintenance
+            for (const node of (data.nodes || [])) {
+                if (node.maintenance) {
+                    const s = node.maintenance.status || 'maintenance';
+                    const label = s === 'entering' ? 'entering maintenance' : s === 'leaving' ? 'leaving maintenance' : 'in maintenance mode';
+                    warnings.push({ level: 'info', msg: `Node <strong>${Utils.escapeHtml(node.node)}</strong> is ${label}` });
+                }
+            }
+
+            // Storage critical (≥95%) or warning (≥85%)
             for (const s of (data.storage || [])) {
                 if (s.total > 0) {
                     const pct = Math.round((s.used / s.total) * 100);
@@ -162,9 +168,21 @@ const App = {
                 btn.classList.add('d-none');
             } else {
                 btn.classList.remove('d-none');
-                const dangers = warnings.filter(w => w.level === 'danger').length;
                 cnt.textContent = warnings.length;
-                btn.style.color = dangers > 0 ? 'var(--bs-danger)' : 'var(--bs-warning)';
+                const hasDanger  = warnings.some(w => w.level === 'danger');
+                const hasWarning = warnings.some(w => w.level === 'warning');
+                const iconEl = btn.querySelector('i');
+                if (hasDanger) {
+                    btn.style.color = 'var(--bs-danger)';
+                    if (iconEl) iconEl.className = 'bi bi-exclamation-triangle-fill';
+                } else if (hasWarning) {
+                    btn.style.color = 'var(--bs-warning)';
+                    if (iconEl) iconEl.className = 'bi bi-exclamation-triangle-fill';
+                } else {
+                    // Info only (e.g. maintenance)
+                    btn.style.color = 'var(--bs-info)';
+                    if (iconEl) iconEl.className = 'bi bi-wrench-adjustable-circle-fill';
+                }
             }
         } catch (_) { /* silent */ }
     },
@@ -175,10 +193,11 @@ const App = {
         if (this._warnings.length === 0) {
             body.innerHTML = '<p class="text-muted mb-0">No active alerts.</p>';
         } else {
-            body.innerHTML = this._warnings.map(w => `
-                <div class="alert alert-${w.level === 'danger' ? 'danger' : 'warning'} py-2 mb-2">
-                    <i class="bi bi-${w.level === 'danger' ? 'x-circle-fill' : 'exclamation-triangle-fill'} me-2"></i>${w.msg}
-                </div>`).join('');
+            body.innerHTML = this._warnings.map(w => {
+                const cls  = w.level === 'danger' ? 'danger' : w.level === 'warning' ? 'warning' : 'info';
+                const icon = w.level === 'danger' ? 'x-circle-fill' : w.level === 'warning' ? 'exclamation-triangle-fill' : 'wrench-adjustable-circle-fill';
+                return `<div class="alert alert-${cls} py-2 mb-2"><i class="bi bi-${icon} me-2"></i>${w.msg}</div>`;
+            }).join('');
         }
         new bootstrap.Modal(document.getElementById('clusterWarningsModal')).show();
     },

@@ -40,12 +40,12 @@ const Templates = {
             </div>
 
             <div class="deploy-tabs mb-4">
-                <button class="deploy-tab-btn ${this.activeTab === 'local' ? 'active' : ''}" onclick="Templates.switchTab('local')">
-                    <i class="bi bi-hdd-stack me-2"></i>Local Templates
-                </button>
                 <button class="deploy-tab-btn ${this.activeTab === 'community' ? 'active' : ''}" onclick="Templates.switchTab('community')">
                     <i class="bi bi-cloud-download me-2"></i>Community Scripts
                     <span class="badge bg-secondary ms-1" style="font-size:0.65rem">tteck</span>
+                </button>
+                <button class="deploy-tab-btn ${this.activeTab === 'local' ? 'active' : ''}" onclick="Templates.switchTab('local')">
+                    <i class="bi bi-hdd-stack me-2"></i>Local Templates
                 </button>
             </div>
 
