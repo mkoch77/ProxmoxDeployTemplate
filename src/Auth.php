@@ -158,6 +158,8 @@ class Auth
     public static function getUserPermissions(int $userId): array
     {
         $db = Database::connection();
+
+        // Role-based permissions
         $stmt = $db->prepare('
             SELECT DISTINCT p.key
             FROM permissions p
@@ -166,7 +168,25 @@ class Auth
             WHERE ur.user_id = ?
         ');
         $stmt->execute([$userId]);
-        return $stmt->fetchAll(PDO::FETCH_COLUMN);
+        $perms = array_flip($stmt->fetchAll(PDO::FETCH_COLUMN));
+
+        // User-level overrides (granted=1 adds, granted=0 removes)
+        $stmt = $db->prepare('
+            SELECT p.key, upo.granted
+            FROM user_permission_overrides upo
+            JOIN permissions p ON p.id = upo.permission_id
+            WHERE upo.user_id = ?
+        ');
+        $stmt->execute([$userId]);
+        foreach ($stmt->fetchAll() as $row) {
+            if ($row['granted']) {
+                $perms[$row['key']] = true;
+            } else {
+                unset($perms[$row['key']]);
+            }
+        }
+
+        return array_keys($perms);
     }
 
     public static function createSession(int $userId): string

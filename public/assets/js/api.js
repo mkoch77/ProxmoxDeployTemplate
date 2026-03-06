@@ -131,10 +131,6 @@ const API = {
         return this.get('api/cluster-health.php');
     },
 
-    getMaintenanceList() {
-        return this.get('api/maintenance.php');
-    },
-
     getMaintenanceNodeStatus(node) {
         return this.get('api/maintenance-status.php', { node });
     },
@@ -212,10 +208,6 @@ const API = {
     },
 
     // --- Rolling Update ---
-
-    getRollingUpdateSession() {
-        return this.getSilent('api/rolling-update.php');
-    },
 
     startRollingUpdate(nodes) {
         return this.post('api/rolling-update.php', { action: 'start', nodes });

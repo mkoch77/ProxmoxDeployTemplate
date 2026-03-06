@@ -67,6 +67,9 @@ if ($method === 'POST') {
             if (!$id || !$node) {
                 Response::error('Missing id or node', 400);
             }
+            if (!Helpers::validateNodeName($node)) {
+                Response::error('Invalid node name', 400);
+            }
             $allowed = ['pending','entering_maintenance','updating','leaving_maintenance','completed','failed','no_updates'];
             if (!in_array($step, $allowed, true)) {
                 Response::error('Invalid step', 400);

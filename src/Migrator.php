@@ -40,6 +40,7 @@ class Migrator
             8 => self::migration008(),
             9 => self::migration009(),
            10 => self::migration010(),
+           11 => self::migration011(),
         ];
     }
 
@@ -265,6 +266,27 @@ class Migrator
             INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
                 SELECT r.id, p.id FROM roles r, permissions p
                 WHERE r.name = 'operator' AND p.key = 'cluster.ha';
+        ";
+    }
+
+    private static function migration011(): string
+    {
+        return "
+            CREATE TABLE IF NOT EXISTS user_permission_overrides (
+                user_id INTEGER NOT NULL,
+                permission_id INTEGER NOT NULL,
+                granted INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY (user_id, permission_id),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (permission_id) REFERENCES permissions(id) ON DELETE CASCADE
+            );
+
+            INSERT OR IGNORE INTO permissions (key, description) VALUES
+                ('community.install', 'Install community scripts via SSH on nodes');
+
+            INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
+                SELECT r.id, p.id FROM roles r, permissions p
+                WHERE r.name = 'admin' AND p.key = 'community.install';
         ";
     }
 

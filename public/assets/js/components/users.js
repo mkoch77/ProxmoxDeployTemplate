@@ -1,6 +1,84 @@
+// Feature groups: define which permissions map to RO and RW access per page/function.
+// ro_perms: permissions that enable read-only access.
+// rw_perms: additional permissions on top of ro for full write access.
+// If ro_perms is empty, options are Default / Granted / Denied (no RO concept).
+const PERMISSION_FEATURES = [
+    {
+        id: 'cluster_health',
+        label: 'Cluster Health',
+        icon: 'bi-heart-pulse',
+        ro_perms: ['cluster.health.view'],
+        rw_perms: [],
+    },
+    {
+        id: 'vm_power',
+        label: 'VM Power Control',
+        icon: 'bi-power',
+        ro_perms: [],
+        rw_perms: ['vm.start', 'vm.stop', 'vm.reboot', 'vm.shutdown'],
+    },
+    {
+        id: 'vm_migrate',
+        label: 'VM Migration',
+        icon: 'bi-arrow-left-right',
+        ro_perms: [],
+        rw_perms: ['vm.migrate'],
+    },
+    {
+        id: 'vm_delete',
+        label: 'VM Delete',
+        icon: 'bi-trash',
+        ro_perms: [],
+        rw_perms: ['vm.delete'],
+    },
+    {
+        id: 'deploy',
+        label: 'Deploy Templates',
+        icon: 'bi-rocket-takeoff',
+        ro_perms: [],
+        rw_perms: ['template.deploy'],
+    },
+    {
+        id: 'maintenance',
+        label: 'Maintenance & Updates',
+        icon: 'bi-wrench-adjustable',
+        ro_perms: [],
+        rw_perms: ['cluster.maintenance', 'cluster.update'],
+    },
+    {
+        id: 'loadbalancing',
+        label: 'Load Balancing',
+        icon: 'bi-diagram-3',
+        ro_perms: ['drs.view'],
+        rw_perms: ['drs.manage'],
+    },
+    {
+        id: 'ha',
+        label: 'High Availability',
+        icon: 'bi-shield-check',
+        ro_perms: [],
+        rw_perms: ['cluster.ha'],
+    },
+    {
+        id: 'users',
+        label: 'User Management',
+        icon: 'bi-people-fill',
+        ro_perms: [],
+        rw_perms: ['users.manage'],
+    },
+    {
+        id: 'community_install',
+        label: 'Community Script Install',
+        icon: 'bi-cloud-arrow-down',
+        ro_perms: [],
+        rw_perms: ['community.install'],
+    },
+];
+
 const Users = {
     users: [],
     roles: [],
+    rolePermissions: {}, // roleId → [permKeys]
 
     async init() {
         this.render();
@@ -60,6 +138,7 @@ const Users = {
             const data = await API.getUsers();
             this.users = data.users || [];
             this.roles = data.roles || [];
+            this.rolePermissions = data.role_permissions || {};
             this.renderTable();
         } catch (err) {
             Toast.error('Failed to load users');
@@ -153,6 +232,9 @@ const Users = {
             </div>
         `).join('');
 
+        const overrides = user.permission_overrides || {};
+        const featureRows = PERMISSION_FEATURES.map(f => this.renderFeatureRow(f, overrides, userRoleIds)).join('');
+
         document.getElementById('userModalBody').innerHTML = `
             <input type="hidden" id="modal-userid" value="${user.id}">
             <div class="mb-3">
@@ -177,15 +259,121 @@ const Users = {
                 <label class="form-label">Roles</label>
                 ${roleChecks}
             </div>
+            <div class="mb-3">
+                <label class="form-label d-flex align-items-center gap-2">
+                    Permission Overrides
+                    <span class="badge bg-secondary" style="font-size:0.68rem;font-weight:normal">overrides role defaults per function</span>
+                </label>
+                <div style="border:1px solid var(--border-color);border-radius:6px;overflow:hidden">
+                    ${featureRows}
+                </div>
+            </div>
             <div class="form-check form-switch mb-3">
                 <input class="form-check-input" type="checkbox" id="modal-active" ${user.is_active ? 'checked' : ''}>
                 <label class="form-check-label" for="modal-active">Active</label>
             </div>
         `;
 
+        // Wire up override button groups
+        document.querySelectorAll('.perm-feature-btns button').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const group = btn.closest('.perm-feature-btns');
+                group.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            });
+        });
+
         const saveBtn = document.getElementById('userModalSave');
         saveBtn.onclick = () => this.updateUser();
         new bootstrap.Modal(document.getElementById('userModal')).show();
+    },
+
+    // Returns the current state of a feature given existing overrides
+    getFeatureState(feature, overrides) {
+        const allPerms = [...feature.ro_perms, ...feature.rw_perms];
+        if (allPerms.length === 0) return 'default';
+
+        const hasAnyOverride = allPerms.some(p => p in overrides);
+        if (!hasAnyOverride) return 'default';
+
+        const allGranted = allPerms.every(p => overrides[p] === true);
+        if (allGranted) return 'rw';
+
+        const allDenied = allPerms.every(p => overrides[p] === false);
+        if (allDenied) return 'deny';
+
+        // RO: ro_perms granted, rw_perms denied
+        if (feature.ro_perms.length > 0 && feature.rw_perms.length > 0) {
+            const roGranted = feature.ro_perms.every(p => overrides[p] === true);
+            const rwDenied  = feature.rw_perms.every(p => overrides[p] === false);
+            if (roGranted && rwDenied) return 'ro';
+        }
+
+        return 'default';
+    },
+
+    // Returns true if the user's roles provide any permission in this feature
+    roleHasFeature(feature, userRoleIds) {
+        const allPerms = [...feature.ro_perms, ...feature.rw_perms];
+        for (const roleId of userRoleIds) {
+            const rolePerms = this.rolePermissions[roleId] || [];
+            if (allPerms.some(p => rolePerms.includes(p))) return true;
+        }
+        return false;
+    },
+
+    renderFeatureRow(feature, overrides, userRoleIds) {
+        const state = this.getFeatureState(feature, overrides);
+        const hasRO = feature.ro_perms.length > 0 && feature.rw_perms.length > 0;
+        const fromRole = this.roleHasFeature(feature, userRoleIds);
+
+        const roleHint = `<small class="text-muted ms-auto me-2" style="font-size:0.72rem">
+            Role: ${fromRole ? '<span class="text-success">✓</span>' : '<span class="text-muted">–</span>'}
+        </small>`;
+
+        const btn = (s, label, cls) =>
+            `<button type="button" class="btn btn-sm ${cls} ${state === s ? 'active' : ''}" data-state="${s}">${label}</button>`;
+
+        const buttons = hasRO
+            ? `${btn('default', 'Default', 'btn-outline-secondary')}${btn('ro', 'Read Only', 'btn-outline-info')}${btn('rw', 'Full', 'btn-outline-success')}${btn('deny', 'Deny', 'btn-outline-danger')}`
+            : `${btn('default', 'Default', 'btn-outline-secondary')}${btn('rw', 'Granted', 'btn-outline-success')}${btn('deny', 'Deny', 'btn-outline-danger')}`;
+
+        return `
+            <div class="d-flex align-items-center gap-2 px-3 py-2" style="border-bottom:1px solid var(--border-color)" data-feature="${feature.id}">
+                <i class="bi ${feature.icon} text-muted" style="width:16px;flex-shrink:0"></i>
+                <span class="small" style="min-width:160px">${feature.label}</span>
+                ${roleHint}
+                <div class="btn-group btn-group-sm perm-feature-btns" role="group" data-feature="${feature.id}">
+                    ${buttons}
+                </div>
+            </div>
+        `;
+    },
+
+    // Collects permission override dict from the feature button groups
+    collectPermissionOverrides() {
+        const overrides = {};
+        document.querySelectorAll('[data-feature].d-flex').forEach(row => {
+            const featureId = row.dataset.feature;
+            const feature = PERMISSION_FEATURES.find(f => f.id === featureId);
+            if (!feature) return;
+
+            const activeBtn = row.querySelector('.perm-feature-btns button.active');
+            const state = activeBtn?.dataset.state || 'default';
+            if (state === 'default') return;
+
+            const allPerms = [...feature.ro_perms, ...feature.rw_perms];
+
+            if (state === 'rw') {
+                allPerms.forEach(p => { overrides[p] = true; });
+            } else if (state === 'deny') {
+                allPerms.forEach(p => { overrides[p] = false; });
+            } else if (state === 'ro') {
+                feature.ro_perms.forEach(p => { overrides[p] = true; });
+                feature.rw_perms.forEach(p => { overrides[p] = false; });
+            }
+        });
+        return overrides;
     },
 
     getSelectedRoleIds() {
@@ -227,6 +415,7 @@ const Users = {
             display_name: document.getElementById('modal-displayname').value.trim(),
             email: document.getElementById('modal-email').value.trim(),
             role_ids: this.getSelectedRoleIds(),
+            permission_overrides: this.collectPermissionOverrides(),
         };
 
         const passwordEl = document.getElementById('modal-password');

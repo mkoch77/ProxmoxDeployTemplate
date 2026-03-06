@@ -73,6 +73,7 @@ class UserManager
 
         foreach ($users as &$user) {
             $user['roles'] = self::getUserRoles((int) $user['id']);
+            $user['permission_overrides'] = self::getUserPermissionOverrides((int) $user['id']);
         }
         return $users;
     }
@@ -85,8 +86,44 @@ class UserManager
         $user = $stmt->fetch();
         if ($user) {
             $user['roles'] = self::getUserRoles((int) $user['id']);
+            $user['permission_overrides'] = self::getUserPermissionOverrides((int) $user['id']);
         }
         return $user ?: null;
+    }
+
+    public static function getUserPermissionOverrides(int $userId): array
+    {
+        $db = Database::connection();
+        $stmt = $db->prepare('
+            SELECT p.key, upo.granted
+            FROM user_permission_overrides upo
+            JOIN permissions p ON p.id = upo.permission_id
+            WHERE upo.user_id = ?
+        ');
+        $stmt->execute([$userId]);
+        $result = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $result[$row['key']] = (bool) $row['granted'];
+        }
+        return $result;
+    }
+
+    public static function setUserPermissionOverrides(int $userId, array $overrides): void
+    {
+        $db = Database::connection();
+        $db->prepare('DELETE FROM user_permission_overrides WHERE user_id = ?')->execute([$userId]);
+
+        if (empty($overrides)) {
+            return;
+        }
+
+        $stmt = $db->prepare('
+            INSERT INTO user_permission_overrides (user_id, permission_id, granted)
+            SELECT ?, p.id, ? FROM permissions p WHERE p.key = ?
+        ');
+        foreach ($overrides as $key => $granted) {
+            $stmt->execute([$userId, $granted ? 1 : 0, $key]);
+        }
     }
 
     public static function getByUsername(string $username): ?array

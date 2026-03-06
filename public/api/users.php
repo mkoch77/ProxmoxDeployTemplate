@@ -18,10 +18,15 @@ switch ($method) {
         $users = UserManager::getAll();
         $roles = UserManager::getRoles();
         $permissions = UserManager::getPermissions();
+        $rolePermissions = [];
+        foreach ($roles as $role) {
+            $rolePermissions[$role['id']] = UserManager::getRolePermissions((int) $role['id']);
+        }
         Response::success([
             'users' => $users,
             'roles' => $roles,
             'permissions' => $permissions,
+            'role_permissions' => $rolePermissions,
         ]);
         break;
 
@@ -93,6 +98,10 @@ switch ($method) {
 
         if (isset($body['role_ids'])) {
             UserManager::setRoles($id, $body['role_ids']);
+        }
+
+        if (isset($body['permission_overrides'])) {
+            UserManager::setUserPermissionOverrides($id, $body['permission_overrides']);
         }
 
         Response::success(UserManager::getById($id));

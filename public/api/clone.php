@@ -32,6 +32,18 @@ if (!Helpers::validateVmid($body['newid'])) {
 if (!Helpers::validateVmName($body['name'])) {
     Response::error('Invalid VM name (alphanumeric, hyphens, dots only)', 400);
 }
+if (!empty($body['target_node']) && !Helpers::validateNodeName($body['target_node'])) {
+    Response::error('Invalid target node name', 400);
+}
+if (!empty($body['net_bridge']) && !preg_match('/^[a-zA-Z0-9]+$/', $body['net_bridge'])) {
+    Response::error('Invalid network bridge name', 400);
+}
+if (!empty($body['storage']) && !preg_match('/^[a-zA-Z0-9_\-]+$/', $body['storage'])) {
+    Response::error('Invalid storage name', 400);
+}
+if (!empty($body['pool']) && !preg_match('/^[a-zA-Z0-9_\-]+$/', $body['pool'])) {
+    Response::error('Invalid pool name', 400);
+}
 
 try {
     $api = Helpers::createAPI();
@@ -53,7 +65,7 @@ try {
         $cloneParams['pool'] = $body['pool'];
     }
     if (!empty($body['description'])) {
-        $cloneParams['description'] = $body['description'];
+        $cloneParams['description'] = substr(strip_tags($body['description']), 0, 512);
     }
 
     $result = $api->cloneGuest(

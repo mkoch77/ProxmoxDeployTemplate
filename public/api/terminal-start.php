@@ -12,16 +12,7 @@ use App\Helpers;
 Bootstrap::init();
 Request::requireMethod('POST');
 Request::validateCsrf();
-
-$user = Auth::check();
-if (!$user) {
-    Response::error('Not authenticated', 401);
-}
-
-$roles = Auth::getUserRoles($user['id']);
-if (!in_array('admin', $roles, true)) {
-    Response::error('Admin role required', 403);
-}
+$user = Auth::requirePermission('community.install');
 
 $body = Request::jsonBody();
 

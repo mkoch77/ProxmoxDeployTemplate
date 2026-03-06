@@ -14,17 +14,7 @@ Bootstrap::init();
 set_time_limit(360); // community script installs can take several minutes
 Request::requireMethod('POST');
 Request::validateCsrf();
-
-// Only admins can run community script installations
-$user = Auth::check();
-if (!$user) {
-    Response::error('Not authenticated', 401);
-}
-
-$roles = \App\Auth::getUserRoles($user['id']);
-if (!in_array('admin', $roles, true)) {
-    Response::error('Admin role required for community script installation', 403);
-}
+Auth::requirePermission('community.install');
 
 $body = Request::jsonBody();
 
