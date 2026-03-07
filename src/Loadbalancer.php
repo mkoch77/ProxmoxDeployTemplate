@@ -59,9 +59,13 @@ class Loadbalancer
      */
     public static function evaluate(ProxmoxAPI $api, string $triggeredBy = 'manual'): array
     {
+        AppLogger::debug('drs', 'DRS evaluation started', ['triggered_by' => $triggeredBy]);
+
         $settings = self::getSettings();
 
         $nodeMetrics = self::collectNodeMetrics($api, $settings);
+
+        AppLogger::debug('drs', 'DRS node metrics collected', ['node_count' => count($nodeMetrics)]);
 
         if (count($nodeMetrics) < 2) {
             return ['run_id' => null, 'recommendations' => [], 'cluster' => self::buildClusterSummary($nodeMetrics)];
@@ -74,6 +78,8 @@ class Loadbalancer
         $skippedReasons = [];
         $recommendations = self::generateRecommendations($nodeMetrics, $avgScore, $thresholdPct, $settings, $skippedReasons);
 
+        AppLogger::debug('drs', 'DRS recommendations generated', ['count' => count($recommendations), 'avg_score' => round($avgScore * 100, 1)]);
+
         $runId = self::storeRun($triggeredBy, $nodeMetrics, $avgScore, $recommendations, $skippedReasons);
 
         $executed = 0;
@@ -81,6 +87,8 @@ class Loadbalancer
             $results = self::applyAllRecommendations($api, $runId);
             $executed = count(array_filter($results, fn($r) => $r['status'] === 'applied'));
         }
+
+        AppLogger::debug('drs', 'DRS evaluation complete', ['run_id' => $runId, 'executed' => $executed]);
 
         return [
             'run_id' => $runId,
@@ -409,9 +417,9 @@ class Loadbalancer
     {
         $db = Database::connection();
 
-        $stmt = $db->prepare('INSERT INTO drs_runs (triggered_by, node_count, cluster_avg_score, recommendations_count, skipped_reasons) VALUES (?, ?, ?, ?, ?)');
+        $stmt = $db->prepare('INSERT INTO drs_runs (triggered_by, node_count, cluster_avg_score, recommendations_count, skipped_reasons) VALUES (?, ?, ?, ?, ?) RETURNING id');
         $stmt->execute([$triggeredBy, count($nodeMetrics), round($avgScore * 100, 2), count($recommendations), !empty($skippedReasons) ? json_encode($skippedReasons) : null]);
-        $runId = (int)$db->lastInsertId();
+        $runId = (int)$stmt->fetchColumn();
 
         $stmt = $db->prepare('INSERT INTO drs_recommendations (run_id, vmid, vm_name, vm_type, source_node, target_node, reason, impact_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
         foreach ($recommendations as $rec) {
@@ -528,8 +536,8 @@ class Loadbalancer
     public static function cleanupOldRuns(int $days = 30): int
     {
         $db = Database::connection();
-        $stmt = $db->prepare("DELETE FROM drs_runs WHERE created_at < datetime('now', ?)");
-        $stmt->execute(["-$days days"]);
+        $stmt = $db->prepare("DELETE FROM drs_runs WHERE created_at < NOW() - make_interval(days := ?)");
+        $stmt->execute([$days]);
         return $stmt->rowCount();
     }
 }

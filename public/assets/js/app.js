@@ -4,10 +4,11 @@ const App = {
     pages: {
         dashboard: Dashboard,
         deploy: typeof Templates !== 'undefined' ? Templates : null,
-        tasks: Tasks,
         health: typeof Health !== 'undefined' ? Health : null,
         maintenance: typeof Maintenance !== 'undefined' ? Maintenance : null,
         loadbalancing: typeof Loadbalancer !== 'undefined' ? Loadbalancer : null,
+        monitoring: typeof Monitoring !== 'undefined' ? Monitoring : null,
+        settings: typeof Settings !== 'undefined' ? Settings : null,
         users: typeof Users !== 'undefined' ? Users : null,
     },
 

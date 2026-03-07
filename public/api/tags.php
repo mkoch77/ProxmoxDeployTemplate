@@ -7,6 +7,7 @@ use App\Auth;
 use App\Request;
 use App\Response;
 use App\Helpers;
+use App\AppLogger;
 
 Bootstrap::init();
 Auth::requirePermission('template.deploy');
@@ -112,8 +113,10 @@ if ($method === 'POST') {
         $newTagStyle = serializeTagColorMap($colorMap, $tagStyle);
         $api->setClusterOptions(['tag-style' => $newTagStyle]);
 
+        AppLogger::info('config', 'Tag color updated', ['tag' => $tag, 'bg' => $bg, 'fg' => $fg], Auth::check()['id'] ?? null);
         Response::success(['tag' => $tag, 'bg' => $bg, 'fg' => $fg]);
     } catch (\Exception $e) {
+        AppLogger::error('config', 'Tag color update failed', ['tag' => $tag, 'error' => $e->getMessage()], Auth::check()['id'] ?? null);
         Response::error($e->getMessage(), 500);
     }
 }

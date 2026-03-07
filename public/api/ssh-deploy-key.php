@@ -8,6 +8,7 @@ use App\Response;
 use App\Config;
 use App\Helpers;
 use phpseclib3\Net\SSH2;
+use App\AppLogger;
 
 Bootstrap::init();
 Auth::requireAuth();
@@ -52,6 +53,9 @@ if (empty($nodes)) {
     Response::error('No nodes found in cluster.', 404);
 }
 
+$userId = Auth::check()['id'] ?? null;
+AppLogger::info('security', 'SSH key deployment started', ['node_count' => count($nodes)], $userId);
+
 // Deploy key to each node via password SSH
 $results = [];
 $cmd = 'mkdir -p ~/.ssh && chmod 700 ~/.ssh && '
@@ -77,6 +81,13 @@ foreach ($nodes as $node) {
     } catch (\Exception $e) {
         $results[] = ['node' => $node['name'], 'ip' => $host, 'success' => false, 'error' => $e->getMessage()];
     }
+}
+
+$failedNodes = array_filter($results, fn($r) => !$r['success']);
+if (!empty($failedNodes)) {
+    AppLogger::warning('security', 'SSH key deployment had failures', ['failed_nodes' => array_column($failedNodes, 'node')], $userId);
+} else {
+    AppLogger::info('security', 'SSH key deployment completed successfully', ['node_count' => count($nodes)], $userId);
 }
 
 Response::success(['results' => $results]);

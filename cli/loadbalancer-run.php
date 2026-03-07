@@ -11,8 +11,11 @@ require_once __DIR__ . '/../vendor/autoload.php';
 use App\Migrator;
 use App\Helpers;
 use App\Loadbalancer;
+use App\AppLogger;
 
 Migrator::run();
+
+AppLogger::debug('drs', 'CLI loadbalancer run started');
 
 $settings = Loadbalancer::getSettings();
 if (!$settings['enabled']) {

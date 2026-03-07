@@ -8,6 +8,7 @@ use App\Request;
 use App\Response;
 use App\Database;
 use App\Helpers;
+use App\AppLogger;
 
 Bootstrap::init();
 
@@ -53,10 +54,11 @@ if ($method === 'POST') {
                 $nodeStatuses[$n] = ['step' => 'pending', 'log' => null, 'upgraded' => null, 'error' => null];
             }
 
-            $stmt = $db->prepare('INSERT INTO rolling_update_sessions (nodes, node_statuses, status, started_by) VALUES (?, ?, ?, ?)');
+            $stmt = $db->prepare('INSERT INTO rolling_update_sessions (nodes, node_statuses, status, started_by) VALUES (?, ?, ?, ?) RETURNING id');
             $stmt->execute([json_encode($nodes), json_encode($nodeStatuses), 'running', $user['id']]);
-            $id = (int) $db->lastInsertId();
+            $id = (int) $stmt->fetchColumn();
 
+            AppLogger::info('system', 'Rolling update started', ['session_id' => $id, 'nodes' => $nodes], $user['id']);
             Response::success(['id' => $id, 'nodes' => $nodes, 'node_statuses' => $nodeStatuses]);
             break;
 
@@ -103,6 +105,7 @@ if ($method === 'POST') {
             }
             $stmt = $db->prepare('UPDATE rolling_update_sessions SET status = ? WHERE id = ?');
             $stmt->execute([$status, $id]);
+            AppLogger::info('system', 'Rolling update finished', ['session_id' => $id, 'status' => $status], $user['id']);
             Response::success(['ok' => true]);
             break;
 

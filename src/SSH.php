@@ -19,6 +19,8 @@ class SSH
         $keyPath = Config::get('SSH_KEY_PATH', '');
         $password = Config::get('SSH_PASSWORD', '');
 
+        AppLogger::debug('ssh', "SSH exec connecting to {$host}", ['port' => $port, 'user' => $user]);
+
         $ssh = new SSH2($host, $port, 10);
 
         $authenticated = false;
@@ -38,15 +40,21 @@ class SSH
         }
 
         if (!$authenticated) {
+            AppLogger::debug('ssh', "SSH authentication failed for {$user}@{$host}:{$port}");
             throw new \RuntimeException("SSH authentication failed for {$user}@{$host}:{$port}");
         }
+
+        AppLogger::debug('ssh', "SSH authenticated to {$host}", ['user' => $user]);
 
         $output = $ssh->exec($command);
         $exitCode = $ssh->getExitStatus();
 
         if ($exitCode !== 0) {
+            AppLogger::debug('ssh', "SSH command failed on {$host}", ['exit_code' => $exitCode]);
             throw new \RuntimeException("SSH command failed (exit {$exitCode}): " . trim($output));
         }
+
+        AppLogger::debug('ssh', "SSH command completed on {$host}", ['exit_code' => $exitCode]);
 
         return trim($output);
     }
@@ -62,6 +70,8 @@ class SSH
         $user = Config::get('SSH_USER', 'root');
         $keyPath = Config::get('SSH_KEY_PATH', '');
         $password = Config::get('SSH_PASSWORD', '');
+
+        AppLogger::debug('ssh', "SSH execInstall connecting to {$host}", ['port' => $port, 'timeout' => $timeout]);
 
         $ssh = new SSH2($host, $port, $timeout);
         $ssh->setTimeout($timeout);
@@ -81,6 +91,7 @@ class SSH
         }
 
         if (!$authenticated) {
+            AppLogger::debug('ssh', "SSH execInstall auth failed for {$user}@{$host}:{$port}");
             return [
                 'output' => "SSH authentication failed for {$user}@{$host}:{$port}",
                 'exit_code' => 1,
@@ -88,8 +99,12 @@ class SSH
             ];
         }
 
+        AppLogger::debug('ssh', "SSH execInstall authenticated to {$host}", ['user' => $user]);
+
         $output = $ssh->exec($command);
         $exitCode = $ssh->getExitStatus();
+
+        AppLogger::debug('ssh', "SSH execInstall completed on {$host}", ['exit_code' => $exitCode, 'success' => $exitCode === 0]);
 
         return [
             'output' => $output,
@@ -109,6 +124,8 @@ class SSH
         $keyPath = Config::get('SSH_KEY_PATH', '');
         $password = Config::get('SSH_PASSWORD', '');
 
+        AppLogger::debug('ssh', "SSH interactive session opening to {$host}", ['port' => $port, 'timeout' => $timeout]);
+
         $ssh = new SSH2($host, $port, $timeout);
         $ssh->setTimeout(0.3);
 
@@ -127,8 +144,11 @@ class SSH
         }
 
         if (!$authenticated) {
+            AppLogger::debug('ssh', "SSH interactive session auth failed for {$user}@{$host}:{$port}");
             throw new \RuntimeException("SSH authentication failed for {$user}@{$host}:{$port}");
         }
+
+        AppLogger::debug('ssh', "SSH interactive session established to {$host}", ['user' => $user]);
 
         $ssh->enablePTY();
 

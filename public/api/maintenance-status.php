@@ -8,10 +8,13 @@ use App\Request;
 use App\Response;
 use App\Helpers;
 use App\Database;
+use App\AppLogger;
 
 Bootstrap::init();
 Request::requireMethod('GET');
 Auth::requirePermission('cluster.maintenance');
+
+AppLogger::debug('maintenance', 'Fetching maintenance status');
 
 $nodeName = Request::get('node');
 if (!$nodeName || !Helpers::validateNodeName($nodeName)) {

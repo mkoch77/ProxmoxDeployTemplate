@@ -7,6 +7,7 @@ use App\Auth;
 use App\Request;
 use App\Response;
 use App\Helpers;
+use App\AppLogger;
 
 Bootstrap::init();
 Request::requireMethod('POST');
@@ -200,10 +201,12 @@ try {
         }
     }
 
+    AppLogger::info('deploy', "Clone VM {$body['source_vmid']} → {$body['newid']} ({$body['name']}) on {$targetNode}", null, Auth::check()['id'] ?? null);
     Response::success([
         'upid' => $upid,
         'vmid' => (int) $body['newid'],
     ]);
 } catch (\Exception $e) {
+    AppLogger::error('deploy', "Clone failed for VM {$body['source_vmid']}: {$e->getMessage()}", null, Auth::check()['id'] ?? null);
     Response::error($e->getMessage(), 500);
 }

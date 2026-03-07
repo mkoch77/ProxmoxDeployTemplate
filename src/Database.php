@@ -11,17 +11,21 @@ class Database
     public static function connection(): PDO
     {
         if (self::$pdo === null) {
-            $dbPath = __DIR__ . '/../data/app.db';
-            $dir = dirname($dbPath);
-            if (!is_dir($dir)) {
-                mkdir($dir, 0750, true);
-            }
-            self::$pdo = new PDO('sqlite:' . $dbPath, null, null, [
+            $host = getenv('DB_HOST') ?: 'db';
+            $port = getenv('DB_PORT') ?: '5432';
+            $name = getenv('DB_NAME') ?: 'proxmoxdeploy';
+            $user = getenv('DB_USER') ?: 'proxmoxdeploy';
+            $pass = getenv('DB_PASSWORD') ?: 'changeme';
+
+            $dsn = "pgsql:host={$host};port={$port};dbname={$name}";
+            self::$pdo = new PDO($dsn, $user, $pass, [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             ]);
-            self::$pdo->exec('PRAGMA journal_mode=WAL');
-            self::$pdo->exec('PRAGMA foreign_keys=ON');
+
+            // Safe to log here: self::$pdo is already set, so AppLogger calling
+            // Database::connection() will not re-enter this block (no recursion).
+            AppLogger::debug('system', 'Database connection established');
         }
         return self::$pdo;
     }

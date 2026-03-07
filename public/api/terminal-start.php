@@ -8,6 +8,7 @@ use App\Request;
 use App\Response;
 use App\Config;
 use App\Helpers;
+use App\AppLogger;
 
 Bootstrap::init();
 Request::requireMethod('POST');
@@ -88,5 +89,11 @@ if ($vmIp) {
 $token    = bin2hex(random_bytes(16));
 $dataFile = sys_get_temp_dir() . '/term_sess_' . $token . '.json';
 file_put_contents($dataFile, json_encode($sessData), LOCK_EX);
+
+AppLogger::info('system', 'Terminal session started', [
+    'node' => $nodeName,
+    'script_path' => $scriptPath ?: null,
+    'vm_ip' => $vmIp ?: null,
+], $user['id']);
 
 Response::success(['token' => $token]);

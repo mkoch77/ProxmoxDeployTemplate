@@ -7,6 +7,7 @@ use App\Auth;
 use App\Request;
 use App\Response;
 use App\Helpers;
+use App\AppLogger;
 
 Bootstrap::init();
 Request::requireMethod('POST');
@@ -44,7 +45,9 @@ try {
         $online
     );
 
+    AppLogger::info('migrate', "Migrate VM {$body['vmid']} from {$body['node']} to {$body['target']}", ['online' => $online], Auth::check()['id'] ?? null);
     Response::success(['upid' => $result['data'] ?? null]);
 } catch (\Exception $e) {
+    AppLogger::error('migrate', "Failed to migrate VM {$body['vmid']}: {$e->getMessage()}", null, Auth::check()['id'] ?? null);
     Response::error($e->getMessage(), 500);
 }

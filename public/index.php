@@ -145,16 +145,25 @@ $perms = $user['permissions'];
                     <span>Maintenance</span>
                 </a>
                 <?php endif; ?>
+                <?php if (in_array('monitoring.view', $perms)): ?>
+                <a href="#monitoring" class="sidebar-link" data-page="monitoring" title="Monitoring">
+                    <div class="sidebar-icon"><i class="bi bi-graph-up"></i></div>
+                    <span>Monitoring</span>
+                </a>
+                <?php endif; ?>
                 <?php if (in_array('drs.view', $perms)): ?>
                 <a href="#loadbalancing" class="sidebar-link" data-page="loadbalancing" title="Loadbalancing">
                     <div class="sidebar-icon"><i class="bi bi-shuffle"></i></div>
                     <span>Loadbalancing</span>
                 </a>
                 <?php endif; ?>
-                <a href="#tasks" class="sidebar-link" data-page="tasks" title="Tasks">
-                    <div class="sidebar-icon"><i class="bi bi-terminal-fill"></i></div>
-                    <span>Tasks</span>
+                <?php if (in_array('admin', $user['roles'] ?? [])): ?>
+                <div class="sidebar-spacer"></div>
+                <a href="#settings" class="sidebar-link" data-page="settings" title="Settings">
+                    <div class="sidebar-icon"><i class="bi bi-gear-fill"></i></div>
+                    <span>Settings</span>
                 </a>
+                <?php endif; ?>
             </div>
             <div class="sidebar-footer">
                 <div class="sidebar-divider"></div>
@@ -251,39 +260,6 @@ $perms = $user['permissions'];
                     <button type="button" class="btn btn-primary" onclick="App.saveProfile()">
                         <i class="bi bi-floppy me-1"></i>Save
                     </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- SSH Key Setup Modal -->
-    <div class="modal fade" id="sshSetupModal" tabindex="-1">
-        <div class="modal-dialog modal-lg modal-dialog-centered">
-            <div class="modal-content glass-modal">
-                <div class="modal-header">
-                    <h5 class="modal-title"><i class="bi bi-key-fill me-2"></i>SSH Key Setup</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <p class="text-muted small mb-3">
-                        This is the auto-generated SSH public key of this container.
-                        Run the command for each Proxmox node to authorize it.
-                    </p>
-                    <label class="form-label fw-semibold">Public Key</label>
-                    <div class="input-group mb-3">
-                        <textarea class="form-control font-monospace" id="ssh-setup-pubkey" rows="3" readonly style="font-size:0.75rem;resize:none"></textarea>
-                        <button class="btn btn-outline-secondary" onclick="navigator.clipboard.writeText(document.getElementById('ssh-setup-pubkey').value).then(()=>Toast.success('Copied!'))">
-                            <i class="bi bi-clipboard"></i>
-                        </button>
-                    </div>
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <label class="form-label fw-semibold mb-0">Copy to Nodes</label>
-                        <button class="btn btn-sm btn-primary" onclick="Health.deployKeyToNodes(this)">
-                            <i class="bi bi-cloud-upload me-1"></i>Deploy to All Nodes
-                        </button>
-                    </div>
-                    <div id="ssh-deploy-results" class="mb-3"></div>
-                    <div id="ssh-setup-commands"></div>
                 </div>
             </div>
         </div>
@@ -540,6 +516,7 @@ $perms = $user['permissions'];
     <div id="toast-container" class="toast-container position-fixed top-0 end-0 p-3" style="z-index:9999;margin-top:70px;"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
@@ -551,11 +528,16 @@ $perms = $user['permissions'];
     <script src="assets/js/components/dashboard.js?v=<?= $v ?>"></script>
     <script src="assets/js/components/templates.js?v=<?= $v ?>"></script>
     <script src="assets/js/components/deploy.js?v=<?= $v ?>"></script>
-    <script src="assets/js/components/tasks.js?v=<?= $v ?>"></script>
     <script src="assets/js/components/health.js?v=<?= $v ?>"></script>
     <script src="assets/js/components/maintenance.js?v=<?= $v ?>"></script>
     <script src="assets/js/components/updater.js?v=<?= $v ?>"></script>
     <script src="assets/js/components/loadbalancer.js?v=<?= $v ?>"></script>
+    <?php if (in_array('monitoring.view', $perms)): ?>
+    <script src="assets/js/components/monitoring.js?v=<?= $v ?>"></script>
+    <?php endif; ?>
+    <?php if (in_array('admin', $user['roles'] ?? [])): ?>
+    <script src="assets/js/components/settings.js?v=<?= $v ?>"></script>
+    <?php endif; ?>
     <script src="assets/js/components/users.js?v=<?= $v ?>"></script>
     <script src="assets/js/app.js?v=<?= $v ?>"></script>
 </body>

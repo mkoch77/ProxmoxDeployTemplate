@@ -7,6 +7,7 @@ use App\Auth;
 use App\Request;
 use App\Response;
 use App\Helpers;
+use App\AppLogger;
 
 Bootstrap::init();
 Request::requireMethod('POST');
@@ -58,7 +59,10 @@ try {
         'reset'    => $api->resetGuest($node, $type, $vmid),
     };
 
+    $user = Auth::check();
+    AppLogger::info('power', "{$body['action']} VM {$vmid} on {$node}", ['type' => $type, 'action' => $body['action']], $user['id'] ?? null);
     Response::success(['upid' => $result['data'] ?? null]);
 } catch (\Exception $e) {
+    AppLogger::error('power', "Failed to {$body['action']} VM {$body['vmid']}: {$e->getMessage()}", null, Auth::check()['id'] ?? null);
     Response::error($e->getMessage(), 500);
 }

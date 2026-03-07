@@ -142,6 +142,12 @@
     color: #fff;
 }
 
+[data-bs-theme="light"] .settings-tabs .nav-link.active {
+    background: var(--bg-card);
+    border-color: var(--border-color) var(--border-color) var(--bg-card);
+    color: var(--text-primary);
+}
+
 [data-bs-theme="light"] .log-viewer {
     background: #1a1a2e;
     color: #4ade80;
@@ -264,6 +270,10 @@ body {
     display: flex;
     flex-direction: column;
     gap: 4px;
+    flex: 1;
+}
+
+.sidebar-spacer {
     flex: 1;
 }
 
@@ -810,6 +820,15 @@ body {
     font-weight: 500;
 }
 
+.ip-badge {
+    cursor: pointer;
+    font-weight: normal;
+    font-size: 0.78em;
+    background: #3a4a6b;
+    color: #e0e6f0;
+    white-space: nowrap;
+}
+
 /* ===== Resource Progress Bars ===== */
 .resource-bar .progress {
     background: var(--bg-elevated);
@@ -929,6 +948,50 @@ body {
 .lb-automation-toggle .btn.active {
     background: var(--accent-blue);
     color: var(--bg-primary);
+}
+
+/* ===== Settings Page ===== */
+.settings-tabs {
+    border-bottom-color: var(--border-color);
+}
+
+.settings-tabs .nav-link {
+    color: var(--text-secondary);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    padding: 0.6rem 1.2rem;
+    font-weight: 500;
+    transition: color 0.15s, background 0.15s;
+}
+
+.settings-tabs .nav-link:hover {
+    color: var(--text-primary);
+    border-color: var(--border-color) var(--border-color) transparent;
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.settings-tabs .nav-link.active {
+    color: var(--text-primary);
+    background: var(--bg-card);
+    border-color: var(--border-color) var(--border-color) var(--bg-card);
+}
+
+.settings-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+}
+
+.settings-section-title {
+    margin-bottom: 0.25rem;
+}
+
+.settings-stats-card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 0.75rem 1rem;
 }
 
 /* ===== Sortable Table Headers ===== */

@@ -1,13 +1,41 @@
 services:
+  db:
+    image: postgres:16-alpine
+    container_name: proxmoxdeploy_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-proxmoxdeploy}
+      POSTGRES_USER: ${DB_USER:-proxmoxdeploy}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+    volumes:
+      - proxmoxdeploy_pgdata:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-proxmoxdeploy}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   app:
     build: .
     container_name: proxmoxdeploy_app
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     # No ports exposed directly — Nginx is the only entry point
     volumes:
-      # Persistent SQLite database + auto-generated SSH key
+      # Persistent data: SSH keys + custom images
       - proxmoxdeploy_data:/var/www/html/data
     environment:
+      # PostgreSQL
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-proxmoxdeploy}
+      DB_USER: ${DB_USER:-proxmoxdeploy}
+      DB_PASSWORD: ${DB_PASSWORD:-changeme}
+
       # Proxmox API
       PROXMOX_HOST: ${PROXMOX_HOST}
       PROXMOX_FALLBACK_HOSTS: ${PROXMOX_FALLBACK_HOSTS:-}
@@ -81,5 +109,6 @@ networks:
 
 volumes:
   proxmoxdeploy_data:
+  proxmoxdeploy_pgdata:
   letsencrypt:
   certbot_webroot:

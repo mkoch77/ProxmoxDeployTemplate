@@ -47,7 +47,7 @@ class Auth
             $username = $tokenData['preferred_username'] ?? $tokenData['email'] ?? $tokenData['oid'];
             $isFirstUser = UserManager::isFirstUser();
 
-            $stmt = $db->prepare('INSERT INTO users (username, display_name, email, auth_provider, entraid_oid) VALUES (?, ?, ?, ?, ?)');
+            $stmt = $db->prepare('INSERT INTO users (username, display_name, email, auth_provider, entraid_oid) VALUES (?, ?, ?, ?, ?) RETURNING id');
             $stmt->execute([
                 $username,
                 $tokenData['name'] ?? $username,
@@ -55,7 +55,7 @@ class Auth
                 'entraid',
                 $tokenData['oid'],
             ]);
-            $userId = (int) $db->lastInsertId();
+            $userId = (int) $stmt->fetchColumn();
 
             if ($isFirstUser) {
                 UserManager::assignRole($userId, self::getRoleId('admin'));
@@ -82,6 +82,7 @@ class Auth
     {
         $sessionId = $_COOKIE[self::COOKIE_NAME] ?? null;
         if (!$sessionId) {
+            AppLogger::debug('auth', 'No session cookie found');
             return null;
         }
 
@@ -90,15 +91,18 @@ class Auth
             SELECT us.*, u.username, u.display_name, u.email, u.auth_provider, u.is_active, u.ssh_public_keys, u.default_storage
             FROM user_sessions us
             JOIN users u ON u.id = us.user_id
-            WHERE us.id = ? AND us.expires_at > datetime(\'now\')
+            WHERE us.id = ? AND us.expires_at > NOW()
         ');
         $stmt->execute([$sessionId]);
         $session = $stmt->fetch();
 
         if (!$session || !$session['is_active']) {
+            AppLogger::debug('auth', 'Invalid or expired session', ['session_id_prefix' => substr($sessionId, 0, 8)]);
             self::clearSessionCookie();
             return null;
         }
+
+        AppLogger::debug('auth', 'Session validated', ['user_id' => $session['user_id'], 'username' => $session['username']]);
 
         return [
             'id' => $session['user_id'],
@@ -207,7 +211,7 @@ class Auth
         ]);
 
         // Cleanup expired sessions
-        $db->exec("DELETE FROM user_sessions WHERE expires_at < datetime('now')");
+        $db->exec("DELETE FROM user_sessions WHERE expires_at < NOW()");
 
         return $sessionId;
     }

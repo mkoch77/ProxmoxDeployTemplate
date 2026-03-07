@@ -7,6 +7,7 @@ use App\Request;
 use App\Response;
 use App\Auth;
 use App\UserManager;
+use App\AppLogger;
 
 Bootstrap::init();
 $currentUser = Auth::requirePermission('users.manage');
@@ -45,6 +46,7 @@ switch ($method) {
         }
 
         if (UserManager::getByUsername($username)) {
+            AppLogger::warning('admin', 'User creation failed: username already taken', ['username' => $username], $currentUser['id']);
             Response::error('Username already taken', 409);
         }
 
@@ -59,6 +61,7 @@ switch ($method) {
             UserManager::setRoles($userId, $roleIds);
         }
 
+        AppLogger::info('admin', 'User created', ['new_user_id' => $userId, 'username' => $username], $currentUser['id']);
         Response::success(UserManager::getById($userId));
         break;
 
@@ -104,6 +107,7 @@ switch ($method) {
             UserManager::setUserPermissionOverrides($id, $body['permission_overrides']);
         }
 
+        AppLogger::info('admin', 'User updated', ['target_user_id' => $id, 'fields' => array_keys($updateData)], $currentUser['id']);
         Response::success(UserManager::getById($id));
         break;
 
@@ -126,6 +130,7 @@ switch ($method) {
         }
 
         UserManager::delete($id);
+        AppLogger::warning('admin', 'User deleted', ['deleted_user_id' => $id, 'username' => $user['username'] ?? ''], $currentUser['id']);
         Response::success(['message' => 'User deleted']);
         break;
 

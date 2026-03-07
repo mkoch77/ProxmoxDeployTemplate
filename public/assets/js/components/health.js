@@ -35,15 +35,13 @@ const Health = {
             <div id="health-cluster-stats" class="row g-3 mb-4"></div>
             <div class="section-header mt-4">
                 <h2><i class="bi bi-hdd-rack-fill"></i> Nodes</h2>
-                <button class="btn btn-sm btn-outline-secondary" onclick="Health.showSshSetup()">
-                    <i class="bi bi-key-fill me-1"></i>SSH Key Setup
-                </button>
             </div>
             <div id="health-nodes" class="row g-3 mb-4"></div>
             <div class="section-header mt-4">
                 <h2><i class="bi bi-device-hdd-fill"></i> Storage Pools</h2>
             </div>
             <div id="health-storage" class="mb-4"></div>
+            <div id="health-rightsizing" class="mb-4"></div>
             <div id="health-ha" class="mb-4"></div>
         `;
     },
@@ -56,6 +54,7 @@ const Health = {
             this.data = data;
             this.updateView();
             this.loadNodeVersions();
+            this.loadRightSizing(silent);
         } catch (err) {
             if (!silent) Toast.error('Failed to load cluster data');
         }
@@ -600,68 +599,126 @@ const Health = {
         } catch (_) {}
     },
 
+    async loadRightSizing(silent = false) {
+        const container = document.getElementById('health-rightsizing');
+        if (!container) return;
+
+        try {
+            const data = silent
+                ? await API.getSilent('api/monitoring-rightsizing.php', { timerange: '24h' })
+                : await API.get('api/monitoring-rightsizing.php', { timerange: '24h' });
+            const recs = data.recommendations || [];
+
+            if (!recs.length) {
+                container.innerHTML = '';
+                return;
+            }
+
+            container.innerHTML = `
+                <div class="section-header mt-4">
+                    <h2><i class="bi bi-speedometer2"></i> Right-Sizing Suggestions</h2>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-dark table-hover align-middle">
+                        <thead>
+                            <tr>
+                                <th>VM</th>
+                                <th>Status</th>
+                                <th>CPU</th>
+                                <th>Memory</th>
+                                <th>Suggestions</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${recs.map(r => {
+                                const hasRec = r.recommended && (r.recommended.cpu_cores || r.recommended.mem_bytes);
+                                return `
+                                <tr class="${r.severity === 'critical' ? 'table-danger' : r.severity === 'undersized' ? 'table-warning' : ''}">
+                                    <td>
+                                        <strong>${r.vmid} — ${escapeHtml(r.name)}</strong>
+                                        <br><small class="text-muted">${escapeHtml(r.node)} · ${r.vm_type}</small>
+                                    </td>
+                                    <td>${this.severityBadge(r.severity)}</td>
+                                    <td>
+                                        <div class="small">Avg: ${r.usage.avg_cpu}%</div>
+                                        <div class="small">P95: ${r.usage.p95_cpu}%</div>
+                                        <div class="small text-muted">${r.current.cpu_cores} cores${r.recommended?.cpu_cores ? ` → <strong>${r.recommended.cpu_cores}</strong>` : ''}</div>
+                                    </td>
+                                    <td>
+                                        <div class="small">Avg: ${r.usage.avg_mem_pct}%</div>
+                                        <div class="small">P95: ${r.usage.p95_mem_pct}%</div>
+                                        <div class="small text-muted">${Utils.formatBytes(r.current.mem_bytes)}${r.recommended?.mem_bytes ? ` → <strong>${Utils.formatBytes(r.recommended.mem_bytes)}</strong>` : ''}</div>
+                                    </td>
+                                    <td>${r.suggestions.map(s => `<div class="small fw-semibold">${escapeHtml(s)}</div>`).join('')}</td>
+                                    <td>
+                                        ${hasRec ? `<button class="btn btn-sm btn-outline-success" title="Apply recommended values"
+                                            data-rec='${JSON.stringify(r.recommended).replace(/'/g, "&#39;")}'
+                                            onclick="Health.applyRightSizing(${r.vmid}, '${escapeHtml(r.node)}', '${r.vm_type}', this)">
+                                            <i class="bi bi-check-lg"></i> Apply
+                                        </button>` : ''}
+                                    </td>
+                                </tr>`;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        } catch (e) {
+            if (!silent) container.innerHTML = '';
+        }
+    },
+
+    async applyRightSizing(vmid, node, vmType, btn) {
+        const rec = JSON.parse(btn.dataset.rec);
+        const changes = [];
+        if (rec.cpu_cores) changes.push(`CPU: ${rec.cpu_cores} cores`);
+        if (rec.mem_bytes) changes.push(`Memory: ${Utils.formatBytes(rec.mem_bytes)}`);
+
+        if (!confirm(`Apply right-sizing to VM ${vmid} and restart?\n\n${changes.join('\n')}\n\nThe VM will be rebooted immediately.`)) return;
+
+        const origHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Applying…';
+
+        try {
+            await API.post('api/monitoring-rightsizing.php', {
+                vmid, node, vm_type: vmType,
+                cpu_cores: rec.cpu_cores || undefined,
+                mem_bytes: rec.mem_bytes || undefined,
+            });
+
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Restarting…';
+            await API.post('api/power.php', { node, type: vmType, vmid, action: 'reboot' });
+
+            Toast.success(`VM ${vmid} updated and restarting`);
+            const row = btn.closest('tr');
+            if (row) row.remove();
+            const tbody = document.querySelector('#health-rightsizing tbody');
+            if (tbody && !tbody.children.length) {
+                document.getElementById('health-rightsizing').innerHTML = '';
+            }
+        } catch (e) {
+            Toast.error(e.message);
+            btn.disabled = false;
+            btn.innerHTML = origHtml;
+        }
+    },
+
+    severityBadge(severity) {
+        const map = {
+            critical: '<span class="badge bg-danger">Critical</span>',
+            undersized: '<span class="badge bg-warning text-dark">Undersized</span>',
+            oversized: '<span class="badge bg-info text-dark">Oversized</span>',
+            optimal: '<span class="badge bg-success">Optimal</span>',
+        };
+        return map[severity] || severity;
+    },
+
     levelClass(pct) {
         if (pct >= 90) return 'level-danger';
         if (pct >= 70) return 'level-warn';
         return 'level-ok';
     },
 
-    async deployKeyToNodes(btn) {
-        const resultsEl = document.getElementById('ssh-deploy-results');
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Deploying...';
-        resultsEl.innerHTML = '';
-        try {
-            const res = await API.post('api/ssh-deploy-key.php', {});
-            resultsEl.innerHTML = res.results.map(r => `
-                <div class="d-flex align-items-center gap-2 mb-1">
-                    <i class="bi ${r.success ? 'bi-check-circle-fill text-success' : 'bi-x-circle-fill text-danger'}"></i>
-                    <span class="small">${escapeHtml(r.node)} (${escapeHtml(r.ip)})${r.error ? ' — ' + escapeHtml(r.error) : ''}</span>
-                </div>`).join('');
-            const allOk = res.results.every(r => r.success);
-            if (allOk) Toast.success('SSH key deployed to all nodes');
-            else Toast.warning('Some nodes failed — see details above');
-        } catch (e) {
-            resultsEl.innerHTML = `<p class="text-danger small">${escapeHtml(e.message || 'Deploy failed')}</p>`;
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = '<i class="bi bi-cloud-upload me-1"></i>Deploy to All Nodes';
-        }
-    },
-
-    async showSshSetup() {
-        const modal = new bootstrap.Modal(document.getElementById('sshSetupModal'));
-        const keyEl = document.getElementById('ssh-setup-pubkey');
-        const cmdsEl = document.getElementById('ssh-setup-commands');
-        keyEl.textContent = 'Loading...';
-        cmdsEl.innerHTML = '';
-        modal.show();
-
-        try {
-            const res = await API.get('api/ssh-pubkey.php');
-            const pubKey = res.public_key;
-            keyEl.textContent = pubKey;
-
-            const nodes = (this.data?.nodes || []).sort((a, b) => a.node.localeCompare(b.node));
-            if (nodes.length > 0) {
-                cmdsEl.innerHTML = nodes.map(n => {
-                    const ip = n.ip || n.node;
-                    return `<div class="mb-2">
-                        <small class="text-muted">${escapeHtml(n.node)} (${escapeHtml(ip)})</small>
-                        <div class="input-group input-group-sm mt-1">
-                            <input type="text" class="form-control font-monospace" readonly
-                                value="ssh-copy-id -i /dev/stdin root@${escapeHtml(ip)} <<< ${escapeHtml("'" + pubKey + "'")}">
-                            <button class="btn btn-outline-secondary" onclick="navigator.clipboard.writeText(this.previousElementSibling.value).then(()=>Toast.success('Copied!'))">
-                                <i class="bi bi-clipboard"></i>
-                            </button>
-                        </div>
-                    </div>`;
-                }).join('');
-            } else {
-                cmdsEl.innerHTML = '<p class="text-muted small">No nodes found. Copy the key manually.</p>';
-            }
-        } catch (e) {
-            keyEl.textContent = 'Error: ' + (e.message || 'Could not load public key');
-        }
-    },
 };

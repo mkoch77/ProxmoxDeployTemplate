@@ -8,6 +8,7 @@ use App\Request;
 use App\Response;
 use App\Helpers;
 use App\SSH;
+use App\AppLogger;
 
 Bootstrap::init();
 Auth::requirePermission('cluster.update');
@@ -68,6 +69,9 @@ if ($method === 'POST') {
         } catch (\Exception $e) { /* fall back to node name */ }
     }
 
+    $userId = Auth::check()['id'] ?? null;
+    AppLogger::info('system', 'Node update started', ['node' => $node], $userId);
+
     // Long-running: allow up to 10 minutes
     set_time_limit(600);
 
@@ -77,6 +81,7 @@ if ($method === 'POST') {
     try {
         $result = SSH::execInstall($sshHost, $cmd, 600);
     } catch (\Exception $e) {
+        AppLogger::error('system', 'Node update SSH connection failed', ['node' => $node, 'error' => $e->getMessage()], $userId);
         Response::error('SSH connection to node "' . $node . '" failed: ' . $e->getMessage(), 500);
     }
 
@@ -87,6 +92,12 @@ if ($method === 'POST') {
     $upgraded = 0;
     if (preg_match('/(\d+) upgraded/', $log, $m)) {
         $upgraded = (int) $m[1];
+    }
+
+    if ($success) {
+        AppLogger::info('system', 'Node update completed', ['node' => $node, 'upgraded_packages' => $upgraded], $userId);
+    } else {
+        AppLogger::warning('system', 'Node update completed with issues', ['node' => $node, 'upgraded_packages' => $upgraded], $userId);
     }
 
     Response::success([

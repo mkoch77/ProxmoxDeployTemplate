@@ -14,6 +14,7 @@ class Session
             'samesite'  => 'Strict',
         ]);
         session_start();
+        AppLogger::debug('auth', 'Session started');
     }
 
     public static function getCsrfToken(): string

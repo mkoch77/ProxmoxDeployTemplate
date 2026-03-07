@@ -10,6 +10,7 @@ use App\Helpers;
 use App\Database;
 use App\MaintenanceManager;
 use App\SSH;
+use App\AppLogger;
 
 Bootstrap::init();
 
@@ -109,12 +110,21 @@ switch ($method) {
             $status = empty($guests) ? 'maintenance' : 'entering';
             $stmt->execute([$nodeName, $status, $user['id'], json_encode($migrations)]);
 
+            $failedCount = count(array_filter($migrations, fn($m) => $m['status'] === 'error'));
+            AppLogger::info('maintenance', 'Node entering maintenance mode', [
+                'node' => $nodeName,
+                'status' => $status,
+                'total_migrations' => count($migrations),
+                'failed_migrations' => $failedCount,
+            ], $user['id']);
+
             Response::success([
                 'node' => $nodeName,
                 'status' => $status,
                 'migrations' => $migrations,
             ]);
         } catch (\Exception $e) {
+            AppLogger::error('maintenance', 'Failed to enter maintenance mode', ['node' => $nodeName, 'error' => $e->getMessage()], $user['id']);
             Response::error($e->getMessage(), 500);
         }
         break;
@@ -190,11 +200,16 @@ switch ($method) {
                 // No VMs to migrate back, just delete the record
                 $stmt = $db->prepare('DELETE FROM maintenance_nodes WHERE node_name = ?');
                 $stmt->execute([$nodeName]);
+                AppLogger::info('maintenance', 'Node exited maintenance mode', ['node' => $nodeName], Auth::check()['id'] ?? null);
                 Response::success(['message' => 'Maintenance mode ended', 'node' => $nodeName]);
             } else {
                 // Update status to 'leaving' and store back-migration tasks
                 $stmt = $db->prepare('UPDATE maintenance_nodes SET status = ?, migration_tasks = ? WHERE node_name = ?');
                 $stmt->execute(['leaving', json_encode($backMigrations), $nodeName]);
+                AppLogger::info('maintenance', 'Node leaving maintenance mode, migrating VMs back', [
+                    'node' => $nodeName,
+                    'back_migrations' => count($backMigrations),
+                ], Auth::check()['id'] ?? null);
                 Response::success([
                     'message' => 'Exiting maintenance mode, VMs being migrated back',
                     'node' => $nodeName,
@@ -203,6 +218,7 @@ switch ($method) {
                 ]);
             }
         } catch (\Exception $e) {
+            AppLogger::error('maintenance', 'Failed to exit maintenance mode', ['node' => $nodeName, 'error' => $e->getMessage()], Auth::check()['id'] ?? null);
             Response::error($e->getMessage(), 500);
         }
         break;

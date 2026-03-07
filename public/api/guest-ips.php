@@ -7,10 +7,13 @@ use App\Auth;
 use App\Request;
 use App\Response;
 use App\Helpers;
+use App\AppLogger;
 
 Bootstrap::init();
 Request::requireMethod('GET');
 Auth::requireAuth();
+
+AppLogger::debug('api', 'Fetching guest IPs');
 
 $node  = Request::get('node');
 $type  = Request::get('type');

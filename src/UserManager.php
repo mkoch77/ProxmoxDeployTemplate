@@ -15,7 +15,7 @@ class UserManager
     public static function create(array $data): int
     {
         $db = Database::connection();
-        $stmt = $db->prepare('INSERT INTO users (username, display_name, email, password_hash, auth_provider) VALUES (?, ?, ?, ?, ?)');
+        $stmt = $db->prepare('INSERT INTO users (username, display_name, email, password_hash, auth_provider) VALUES (?, ?, ?, ?, ?) RETURNING id');
         $stmt->execute([
             $data['username'],
             $data['display_name'] ?? $data['username'],
@@ -23,7 +23,7 @@ class UserManager
             isset($data['password']) ? password_hash($data['password'], PASSWORD_BCRYPT) : null,
             $data['auth_provider'] ?? 'local',
         ]);
-        return (int) $db->lastInsertId();
+        return (int) $stmt->fetchColumn();
     }
 
     public static function update(int $id, array $data): void
@@ -137,7 +137,7 @@ class UserManager
     public static function assignRole(int $userId, int $roleId): void
     {
         $db = Database::connection();
-        $stmt = $db->prepare('INSERT OR IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)');
+        $stmt = $db->prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?) ON CONFLICT DO NOTHING');
         $stmt->execute([$userId, $roleId]);
     }
 

@@ -9,6 +9,7 @@ use App\Response;
 use App\Config;
 use App\Helpers;
 use App\SSH;
+use App\AppLogger;
 
 Bootstrap::init();
 set_time_limit(360); // community script installs can take several minutes
@@ -67,6 +68,9 @@ $installCmd =
     "yes '' | TERM=xterm DEBIAN_FRONTEND=noninteractive script -q -c 'bash " . $tmpFile . "' /dev/null; " .
     'rm -f ' . $tmpFile;
 
+$userId = Auth::check()['id'] ?? null;
+AppLogger::info('deploy', 'Community script installation started', ['script' => $scriptPath, 'node' => $nodeName], $userId);
+
 try {
     $result = SSH::execInstall($sshHost, $installCmd, 300);
 
@@ -86,5 +90,6 @@ try {
         'script'    => $scriptPath,
     ]);
 } catch (\Exception $e) {
+    AppLogger::error('deploy', 'Community script installation failed', ['script' => $scriptPath, 'node' => $nodeName, 'error' => $e->getMessage()], $userId);
     Response::error('SSH execution failed: ' . $e->getMessage(), 500);
 }

@@ -39,6 +39,8 @@ class ProxmoxAPI
     {
         $lastError = null;
 
+        AppLogger::debug('api', "Proxmox API {$method} {$path}", ['params' => array_keys($params)]);
+
         foreach ($this->hosts as $host) {
             $url = $this->baseUrl($host) . $path;
             $ch = curl_init();
@@ -86,12 +88,14 @@ class ProxmoxAPI
 
             // Connection failed → try next host
             if ($response === false) {
+                AppLogger::debug('api', "Proxmox API connection failed to {$host}", ['path' => $path, 'error' => $error]);
                 $lastError = new \RuntimeException('Proxmox API request failed: ' . $error);
                 continue;
             }
 
             $data = json_decode($response, true);
             if ($data === null) {
+                AppLogger::debug('api', "Proxmox API invalid JSON from {$host}", ['path' => $path]);
                 $lastError = new \RuntimeException('Invalid JSON response from Proxmox API');
                 continue;
             }
@@ -103,6 +107,8 @@ class ProxmoxAPI
                 }
                 throw new \RuntimeException('Proxmox API error (' . $httpCode . '): ' . $msg);
             }
+
+            AppLogger::debug('api', "Proxmox API response OK from {$host}", ['path' => $path, 'http_code' => $httpCode]);
 
             return $data;
         }
@@ -140,6 +146,11 @@ class ProxmoxAPI
     public function getNodeStatus(string $node): array
     {
         return $this->get("/nodes/{$node}/status");
+    }
+
+    public function getNodeRRDData(string $node, string $timeframe = 'hour'): array
+    {
+        return $this->get("/nodes/{$node}/rrddata", ['timeframe' => $timeframe]);
     }
 
     // --- Cluster Resources ---

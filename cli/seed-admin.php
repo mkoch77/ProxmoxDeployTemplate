@@ -10,9 +10,12 @@ require_once __DIR__ . '/../vendor/autoload.php';
 use App\Database;
 use App\Migrator;
 use App\UserManager;
+use App\AppLogger;
 
 // Run migrations
 Migrator::run();
+
+AppLogger::debug('system', 'CLI seed-admin started');
 
 if ($argc < 3) {
     echo "Usage: php cli/seed-admin.php <username> <password>\n";

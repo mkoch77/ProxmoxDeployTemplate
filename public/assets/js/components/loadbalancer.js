@@ -27,11 +27,11 @@ const Loadbalancer = {
 
     render() {
         const main = document.getElementById('page-content');
-        const canManage = Permissions.has('drs.manage');
 
         main.innerHTML = `
-            <div class="section-header">
-                <h2><i class="bi bi-shuffle"></i> Loadbalancing</h2>
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <h2 class="mb-0"><i class="bi bi-shuffle"></i> Loadbalancing</h2>
+                <div id="lb-header-actions"></div>
             </div>
             <p class="text-muted mb-4">Automatic workload distribution of VMs/CTs across cluster nodes, similar to VMware DRS.</p>
 
@@ -41,13 +41,6 @@ const Loadbalancer = {
                 <h2><i class="bi bi-bar-chart-fill"></i> Node Utilization</h2>
             </div>
             <div id="lb-node-bars" class="mb-4"></div>
-
-            ${canManage ? `
-                <div class="section-header mt-4">
-                    <h2><i class="bi bi-gear-fill"></i> Settings</h2>
-                </div>
-                <div id="lb-settings" class="mb-4"></div>
-            ` : ''}
 
             <div class="section-header mt-4">
                 <h2><i class="bi bi-lightbulb-fill"></i> Recommendations</h2>
@@ -79,9 +72,6 @@ const Loadbalancer = {
         if (!this.data) return;
         this.renderBalanceStats();
         this.renderNodeBars();
-        if (Permissions.has('drs.manage')) {
-            this.renderSettings();
-        }
         this.renderRecommendations();
         this.renderHistory();
     },
@@ -164,98 +154,6 @@ const Loadbalancer = {
         `;
     },
 
-    renderSettings() {
-        const container = document.getElementById('lb-settings');
-        if (!container) return;
-
-        const s = this.data.settings || {};
-        const thresholdLabels = {
-            1: 'Aggressive',
-            2: 'Moderate',
-            3: 'Default',
-            4: 'Conservative',
-            5: 'Very Conservative',
-        };
-
-        container.innerHTML = `
-            <div class="lb-settings-card">
-                <div class="row g-3">
-                    <div class="col-12">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="lb-enabled" ${s.enabled ? 'checked' : ''}>
-                            <label class="form-check-label" for="lb-enabled">Loadbalancing enabled</label>
-                        </div>
-                    </div>
-
-                    <div class="col-12">
-                        <label class="form-label text-muted small mb-2">Automation Level</label>
-                        <div class="lb-automation-toggle">
-                            <button class="btn btn-sm ${s.automation_level === 'manual' ? 'active' : 'btn-outline-light'}" data-level="manual">Manual</button>
-                            <button class="btn btn-sm ${s.automation_level === 'partial' ? 'active' : 'btn-outline-light'}" data-level="partial">Semi-Automatic</button>
-                            <button class="btn btn-sm ${s.automation_level === 'full' ? 'active' : 'btn-outline-light'}" data-level="full">Fully Automatic</button>
-                        </div>
-                    </div>
-
-                    <div class="col-md-6">
-                        <label class="form-label text-muted small">CPU Weight: <span id="lb-cpu-val">${s.cpu_weight}</span>%</label>
-                        <input type="range" class="form-range" id="lb-cpu-weight" min="0" max="100" value="${s.cpu_weight}">
-                    </div>
-                    <div class="col-md-6">
-                        <label class="form-label text-muted small">RAM Weight: <span id="lb-ram-val">${s.ram_weight}</span>%</label>
-                        <input type="range" class="form-range" id="lb-ram-weight" min="0" max="100" value="${s.ram_weight}">
-                    </div>
-
-                    <div class="col-md-6">
-                        <label class="form-label text-muted small">Threshold: <span id="lb-threshold-val">${s.threshold} - ${thresholdLabels[s.threshold] || ''}</span></label>
-                        <input type="range" class="form-range" id="lb-threshold" min="1" max="5" value="${s.threshold}">
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label text-muted small">Interval (minutes)</label>
-                        <input type="number" class="form-control form-control-sm" id="lb-interval" min="1" max="60" value="${s.interval_minutes}">
-                    </div>
-                    <div class="col-md-2">
-                        <label class="form-label text-muted small">Max. concurrent</label>
-                        <input type="number" class="form-control form-control-sm" id="lb-max-concurrent" min="1" max="10" value="${s.max_concurrent || 3}">
-                    </div>
-
-                    <div class="col-12 d-flex gap-2">
-                        <button class="btn btn-primary btn-sm" onclick="Loadbalancer.saveSettings()">
-                            <i class="bi bi-check-lg me-1"></i>Save Settings
-                        </button>
-                        <button class="btn btn-outline-light btn-sm" onclick="Loadbalancer.resetDefaults()">
-                            <i class="bi bi-arrow-counterclockwise me-1"></i>Reset to Default
-                        </button>
-                    </div>
-
-                </div>
-            </div>
-        `;
-
-        // Event listeners for sliders
-        document.getElementById('lb-cpu-weight')?.addEventListener('input', (e) => {
-            document.getElementById('lb-cpu-val').textContent = e.target.value;
-        });
-        document.getElementById('lb-ram-weight')?.addEventListener('input', (e) => {
-            document.getElementById('lb-ram-val').textContent = e.target.value;
-        });
-        document.getElementById('lb-threshold')?.addEventListener('input', (e) => {
-            const val = parseInt(e.target.value);
-            const labels = { 1: 'Aggressive', 2: 'Moderate', 3: 'Default', 4: 'Conservative', 5: 'Very Conservative' };
-            document.getElementById('lb-threshold-val').textContent = `${val} - ${labels[val] || ''}`;
-        });
-
-        document.querySelectorAll('.lb-automation-toggle .btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('.lb-automation-toggle .btn').forEach(b => {
-                    b.classList.remove('active');
-                    b.classList.add('btn-outline-light');
-                });
-                btn.classList.add('active');
-                btn.classList.remove('btn-outline-light');
-            });
-        });
-    },
-
     renderRecommendations() {
         const container = document.getElementById('lb-recommendations');
         if (!container) return;
@@ -266,18 +164,22 @@ const Loadbalancer = {
         const isPartial = settings.automation_level === 'partial';
         const recs = latestRun?.recommendations || [];
 
-        const actionButtons = canManage ? `
-            <div class="d-flex gap-2 mb-3">
-                <button class="btn btn-primary btn-sm" onclick="Loadbalancer.runNow()">
-                    <i class="bi bi-play-fill me-1"></i>Evaluate Now
-                </button>
-                ${isPartial && recs.some(r => r.status === 'pending') ? `
-                    <button class="btn btn-success btn-sm" onclick="Loadbalancer.applyAll(${latestRun?.id})">
-                        <i class="bi bi-check-all me-1"></i>Apply All
+        // Render header action buttons
+        const headerActions = document.getElementById('lb-header-actions');
+        if (headerActions) {
+            headerActions.innerHTML = canManage ? `
+                <div class="d-flex gap-2">
+                    <button class="btn btn-primary btn-sm" onclick="Loadbalancer.runNow()">
+                        <i class="bi bi-play-fill me-1"></i>Evaluate Now
                     </button>
-                ` : ''}
-            </div>
-        ` : '';
+                    ${isPartial && recs.some(r => r.status === 'pending') ? `
+                        <button class="btn btn-success btn-sm" onclick="Loadbalancer.applyAll(${latestRun?.id})">
+                            <i class="bi bi-check-all me-1"></i>Apply All
+                        </button>
+                    ` : ''}
+                </div>
+            ` : '';
+        }
 
         if (recs.length === 0) {
             const skipped = latestRun?.skipped || [];
@@ -301,7 +203,6 @@ const Loadbalancer = {
             }
 
             container.innerHTML = `
-                ${actionButtons}
                 <div class="text-muted text-center py-3">
                     ${latestRun ? 'No recommendations - cluster is balanced' : 'No evaluation performed yet'}
                     ${skippedHtml}
@@ -311,7 +212,6 @@ const Loadbalancer = {
         }
 
         container.innerHTML = `
-            ${actionButtons}
             <div class="table-responsive">
                 <table class="table table-dark table-hover align-middle">
                     <thead>
@@ -406,49 +306,6 @@ const Loadbalancer = {
         if (pct >= 90) return 'level-danger';
         if (pct >= 70) return 'level-warn';
         return 'level-ok';
-    },
-
-    async saveSettings() {
-        const activeBtn = document.querySelector('.lb-automation-toggle .btn.active');
-        const settings = {
-            enabled: document.getElementById('lb-enabled')?.checked ? 1 : 0,
-            automation_level: activeBtn?.dataset.level || 'manual',
-            cpu_weight: parseInt(document.getElementById('lb-cpu-weight')?.value || '50'),
-            ram_weight: parseInt(document.getElementById('lb-ram-weight')?.value || '50'),
-            threshold: parseInt(document.getElementById('lb-threshold')?.value || '3'),
-            interval_minutes: parseInt(document.getElementById('lb-interval')?.value || '5'),
-            max_concurrent: parseInt(document.getElementById('lb-max-concurrent')?.value || '3'),
-        };
-
-        try {
-            await API.updateLoadbalancerSettings(settings);
-            Toast.success('Settings saved');
-            await this.loadData();
-        } catch (err) {
-            Toast.error('Failed to save settings');
-        }
-    },
-
-    async resetDefaults() {
-        if (!confirm('Reset all loadbalancer settings to default values?')) return;
-
-        const defaults = {
-            enabled: 0,
-            automation_level: 'manual',
-            cpu_weight: 50,
-            ram_weight: 50,
-            threshold: 3,
-            interval_minutes: 5,
-            max_concurrent: 3,
-        };
-
-        try {
-            await API.updateLoadbalancerSettings(defaults);
-            Toast.success('Settings reset to defaults');
-            await this.loadData();
-        } catch (err) {
-            Toast.error('Failed to reset settings');
-        }
     },
 
     async runNow() {

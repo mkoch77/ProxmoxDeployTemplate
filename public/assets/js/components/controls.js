@@ -19,6 +19,12 @@ const Controls = {
     },
 
     async performAction(node, type, vmid, action, name = '') {
+        // Close any open Bootstrap dropdowns
+        document.querySelectorAll('.dropdown-menu.show').forEach(menu => {
+            const dd = bootstrap.Dropdown.getInstance(menu.previousElementSibling);
+            if (dd) dd.hide(); else menu.classList.remove('show');
+        });
+
         const labels = {
             start:    'start',
             stop:     'force stop (hard poweroff)',

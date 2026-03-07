@@ -7,6 +7,7 @@ use App\Auth;
 use App\Request;
 use App\Response;
 use App\Helpers;
+use App\AppLogger;
 
 Bootstrap::init();
 Request::requireMethod('GET');
@@ -14,6 +15,8 @@ Auth::requireAuth();
 Request::requireParams(['node'], $_GET);
 
 $node = Request::get('node');
+
+AppLogger::debug('api', 'Fetching tasks');
 if (!Helpers::validateNodeName($node)) {
     Response::error('Invalid node name', 400);
 }

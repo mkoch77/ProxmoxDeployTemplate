@@ -10,9 +10,12 @@ require_once __DIR__ . '/../vendor/autoload.php';
 use App\Migrator;
 use App\Config;
 use App\Helpers;
+use App\AppLogger;
 use phpseclib3\Net\SSH2;
 
 Migrator::run();
+
+AppLogger::debug('ssh', 'CLI SSH key deploy started');
 
 $keyPath    = Config::get('SSH_KEY_PATH', '');
 $pubKeyPath = $keyPath . '.pub';

@@ -7,10 +7,13 @@ use App\Auth;
 use App\Request;
 use App\Response;
 use App\Loadbalancer;
+use App\AppLogger;
 
 Bootstrap::init();
 Request::requireMethod('GET');
 Auth::requirePermission('drs.view');
+
+AppLogger::debug('monitoring', 'Fetching DRS history');
 
 try {
     $runId = Request::get('run_id');

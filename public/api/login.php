@@ -6,6 +6,7 @@ use App\Bootstrap;
 use App\Request;
 use App\Response;
 use App\Auth;
+use App\AppLogger;
 
 Bootstrap::init();
 Request::requireMethod('POST');
@@ -21,7 +22,9 @@ if ($username === '' || $password === '') {
 
 $user = Auth::login($username, $password);
 if (!$user) {
+    AppLogger::warning('auth', "Failed login attempt for user '{$username}'");
     Response::error('Invalid credentials', 401);
 }
 
+AppLogger::info('auth', "User '{$username}' logged in", null, $user['id'] ?? null);
 Response::success($user);

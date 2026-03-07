@@ -7,10 +7,14 @@ use App\Auth;
 use App\Request;
 use App\Response;
 use App\Helpers;
+use App\AppLogger;
+use PDO;
 
 Bootstrap::init();
 Request::requireMethod('GET');
 Auth::requireAuth();
+
+AppLogger::debug('api', 'Fetching guest list');
 
 try {
     $api = Helpers::createAPI();
@@ -50,6 +54,19 @@ try {
         } catch (\Exception $e) {
             $guest['ostype'] = null;
         }
+    }
+    unset($guest);
+
+    // Attach cached IPs from database
+    $db = \App\Database::connection();
+    $ipRows = $db->query('SELECT vmid, node, ips FROM guest_ips')->fetchAll(PDO::FETCH_ASSOC);
+    $ipMap = [];
+    foreach ($ipRows as $row) {
+        $ipMap[$row['vmid'] . '-' . $row['node']] = json_decode($row['ips'], true) ?: [];
+    }
+    foreach ($guests as &$guest) {
+        $key = $guest['vmid'] . '-' . $guest['node'];
+        $guest['ips'] = $ipMap[$key] ?? [];
     }
     unset($guest);
 

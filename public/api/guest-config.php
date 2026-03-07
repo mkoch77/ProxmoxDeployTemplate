@@ -7,6 +7,7 @@ use App\Auth;
 use App\Request;
 use App\Response;
 use App\Helpers;
+use App\AppLogger;
 
 Bootstrap::init();
 Request::requireMethod('GET');
@@ -16,6 +17,8 @@ Request::requireParams(['node', 'type', 'vmid'], $_GET);
 $node = Request::get('node');
 $type = Request::get('type');
 $vmid = (int) Request::get('vmid');
+
+AppLogger::debug('api', 'Fetching guest config', ['vmid' => $vmid]);
 
 if (!Helpers::validateNodeName($node)) {
     Response::error('Invalid node name', 400);

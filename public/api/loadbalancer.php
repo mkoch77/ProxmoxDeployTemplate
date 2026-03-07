@@ -8,6 +8,7 @@ use App\Request;
 use App\Response;
 use App\Helpers;
 use App\Loadbalancer;
+use App\AppLogger;
 
 Bootstrap::init();
 
@@ -54,8 +55,11 @@ switch ($method) {
                     if (isset($body['max_concurrent'])) $data['max_concurrent'] = max(1, min(10, (int)$body['max_concurrent']));
 
                     Loadbalancer::updateSettings($data);
+                    $userId = Auth::check()['id'] ?? null;
+                    AppLogger::info('config', 'DRS settings updated', $data, $userId);
                     Response::success(Loadbalancer::getSettings());
                 } catch (\Exception $e) {
+                    AppLogger::error('config', 'DRS settings update failed', ['error' => $e->getMessage()], Auth::check()['id'] ?? null);
                     Response::error($e->getMessage(), 500);
                 }
                 break;
@@ -63,8 +67,11 @@ switch ($method) {
             case 'run':
                 try {
                     $api = Helpers::createAPI();
+                    $userId = Auth::check()['id'] ?? null;
+                    AppLogger::info('monitoring', 'DRS manual run triggered', null, $userId);
                     Response::success(Loadbalancer::evaluate($api, 'manual'));
                 } catch (\Exception $e) {
+                    AppLogger::error('monitoring', 'DRS manual run failed', ['error' => $e->getMessage()], Auth::check()['id'] ?? null);
                     Response::error($e->getMessage(), 500);
                 }
                 break;
@@ -74,8 +81,11 @@ switch ($method) {
                     $recId = (int)($body['recommendation_id'] ?? 0);
                     if ($recId <= 0) Response::error('Invalid recommendation ID', 400);
                     $api = Helpers::createAPI();
+                    $userId = Auth::check()['id'] ?? null;
+                    AppLogger::info('monitoring', 'DRS recommendation applied', ['recommendation_id' => $recId], $userId);
                     Response::success(Loadbalancer::applyRecommendation($api, $recId));
                 } catch (\Exception $e) {
+                    AppLogger::error('monitoring', 'DRS recommendation apply failed', ['recommendation_id' => $recId ?? 0, 'error' => $e->getMessage()], Auth::check()['id'] ?? null);
                     Response::error($e->getMessage(), 500);
                 }
                 break;
@@ -85,8 +95,11 @@ switch ($method) {
                     $runId = (int)($body['run_id'] ?? 0);
                     if ($runId <= 0) Response::error('Invalid run ID', 400);
                     $api = Helpers::createAPI();
+                    $userId = Auth::check()['id'] ?? null;
+                    AppLogger::info('monitoring', 'All DRS recommendations applied', ['run_id' => $runId], $userId);
                     Response::success(Loadbalancer::applyAllRecommendations($api, $runId));
                 } catch (\Exception $e) {
+                    AppLogger::error('monitoring', 'DRS apply-all failed', ['run_id' => $runId ?? 0, 'error' => $e->getMessage()], Auth::check()['id'] ?? null);
                     Response::error($e->getMessage(), 500);
                 }
                 break;

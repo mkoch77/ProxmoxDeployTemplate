@@ -19,7 +19,12 @@ const API = {
 
         try {
             const response = await fetch(url, config);
-            const data = await response.json();
+            let data;
+            try {
+                data = await response.json();
+            } catch {
+                throw new Error(`Server error (HTTP ${response.status}) — invalid response`);
+            }
 
             if (!response.ok || data.error) {
                 throw new Error(data.message || `HTTP ${response.status}`);
@@ -50,6 +55,14 @@ const API = {
         return this.request(url, {
             method: 'POST',
             body: JSON.stringify(body),
+        });
+    },
+
+    postSilent(url, body = {}) {
+        return this.request(url, {
+            method: 'POST',
+            body: JSON.stringify(body),
+            silent: true,
         });
     },
 
@@ -187,8 +200,55 @@ const API = {
         return this.post('api/cloud-init-start.php', params);
     },
 
+    // --- Custom Images ---
+
+    getCustomImages() {
+        return this.get('api/custom-images.php');
+    },
+
+    registerCustomImage(data) {
+        return this.post('api/custom-images.php', data);
+    },
+
+    uploadCustomImage(formData) {
+        return fetch('api/custom-images.php', {
+            method: 'POST',
+            headers: { 'X-CSRF-Token': this._csrfToken || document.querySelector('meta[name=csrf-token]')?.content || '' },
+            body: formData,
+        }).then(r => r.json()).then(d => { if (!d.success) throw new Error(d.error || 'Upload failed'); return d.data; });
+    },
+
+    deleteCustomImage(id, deleteFile = false) {
+        return fetch(`api/custom-images.php?id=${id}${deleteFile ? '&delete_file=1' : ''}`, {
+            method: 'DELETE',
+            headers: { 'X-CSRF-Token': this._csrfToken || document.querySelector('meta[name=csrf-token]')?.content || '' },
+        }).then(r => r.json()).then(d => { if (!d.success) throw new Error(d.error || 'Delete failed'); return d.data; });
+    },
+
+    distributeCustomImage(id) {
+        return this.post('api/custom-images-distribute.php', { id });
+    },
+
     getNodeInfo(node) {
         return this.get('api/node-info.php', { node });
+    },
+
+    // --- Windows Deploy ---
+
+    getWindowsImages() {
+        return this.get('api/windows-images.php');
+    },
+
+    saveWindowsImage(data) {
+        return this.post('api/windows-images.php', data);
+    },
+
+    deleteWindowsImage(id) {
+        return this.delete(`api/windows-images.php?id=${id}`);
+    },
+
+    windowsDeploy(params) {
+        return this.post('api/windows-deploy.php', params);
     },
 
     getGuestIPs(node, type, vmid) {

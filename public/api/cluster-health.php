@@ -8,10 +8,13 @@ use App\Request;
 use App\Response;
 use App\Helpers;
 use App\Database;
+use App\AppLogger;
 
 Bootstrap::init();
 Request::requireMethod('GET');
 Auth::requirePermission('cluster.health.view');
+
+AppLogger::debug('api', 'Fetching cluster health');
 
 try {
     $api = Helpers::createAPI();

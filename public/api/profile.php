@@ -6,6 +6,7 @@ use App\Bootstrap;
 use App\Auth;
 use App\Response;
 use App\Database;
+use App\AppLogger;
 
 Bootstrap::init();
 $user = Auth::requireAuth();
@@ -29,6 +30,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $stmt = $db->prepare('UPDATE users SET ssh_public_keys = ?, default_storage = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
     $stmt->execute([$sshKeys, $defaultStorage, $user['id']]);
+
+    AppLogger::info('config', 'Profile updated', [
+        'ssh_keys_changed' => !empty($sshKeys),
+        'default_storage' => $defaultStorage,
+    ], $user['id']);
 
     Response::success(['ssh_public_keys' => $sshKeys, 'default_storage' => $defaultStorage]);
 }

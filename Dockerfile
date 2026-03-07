@@ -2,18 +2,26 @@ FROM php:8.2-apache
 
 # Install system dependencies and PHP extensions
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libsqlite3-dev \
+        libpq-dev \
         libcurl4-openssl-dev \
         libssl-dev \
         unzip \
         git \
         openssh-client \
         cron \
+        postgresql-client \
     && docker-php-ext-install \
-        pdo_sqlite \
+        pdo_pgsql \
         curl \
     && a2enmod rewrite headers \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && { \
+        echo 'upload_max_filesize = 20G'; \
+        echo 'post_max_size = 20G'; \
+        echo 'memory_limit = 512M'; \
+        echo 'max_execution_time = 3600'; \
+        echo 'max_input_time = 3600'; \
+    } > /usr/local/etc/php/conf.d/uploads.ini
 
 # Install Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
@@ -35,13 +43,13 @@ COPY . .
 # Install PHP dependencies (no dev packages)
 RUN composer install --no-dev --no-interaction --optimize-autoloader
 
-# Create data directory for SQLite DB and set permissions
-RUN mkdir -p data \
+# Create data directory for SSH keys and custom images
+RUN mkdir -p data data/images \
     && chown -R www-data:www-data /var/www/html \
     && chmod -R 755 /var/www/html \
     && chmod 750 /var/www/html/data
 
-# Persistent volume for SQLite database
+# Persistent volume for SSH keys and custom images
 VOLUME ["/var/www/html/data"]
 
 EXPOSE 80

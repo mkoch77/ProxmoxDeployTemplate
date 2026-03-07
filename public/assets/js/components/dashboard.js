@@ -6,15 +6,19 @@ const Dashboard = {
     guests: [],
     nodes: [],
     pendingMigrations: {},
+    _ipRefreshInterval: null,
+    _ipLoading: false,
 
     async init() {
         this.render();
         await this.loadData();
         this.startAutoRefresh();
+        this._startIpRefresh();
     },
 
     destroy() {
         this.stopAutoRefresh();
+        this._stopIpRefresh();
     },
 
     startAutoRefresh() {
@@ -26,6 +30,19 @@ const Dashboard = {
         if (this.refreshInterval) {
             clearInterval(this.refreshInterval);
             this.refreshInterval = null;
+        }
+    },
+
+    _startIpRefresh() {
+        this._stopIpRefresh();
+        this._refreshIps();
+        this._ipRefreshInterval = setInterval(() => this._refreshIps(), 120000);
+    },
+
+    _stopIpRefresh() {
+        if (this._ipRefreshInterval) {
+            clearInterval(this._ipRefreshInterval);
+            this._ipRefreshInterval = null;
         }
     },
 
@@ -407,7 +424,7 @@ const Dashboard = {
                 <td id="cell-ram-${id}">${g.status === 'running' ? Utils.formatBytes(g.mem) + ' / ' + Utils.formatBytes(g.maxmem) : '<span style="color:var(--text-muted)">-</span>'}</td>
                 <td id="cell-uptime-${id}">${g.status === 'running' ? Utils.formatUptime(g.uptime) : '<span style="color:var(--text-muted)">-</span>'}</td>
                 <td>${tagsHtml}</td>
-                <td><span id="guest-ip-${id}" class="text-muted small">${g.status === 'running' ? '...' : '-'}</span></td>
+                <td><span id="guest-ip-${id}" class="text-muted small">${g.status === 'running' ? this._ipBadgeHtml(g.ips || [], id) : '-'}</span></td>
                 <td style="text-align:right" onclick="event.stopPropagation()">${this.renderActions(g)}</td>
             </tr>`;
         };
@@ -456,22 +473,44 @@ const Dashboard = {
         html += '</tbody></table>';
         container.innerHTML = html;
 
-        // Load IPs asynchronously for running guests
-        const running = guests.filter(g => g.status === 'running');
-        Promise.allSettled(running.map(async g => {
-            try {
-                const result = await API.getGuestIPs(g.node, g.type, g.vmid);
-                const el = document.getElementById(`guest-ip-${g.vmid}-${g.node}`);
-                if (!el) return;
-                const ips = (result.ips || []).filter(ip => ip);
-                if (ips.length === 0) { el.textContent = '-'; return; }
-                el.innerHTML = ips.map(ip =>
-                    `<span class="badge me-1" style="cursor:pointer;font-weight:normal;background:#3a4a6b;color:#e0e6f0"
-                        title="Click to copy" onclick="event.stopPropagation();navigator.clipboard.writeText('${escapeHtml(ip)}').then(()=>Toast.success('${escapeHtml(ip)} copied'))"
-                    >${escapeHtml(ip)}</span>`
-                ).join('');
-            } catch (_) {}
-        }));
+    },
+
+    _refreshIps() {
+        if (this._ipLoading || !this.guests.length) return;
+        const running = this.guests.filter(g => g.status === 'running');
+        if (running.length === 0) return;
+        this._ipLoading = true;
+        const payload = running.map(g => ({ node: g.node, type: g.type, vmid: g.vmid }));
+        API.postSilent('api/guest-ips-bulk.php', { guests: payload }).then(data => {
+            for (const [key, ips] of Object.entries(data || {})) {
+                this._renderIpCell(key, ips);
+            }
+        }).catch(() => {}).finally(() => {
+            this._ipLoading = false;
+        });
+    },
+
+    _ipBadgeHtml(ips, id) {
+        if (ips.length === 0) return '-';
+        const primary = ips[0];
+        const copyBadge = (ip) => `<span class="badge ip-badge" title="Click to copy"
+            onclick="event.stopPropagation();navigator.clipboard.writeText('${escapeHtml(ip)}').then(()=>Toast.success('${escapeHtml(ip)} copied'))"
+        >${escapeHtml(ip)}</span>`;
+        if (ips.length === 1) return copyBadge(primary);
+        return `<div class="dropdown d-inline-block" onclick="event.stopPropagation()">
+            <span class="badge ip-badge dropdown-toggle" data-bs-toggle="dropdown" role="button">${escapeHtml(primary)} <span class="text-muted" style="font-size:0.7em">+${ips.length - 1}</span></span>
+            <ul class="dropdown-menu dropdown-menu-dark" style="min-width:auto">
+                ${ips.map(ip => `<li><a class="dropdown-item small font-monospace" href="#" onclick="event.preventDefault();navigator.clipboard.writeText('${escapeHtml(ip)}').then(()=>Toast.success('${escapeHtml(ip)} copied'))">
+                    <i class="bi bi-clipboard me-2" style="opacity:0.5"></i>${escapeHtml(ip)}
+                </a></li>`).join('')}
+            </ul>
+        </div>`;
+    },
+
+    _renderIpCell(id, ips) {
+        const el = document.getElementById(`guest-ip-${id}`);
+        if (!el) return;
+        el.innerHTML = this._ipBadgeHtml(ips, id);
     },
 
     async showInstallAgent(vmid, node, ostype) {
