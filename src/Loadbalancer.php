@@ -203,15 +203,15 @@ class Loadbalancer
         // Iteratively find migrations that move scores closer to the cluster average.
         // We try each VM on the most-loaded node and pick the one that brings scores
         // closest together. Continue until no beneficial moves remain.
-        $maxRounds = 30;
+        $maxRounds = 10;
 
         for ($round = 0; $round < $maxRounds; $round++) {
             $scores = array_column($simMetrics, 'score');
             $currentAvg = array_sum($scores) / count($scores);
             $currentStdDev = self::stdDev($scores);
 
-            // Stop if cluster is already near-perfectly balanced (std dev < 0.1%)
-            if ($currentStdDev < 0.001) break;
+            // Stop if cluster is already near-perfectly balanced (std dev < 1%)
+            if ($currentStdDev < 0.01) break;
 
             // Find the node with the highest score (most overloaded)
             $srcIdx = null;
@@ -223,8 +223,8 @@ class Loadbalancer
                 }
             }
 
-            // Source must be above average
-            if ($maxScore <= $currentAvg) break;
+            // Source must exceed average by at least the configured threshold
+            if ($maxScore <= $currentAvg + $thresholdPct) break;
 
             $srcNode = $simMetrics[$srcIdx];
 
@@ -242,8 +242,8 @@ class Loadbalancer
                 foreach ($simMetrics as $tgtIdx => $tgtNode) {
                     if ($tgtIdx === $srcIdx) continue;
 
-                    // Target must be below average
-                    if ($tgtNode['score'] >= $currentAvg) continue;
+                    // Target must be meaningfully below average (by at least half the threshold)
+                    if ($tgtNode['score'] >= $currentAvg - ($thresholdPct / 2)) continue;
 
                     // Check RAM capacity on target
                     $tgtFreeMem = $tgtNode['maxmem'] - $tgtNode['mem'];
@@ -286,7 +286,8 @@ class Loadbalancer
 
                     $newStdDev = self::stdDev($newScores);
 
-                    if ($newStdDev < $bestNewStdDev) {
+                    // Only consider if improvement is meaningful (≥ 1% std dev reduction)
+                    if ($newStdDev < $bestNewStdDev && ($currentStdDev - $newStdDev) >= 0.01) {
                         $bestNewStdDev = $newStdDev;
                         $bestPick = [
                             'tgtIdx' => $tgtIdx,

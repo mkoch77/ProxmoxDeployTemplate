@@ -80,7 +80,8 @@ try {
 
     // Step 2: Check if post-clone config is needed
     $configNeeded = !empty($body['cores']) || !empty($body['memory'])
-        || !empty($body['cloudinit']) || !empty($body['net_bridge']);
+        || !empty($body['cloudinit']) || !empty($body['net_bridge'])
+        || !empty($body['tags']);
 
     if ($configNeeded || !empty($body['disk_resize'])) {
         // Wait for clone task to finish (poll every 2s, max 120s)
@@ -171,6 +172,20 @@ try {
                     }
                     $config['net0'] = $netStr;
                 }
+            }
+        }
+
+        // Tags
+        if (!empty($body['tags'])) {
+            $tagList = array_filter(array_map('trim', preg_split('/[;,\s]+/', (string)$body['tags'])));
+            $validTags = [];
+            foreach ($tagList as $tag) {
+                if (preg_match('/^[a-zA-Z0-9\-_]+$/', $tag)) {
+                    $validTags[] = strtolower($tag);
+                }
+            }
+            if (!empty($validTags)) {
+                $config['tags'] = implode(';', $validTags);
             }
         }
 

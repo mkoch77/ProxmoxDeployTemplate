@@ -143,7 +143,7 @@ const App = {
                 if (node.maintenance) {
                     const s = node.maintenance.status || 'maintenance';
                     const label = s === 'entering' ? 'entering maintenance' : s === 'leaving' ? 'leaving maintenance' : 'in maintenance mode';
-                    warnings.push({ level: 'info', msg: `Node <strong>${Utils.escapeHtml(node.node)}</strong> is ${label}` });
+                    warnings.push({ level: 'warning', msg: `Node <strong>${Utils.escapeHtml(node.node)}</strong> is ${label}` });
                 }
             }
 
@@ -174,13 +174,16 @@ const App = {
                 const iconEl = btn.querySelector('i');
                 if (hasDanger) {
                     btn.style.color = 'var(--bs-danger)';
+                    cnt.className = 'badge bg-danger ms-1';
                     if (iconEl) iconEl.className = 'bi bi-exclamation-triangle-fill';
                 } else if (hasWarning) {
                     btn.style.color = 'var(--bs-warning)';
+                    cnt.className = 'badge bg-warning text-dark ms-1';
                     if (iconEl) iconEl.className = 'bi bi-exclamation-triangle-fill';
                 } else {
                     // Info only (e.g. maintenance)
                     btn.style.color = 'var(--bs-info)';
+                    cnt.className = 'badge bg-info text-dark ms-1';
                     if (iconEl) iconEl.className = 'bi bi-wrench-adjustable-circle-fill';
                 }
             }
@@ -200,6 +203,42 @@ const App = {
             }).join('');
         }
         new bootstrap.Modal(document.getElementById('clusterWarningsModal')).show();
+    },
+
+    async showProfile() {
+        document.getElementById('profile-sshkeys').value = window.APP_USER.ssh_public_keys || '';
+        const sel = document.getElementById('profile-default-storage');
+        sel.innerHTML = '<option value="">— none —</option>';
+        try {
+            const nodes = await API.getNodes();
+            const firstNode = (nodes || []).find(n => n.status === 'online')?.node || (nodes || [])[0]?.node;
+            if (firstNode) {
+                const storages = await API.getStorages(firstNode);
+                const unique = [...new Map((storages || []).map(s => [s.storage, s])).values()];
+                for (const s of unique) {
+                    const opt = document.createElement('option');
+                    opt.value = s.storage;
+                    opt.textContent = `${s.storage} (${s.type || ''})`;
+                    sel.appendChild(opt);
+                }
+            }
+        } catch (_) {}
+        sel.value = window.APP_USER.default_storage || '';
+        new bootstrap.Modal(document.getElementById('profileModal')).show();
+    },
+
+    async saveProfile() {
+        const keys           = document.getElementById('profile-sshkeys').value.trim();
+        const defaultStorage = document.getElementById('profile-default-storage').value;
+        try {
+            await API.post('api/profile.php', { ssh_public_keys: keys, default_storage: defaultStorage });
+            window.APP_USER.ssh_public_keys = keys;
+            window.APP_USER.default_storage = defaultStorage;
+            bootstrap.Modal.getInstance(document.getElementById('profileModal'))?.hide();
+            Toast.success('Profile saved');
+        } catch (e) {
+            Toast.error('Failed to save profile');
+        }
     },
 
     async logout() {

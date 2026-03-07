@@ -1,0 +1,5 @@
+# Loadbalancer — run every minute
+* * * * * www-data . /etc/docker-env.sh; /usr/local/bin/php /var/www/html/cli/loadbalancer-run.php >> /var/www/html/data/loadbalancer.log 2>&1
+
+# Auto-deploy SSH key to nodes when a new key was generated
+* * * * * www-data . /etc/docker-env.sh; /usr/local/bin/php /var/www/html/cli/ssh-deploy-key.php >> /var/www/html/data/loadbalancer.log 2>&1

@@ -47,6 +47,8 @@ $perms = $user['permissions'];
             'permissions' => $user['permissions'],
             'roles' => $user['roles'],
             'theme' => $theme,
+            'ssh_public_keys' => $user['ssh_public_keys'] ?? '',
+            'default_storage' => $user['default_storage'] ?? '',
         ], JSON_HEX_TAG | JSON_HEX_AMP) ?>;
 
         // Apply theme immediately to prevent flash
@@ -79,10 +81,10 @@ $perms = $user['permissions'];
                 </div>
             </a>
             <div class="d-flex align-items-center gap-3">
-                <button id="cluster-warnings-btn" class="btn btn-link p-0 text-danger d-none" title="Cluster Alerts"
+                <button id="cluster-warnings-btn" class="btn btn-link p-0 d-none" title="Cluster Alerts"
                     onclick="App.showClusterWarnings()" style="font-size:1.1rem;line-height:1">
                     <i class="bi bi-exclamation-triangle-fill"></i>
-                    <span id="cluster-warnings-count" class="badge bg-danger ms-1" style="font-size:0.65rem;vertical-align:middle"></span>
+                    <span id="cluster-warnings-count" class="badge ms-1" style="font-size:0.65rem;vertical-align:middle"></span>
                 </button>
                 <span id="connection-status" class="conn-badge connecting">
                     <span class="conn-dot"></span>
@@ -105,6 +107,7 @@ $perms = $user['permissions'];
                         <?php if (in_array('users.manage', $perms)): ?>
                         <li><a class="dropdown-item" href="#users" onclick="App.navigate('users');"><i class="bi bi-people-fill me-2"></i>User Management</a></li>
                         <?php endif; ?>
+                        <li><a class="dropdown-item" href="#" onclick="App.showProfile(); return false;"><i class="bi bi-person-gear me-2"></i>Profile</a></li>
                         <li><hr class="dropdown-divider"></li>
                         <li><a class="dropdown-item" href="#" onclick="App.logout(); return false;"><i class="bi bi-box-arrow-right me-2"></i>Sign Out</a></li>
                     </ul>
@@ -223,6 +226,69 @@ $perms = $user['permissions'];
         </div>
     </div>
 
+    <!-- Profile Modal -->
+    <div class="modal fade" id="profileModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content glass-modal">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-person-gear me-2"></i>Profile</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Default Storage <small class="text-muted">(pre-selected in all storage dropdowns)</small></label>
+                        <select class="form-select" id="profile-default-storage">
+                            <option value="">Loading…</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">SSH Public Keys <small class="text-muted">(one per line — pre-filled in all forms)</small></label>
+                        <textarea class="form-control font-monospace" id="profile-sshkeys" rows="4" placeholder="ssh-ed25519 AAAA...&#10;ssh-rsa AAAA..." style="font-size:0.8rem"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="App.saveProfile()">
+                        <i class="bi bi-floppy me-1"></i>Save
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SSH Key Setup Modal -->
+    <div class="modal fade" id="sshSetupModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content glass-modal">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-key-fill me-2"></i>SSH Key Setup</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-3">
+                        This is the auto-generated SSH public key of this container.
+                        Run the command for each Proxmox node to authorize it.
+                    </p>
+                    <label class="form-label fw-semibold">Public Key</label>
+                    <div class="input-group mb-3">
+                        <textarea class="form-control font-monospace" id="ssh-setup-pubkey" rows="3" readonly style="font-size:0.75rem;resize:none"></textarea>
+                        <button class="btn btn-outline-secondary" onclick="navigator.clipboard.writeText(document.getElementById('ssh-setup-pubkey').value).then(()=>Toast.success('Copied!'))">
+                            <i class="bi bi-clipboard"></i>
+                        </button>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <label class="form-label fw-semibold mb-0">Copy to Nodes</label>
+                        <button class="btn btn-sm btn-primary" onclick="Health.deployKeyToNodes(this)">
+                            <i class="bi bi-cloud-upload me-1"></i>Deploy to All Nodes
+                        </button>
+                    </div>
+                    <div id="ssh-deploy-results" class="mb-3"></div>
+                    <div id="ssh-setup-commands"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- SSH Terminal Modal — keyboard=false so Bootstrap doesn't steal keys from xterm.js -->
     <div class="modal fade" id="sshTerminalModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
         <div class="modal-dialog modal-xl modal-dialog-centered">
@@ -234,11 +300,159 @@ $perms = $user['permissions'];
                     </h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" onclick="Templates.closeTerminal()"></button>
                 </div>
-                <div class="modal-body p-0" style="background:#000">
-                    <div id="ssh-terminal-container" style="padding:8px"></div>
+                <div class="modal-body p-0" style="background:#000;height:70vh">
+                    <div id="ssh-terminal-container" style="padding:8px;height:100%;box-sizing:border-box"></div>
                 </div>
                 <div class="modal-footer justify-content-start py-2">
                     <span id="ssh-terminal-status" class="text-muted small"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cloud-Init Deploy Modal -->
+    <div class="modal fade" id="cloudInitModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content glass-modal">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-clouds-fill me-2"></i>Deploy Cloud Image:
+                        <span id="ci-modal-image-name" class="ms-1"></span>
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="ci-form" onsubmit="Templates.submitCloudImage(event)">
+                        <h6 class="text-muted mb-2"><i class="bi bi-gear me-1"></i>VM Settings</h6>
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <label class="form-label">VM Name *</label>
+                                <input type="text" class="form-control" id="ci-name" required
+                                    pattern="[a-zA-Z0-9][a-zA-Z0-9.\-]{0,62}" placeholder="my-ubuntu-vm">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">VMID *</label>
+                                <input type="number" class="form-control" id="ci-vmid" required min="100" max="999999999">
+                            </div>
+                        </div>
+                        <div class="row g-2 mt-1">
+                            <div class="col-md-4">
+                                <label class="form-label">Node *</label>
+                                <select class="form-select" id="ci-node" onchange="Templates.loadCloudInitResources(this.value)"></select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Storage *</label>
+                                <select class="form-select" id="ci-storage"><option value="">Loading…</option></select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Bridge *</label>
+                                <select class="form-select" id="ci-bridge"><option value="">Loading…</option></select>
+                            </div>
+                        </div>
+                        <div class="row g-2 mt-1">
+                            <div class="col-md-4">
+                                <label class="form-label">CPU Cores</label>
+                                <input type="number" class="form-control" id="ci-cores" value="2" min="1" max="128">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Memory (MB)</label>
+                                <input type="number" class="form-control" id="ci-memory" value="2048" min="256" max="131072">
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Disk Size (GB)</label>
+                                <input type="number" class="form-control" id="ci-disk" value="20" min="2" max="10000">
+                            </div>
+                        </div>
+
+                        <h6 class="text-muted mt-4 mb-2"><i class="bi bi-person-gear me-1"></i>Cloud-Init</h6>
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <label class="form-label">User</label>
+                                <input type="text" class="form-control" id="ci-user" placeholder="ubuntu">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Password <small class="text-muted">(optional)</small></label>
+                                <input type="password" class="form-control" id="ci-password" placeholder="Leave empty for SSH key only">
+                            </div>
+                        </div>
+                        <div class="mt-2">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <label class="form-label mb-0">SSH Public Keys <small class="text-muted">(optional, one per line)</small></label>
+                                <label class="btn btn-outline-secondary btn-sm mb-0" title="Load from .pub file">
+                                    <i class="bi bi-folder2-open"></i>
+                                    <input type="file" accept=".pub" class="d-none" onchange="loadSshKeyFile(this, 'ci-sshkeys')">
+                                </label>
+                            </div>
+                            <textarea class="form-control" id="ci-sshkeys" rows="3" placeholder="ssh-rsa AAAA..."></textarea>
+                        </div>
+                        <div class="row g-2 mt-1">
+                            <div class="col-md-6">
+                                <label class="form-label">DNS Server <small class="text-muted">(optional)</small></label>
+                                <input type="text" class="form-control" id="ci-nameserver" placeholder="8.8.8.8">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Search Domain <small class="text-muted">(optional)</small></label>
+                                <input type="text" class="form-control" id="ci-searchdomain" placeholder="example.com">
+                            </div>
+                        </div>
+
+                        <h6 class="text-muted mt-4 mb-2"><i class="bi bi-ethernet me-1"></i>Network</h6>
+                        <div class="mb-2">
+                            <div class="btn-group btn-group-sm" role="group">
+                                <input type="radio" class="btn-check" name="ci-ip-type" id="ci-ip-dhcp" value="dhcp" checked
+                                    onchange="document.getElementById('ci-static-fields').style.display='none'">
+                                <label class="btn btn-outline-light" for="ci-ip-dhcp">DHCP</label>
+                                <input type="radio" class="btn-check" name="ci-ip-type" id="ci-ip-static" value="static"
+                                    onchange="document.getElementById('ci-static-fields').style.display=''">
+                                <label class="btn btn-outline-light" for="ci-ip-static">Static IP</label>
+                            </div>
+                        </div>
+                        <div id="ci-static-fields" style="display:none">
+                            <div class="row g-2">
+                                <div class="col-md-6">
+                                    <label class="form-label">IP Address (CIDR) *</label>
+                                    <input type="text" class="form-control" id="ci-ip" placeholder="192.168.1.100/24">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Gateway <small class="text-muted">(optional)</small></label>
+                                    <input type="text" class="form-control" id="ci-gw" placeholder="192.168.1.1">
+                                </div>
+                            </div>
+                        </div>
+
+                        <h6 class="text-muted mt-4 mb-2"><i class="bi bi-terminal me-1"></i>Custom Setup <small class="text-muted fw-normal">(optional, runs on first boot)</small></h6>
+                        <div class="mb-2">
+                            <label class="form-label">Packages <small class="text-muted">(one per line — cloud-init uses the native package manager: apt, dnf, yum, zypper, …)</small></label>
+                            <textarea class="form-control font-monospace" id="ci-packages" rows="2" placeholder="nginx&#10;curl&#10;git"></textarea>
+                        </div>
+                        <div class="mb-1">
+                            <label class="form-label">Run Commands <small class="text-muted">(one per line, executed after packages)</small></label>
+                            <textarea class="form-control font-monospace" id="ci-runcmd" rows="3" placeholder="systemctl enable nginx&#10;echo 'hello' > /etc/motd"></textarea>
+                        </div>
+
+                        <h6 class="text-muted mt-4 mb-2"><i class="bi bi-tags me-1"></i>Tags</h6>
+                        <datalist id="ci-tag-suggestions"></datalist>
+                        <div class="d-flex gap-2 align-items-center">
+                            <input type="text" class="form-control form-control-sm" id="ci-tag-input"
+                                list="ci-tag-suggestions" placeholder="Add tag…" style="max-width:180px"
+                                oninput="Templates.onCiTagInput()" onkeydown="if(event.key==='Enter'){event.preventDefault();Templates.addCiTag();}">
+                            <input type="color" id="ci-tag-color" value="#0088cc"
+                                title="Tag background color" style="width:34px;height:32px;padding:2px;border:1px solid var(--border-color);border-radius:4px;cursor:pointer;background:none">
+                            <input type="color" id="ci-tag-fg" value="#ffffff"
+                                title="Tag text color" style="width:34px;height:32px;padding:2px;border:1px solid var(--border-color);border-radius:4px;cursor:pointer;background:none">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="Templates.addCiTag()">
+                                <i class="bi bi-plus-lg"></i>
+                            </button>
+                        </div>
+                        <div class="mt-1" style="font-size:0.72rem;color:var(--text-muted)">Left color = background &nbsp;·&nbsp; Right color = text</div>
+                        <div id="ci-tags-chips" class="d-flex flex-wrap gap-1 mt-2"></div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" form="ci-form" class="btn btn-success">
+                        <i class="bi bi-rocket-takeoff-fill me-1"></i>Deploy
+                    </button>
                 </div>
             </div>
         </div>

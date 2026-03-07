@@ -12,7 +12,7 @@ use App\Helpers;
 Bootstrap::init();
 Request::requireMethod('POST');
 Request::validateCsrf();
-$user = Auth::requirePermission('community.install');
+$user = Auth::requirePermission('template.deploy');
 
 $body = Request::jsonBody();
 

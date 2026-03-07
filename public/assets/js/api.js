@@ -139,6 +139,16 @@ const API = {
         return this.get('api/users.php');
     },
 
+    // --- Tags ---
+
+    getTags() {
+        return this.getSilent('api/tags.php');
+    },
+
+    setTagColor(tag, color, textColor = 'ffffff') {
+        return this.post('api/tags.php', { tag, color, text_color: textColor });
+    },
+
     // --- Loadbalancer ---
 
     getLoadbalancer() {
@@ -171,6 +181,10 @@ const API = {
 
     communityInstall(node, scriptPath) {
         return this.post('api/community-install.php', { node, script_path: scriptPath });
+    },
+
+    cloudInitStart(params) {
+        return this.post('api/cloud-init-start.php', params);
     },
 
     getNodeInfo(node) {

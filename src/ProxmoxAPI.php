@@ -305,6 +305,18 @@ class ProxmoxAPI
         return $this->get("/nodes/{$node}/qemu/{$vmid}/agent/network-get-interfaces");
     }
 
+    // --- Cluster Options ---
+
+    public function getClusterOptions(): array
+    {
+        return $this->get('/cluster/options');
+    }
+
+    public function setClusterOptions(array $params): array
+    {
+        return $this->put('/cluster/options', $params);
+    }
+
     // --- HA ---
 
     public function getClusterStatus(): array

@@ -227,12 +227,6 @@ const Loadbalancer = {
                         </button>
                     </div>
 
-                    <div class="col-12 mt-2">
-                        <div class="text-muted small">
-                            <i class="bi bi-terminal me-1"></i>Cron command:
-                            <code>*/${s.interval_minutes || 5} * * * * php /path/to/cli/loadbalancer-run.php >> /var/log/proxmox-lb.log 2>&1</code>
-                        </div>
-                    </div>
                 </div>
             </div>
         `;

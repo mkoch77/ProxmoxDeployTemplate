@@ -87,7 +87,7 @@ class Auth
 
         $db = Database::connection();
         $stmt = $db->prepare('
-            SELECT us.*, u.username, u.display_name, u.email, u.auth_provider, u.is_active
+            SELECT us.*, u.username, u.display_name, u.email, u.auth_provider, u.is_active, u.ssh_public_keys, u.default_storage
             FROM user_sessions us
             JOIN users u ON u.id = us.user_id
             WHERE us.id = ? AND us.expires_at > datetime(\'now\')
@@ -106,6 +106,8 @@ class Auth
             'display_name' => $session['display_name'],
             'email' => $session['email'],
             'auth_provider' => $session['auth_provider'],
+            'ssh_public_keys' => $session['ssh_public_keys'] ?? '',
+            'default_storage' => $session['default_storage'] ?? '',
             'permissions' => self::getUserPermissions($session['user_id']),
             'roles' => self::getUserRoles($session['user_id']),
         ];

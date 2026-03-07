@@ -1,0 +1,24 @@
+# Git
+.git
+.gitignore
+
+# Secrets / local config (never bake into image)
+.env
+config/config.php
+
+# Runtime data (use Docker volume instead)
+data/
+
+# Dev tooling
+.claude/
+docs/
+*.md
+
+# Composer dev cache (vendor is installed fresh during build)
+vendor/
+
+# IDE / OS
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db

@@ -20,11 +20,21 @@ class Migrator
         $migrations = self::getMigrations();
         foreach ($migrations as $version => $sql) {
             if (!in_array($version, $applied, true)) {
-                $db->exec($sql);
+                foreach (self::splitStatements($sql) as $statement) {
+                    $db->exec($statement);
+                }
                 $stmt = $db->prepare('INSERT INTO migrations (version) VALUES (?)');
                 $stmt->execute([$version]);
             }
         }
+    }
+
+    private static function splitStatements(string $sql): array
+    {
+        return array_values(array_filter(
+            array_map('trim', explode(';', $sql)),
+            fn($s) => $s !== ''
+        ));
     }
 
     private static function getMigrations(): array
@@ -41,6 +51,9 @@ class Migrator
             9 => self::migration009(),
            10 => self::migration010(),
            11 => self::migration011(),
+           12 => self::migration012(),
+           13 => self::migration013(),
+           14 => self::migration014(),
         ];
     }
 
@@ -286,8 +299,30 @@ class Migrator
 
             INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
                 SELECT r.id, p.id FROM roles r, permissions p
-                WHERE r.name = 'admin' AND p.key = 'community.install';
+                WHERE r.name IN ('admin', 'operator') AND p.key = 'community.install';
         ";
+    }
+
+    private static function migration012(): string
+    {
+        return "
+            INSERT OR IGNORE INTO permissions (key, description) VALUES
+                ('community.install', 'Install community scripts via SSH on nodes');
+
+            INSERT OR IGNORE INTO role_permissions (role_id, permission_id)
+                SELECT r.id, p.id FROM roles r, permissions p
+                WHERE r.name IN ('admin', 'operator') AND p.key = 'community.install';
+        ";
+    }
+
+    private static function migration013(): string
+    {
+        return "ALTER TABLE users ADD COLUMN ssh_public_keys TEXT NOT NULL DEFAULT ''";
+    }
+
+    private static function migration014(): string
+    {
+        return "ALTER TABLE users ADD COLUMN default_storage TEXT NOT NULL DEFAULT ''";
     }
 
     private static function migration010(): string

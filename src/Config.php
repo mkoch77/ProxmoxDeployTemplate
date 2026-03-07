@@ -8,9 +8,11 @@ class Config
 
     public static function load(): void
     {
-        $defaults = require __DIR__ . '/../config/config.php';
+        $configFile = __DIR__ . '/../config/config.php';
+        $defaults = file_exists($configFile) ? require $configFile : [];
         self::$config = $defaults;
 
+        // .env file overrides config.php
         $envFile = __DIR__ . '/../.env';
         if (file_exists($envFile)) {
             $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
@@ -32,6 +34,14 @@ class Config
                 }
                 self::$config[$key] = $value;
             }
+        }
+
+        // Real environment variables override everything (Docker / system env support)
+        foreach ($_ENV as $key => $value) {
+            self::$config[$key] = $value;
+        }
+        foreach (getenv() ?: [] as $key => $value) {
+            self::$config[$key] = $value;
         }
     }
 

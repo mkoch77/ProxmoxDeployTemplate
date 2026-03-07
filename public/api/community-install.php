@@ -14,7 +14,7 @@ Bootstrap::init();
 set_time_limit(360); // community script installs can take several minutes
 Request::requireMethod('POST');
 Request::validateCsrf();
-Auth::requirePermission('community.install');
+Auth::requirePermission('template.deploy');
 
 $body = Request::jsonBody();
 

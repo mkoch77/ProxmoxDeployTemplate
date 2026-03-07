@@ -3,7 +3,7 @@
 /**
  * Loadbalancer cron job script.
  * Usage: php cli/loadbalancer-run.php
- * Crontab: */5 * * * * php /path/to/cli/loadbalancer-run.php >> /var/log/proxmox-lb.log 2>&1
+ * Crontab: * * * * * php /var/www/html/cli/loadbalancer-run.php >> /var/www/html/data/loadbalancer.log 2>&1
  */
 
 require_once __DIR__ . '/../vendor/autoload.php';

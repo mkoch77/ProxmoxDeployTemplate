@@ -12,8 +12,8 @@ return [
     // SSH (for maintenance mode - ha-manager commands)
     'SSH_PORT'             => 22,
     'SSH_USER'             => 'root',
-    'SSH_KEY_PATH'         => '/root/.ssh/id_rsa',
-    'SSH_PASSWORD'         => 'F03nmann0815!',
+    'SSH_KEY_PATH'         => 'home/michael/.ssh/id_ed2551',
+    'SSH_PASSWORD'         => '',
 
     // EntraID / Azure AD (optional)
     'ENTRAID_TENANT_ID'    => '',

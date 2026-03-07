@@ -71,3 +71,19 @@ const Utils = {
 
 // Global alias used by components
 function escapeHtml(str) { return Utils.escapeHtml(str); }
+
+// Load a .pub file into a textarea, appending to existing content
+function loadSshKeyFile(input, targetId) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+        const key = e.target.result.trim();
+        const ta = document.getElementById(targetId);
+        if (!ta) return;
+        const existing = ta.value.trim();
+        ta.value = existing ? existing + '\n' + key : key;
+        input.value = ''; // reset so same file can be reloaded
+    };
+    reader.readAsText(file);
+}

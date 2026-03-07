@@ -2,6 +2,7 @@ const Dashboard = {
     refreshInterval: null,
     currentFilter: { type: '', node: '', search: '', status: '', os: '' },
     currentSort: { col: 'vmid', dir: 'asc' },
+    groupBy: '',
     guests: [],
     nodes: [],
     pendingMigrations: {},
@@ -66,18 +67,12 @@ const Dashboard = {
         content.innerHTML = `
             <div class="section-header">
                 <h2><i class="bi bi-grid-1x2-fill"></i>Dashboard</h2>
-                <div class="d-flex gap-2">
+                <div class="d-flex gap-2 align-items-center">
                     ${Permissions.isAdmin() ? `
-                        <button class="btn btn-outline-success btn-sm" onclick="Dashboard.startAll()">
-                            <i class="bi bi-play-fill"></i> Start All
-                        </button>
-                        <button class="btn btn-outline-danger btn-sm" onclick="Dashboard.shutdownAll()">
-                            <i class="bi bi-power"></i> Shutdown All
-                        </button>
+                        <button class="btn btn-outline-success btn-sm" onclick="Dashboard.startAll()"><i class="bi bi-play-fill"></i> Start All</button>
+                        <button class="btn btn-outline-danger btn-sm" onclick="Dashboard.shutdownAll()"><i class="bi bi-power"></i> Shutdown All</button>
                     ` : ''}
-                    <button class="btn btn-outline-light btn-sm" onclick="Dashboard.loadData()">
-                        <i class="bi bi-arrow-clockwise"></i> Refresh
-                    </button>
+                    <button class="btn btn-outline-light btn-sm" onclick="Dashboard.loadData()"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
                 </div>
             </div>
 
@@ -113,11 +108,6 @@ const Dashboard = {
             </div>
 
             <div class="filter-bar d-flex flex-wrap gap-2 align-items-center">
-                <div class="btn-group btn-group-sm" role="group">
-                    <button class="btn btn-outline-light active" data-filter-type="">All</button>
-                    <button class="btn btn-outline-light" data-filter-type="qemu">VMs</button>
-                    <button class="btn btn-outline-light" data-filter-type="lxc">CTs</button>
-                </div>
                 <select id="filter-node" class="form-select form-select-sm" style="width:auto;">
                     <option value="">All Nodes</option>
                 </select>
@@ -129,6 +119,16 @@ const Dashboard = {
                 <select id="filter-os" class="form-select form-select-sm" style="width:auto;">
                     <option value="">All OS</option>
                 </select>
+                <select id="group-by" class="form-select form-select-sm" style="width:auto;" title="Group by">
+                    <option value="">No grouping</option>
+                    <option value="tags">Group by Tags</option>
+                    <option value="os">Group by OS</option>
+                </select>
+                <div class="btn-group btn-group-sm ms-auto" role="group">
+                    <button class="btn btn-outline-light active" data-filter-type="">All</button>
+                    <button class="btn btn-outline-light" data-filter-type="qemu">VMs</button>
+                    <button class="btn btn-outline-light" data-filter-type="lxc">CTs</button>
+                </div>
                 <input id="filter-search" type="text" class="form-control form-control-sm" placeholder="Search by name or ID..." style="width:220px;">
             </div>
 
@@ -165,6 +165,12 @@ const Dashboard = {
             this.currentFilter.search = e.target.value.toLowerCase();
             this.updateView();
         }, 300));
+
+        document.getElementById('group-by').addEventListener('change', (e) => {
+            this.groupBy = e.target.value;
+            this._lastTableKey = '';
+            this.updateView();
+        });
     },
 
     setSort(col) {
@@ -338,7 +344,7 @@ const Dashboard = {
 
         // If the set of VMs and their statuses/nodes hasn't changed, update only
         // the frequently-changing cells in-place to avoid flickering.
-        const tableKey = guests.map(g => `${g.vmid}:${g.node}:${g.status}`).join('|');
+        const tableKey = guests.map(g => `${g.vmid}:${g.node}:${g.status}`).join('|') + ':' + this.groupBy;
         if (tableKey === this._lastTableKey && container.querySelector('tbody')) {
             for (const g of guests) {
                 const id = `${g.vmid}-${g.node}`;
@@ -379,20 +385,18 @@ const Dashboard = {
             </thead>
             <tbody>`;
 
-        for (const g of guests) {
+        const guestRowHtml = (g) => {
             const id = `${g.vmid}-${g.node}`;
             const targetNode = this.pendingMigrations[g.vmid];
             const migrationHint = targetNode
                 ? ` <i class="bi bi-shuffle" style="color:var(--accent-purple);font-size:0.75em" title="Pending migration to ${Utils.escapeHtml(targetNode)}"></i>`
                 : '';
             const osText = this.osLabel(g.ostype, g.type);
-
             const tagsHtml = g.tags
                 ? g.tags.split(';').filter(Boolean).map(t =>
                     `<span class="badge vm-tag me-1">${Utils.escapeHtml(t.trim())}</span>`).join('')
                 : '<span style="color:var(--text-muted)">-</span>';
-
-            html += `<tr class="vm-row" style="cursor:pointer" onclick="Dashboard.openVmDetail(event,${g.vmid},'${Utils.escapeHtml(g.node)}','${Utils.escapeHtml(g.type)}')">
+            return `<tr class="vm-row" style="cursor:pointer" onclick="Dashboard.openVmDetail(event,${g.vmid},'${Utils.escapeHtml(g.node)}','${Utils.escapeHtml(g.type)}')">
                 <td><strong style="color:var(--accent-blue)">${g.vmid}</strong></td>
                 <td>${Utils.escapeHtml(g.name || '-')}</td>
                 <td><i class="bi ${Utils.typeIcon(g.type)}" style="opacity:0.6"></i> ${Utils.typeLabel(g.type)}</td>
@@ -406,6 +410,47 @@ const Dashboard = {
                 <td><span id="guest-ip-${id}" class="text-muted small">${g.status === 'running' ? '...' : '-'}</span></td>
                 <td style="text-align:right" onclick="event.stopPropagation()">${this.renderActions(g)}</td>
             </tr>`;
+        };
+
+        if (this.groupBy === 'tags' || this.groupBy === 'os') {
+            const groups = new Map();
+            for (const g of guests) {
+                let keys;
+                if (this.groupBy === 'tags') {
+                    const tags = g.tags ? g.tags.split(';').map(t => t.trim()).filter(Boolean) : [];
+                    keys = tags.length > 0 ? tags : ['__none__'];
+                } else {
+                    const label = this.osLabel(g.ostype, g.type);
+                    keys = [label !== '-' ? label : '__none__'];
+                }
+                for (const key of keys) {
+                    if (!groups.has(key)) groups.set(key, []);
+                    groups.get(key).push(g);
+                }
+            }
+            const sortedKeys = [...groups.keys()].sort((a, b) => {
+                if (a === '__none__') return 1;
+                if (b === '__none__') return -1;
+                return a.localeCompare(b);
+            });
+            const noneLabel = this.groupBy === 'tags' ? 'Untagged' : 'Unknown';
+            for (const key of sortedKeys) {
+                const label = key === '__none__' ? noneLabel : key;
+                const groupGuests = groups.get(key);
+                html += `<tr style="background:var(--bg-secondary)">
+                    <td colspan="12" style="padding:.35rem .75rem;border-bottom:1px solid var(--border-color)">
+                        <span class="badge vm-tag me-2">${Utils.escapeHtml(label)}</span>
+                        <span class="text-muted small">${groupGuests.length} guest${groupGuests.length !== 1 ? 's' : ''}</span>
+                    </td>
+                </tr>`;
+                for (const g of groupGuests) {
+                    html += guestRowHtml(g);
+                }
+            }
+        } else {
+            for (const g of guests) {
+                html += guestRowHtml(g);
+            }
         }
 
         html += '</tbody></table>';
@@ -419,11 +464,12 @@ const Dashboard = {
                 const el = document.getElementById(`guest-ip-${g.vmid}-${g.node}`);
                 if (!el) return;
                 const ips = (result.ips || []).filter(ip => ip);
-                el.textContent = ips.length > 0 ? ips[0] : '-';
-                if (ips.length > 1) {
-                    el.title = ips.join(', ');
-                    el.style.cursor = 'help';
-                }
+                if (ips.length === 0) { el.textContent = '-'; return; }
+                el.innerHTML = ips.map(ip =>
+                    `<span class="badge me-1" style="cursor:pointer;font-weight:normal;background:#3a4a6b;color:#e0e6f0"
+                        title="Click to copy" onclick="event.stopPropagation();navigator.clipboard.writeText('${escapeHtml(ip)}').then(()=>Toast.success('${escapeHtml(ip)} copied'))"
+                    >${escapeHtml(ip)}</span>`
+                ).join('');
             } catch (_) {}
         }));
     },
@@ -722,22 +768,28 @@ const Dashboard = {
         API.getGuestConfig(node, type, vmid).then(cfg => {
             const el = document.getElementById('vm-detail-config');
             if (!el) return;
+
+            const tagsHtml = cfg.tags
+                ? cfg.tags.split(';').filter(Boolean).map(t => `<span class="badge vm-tag me-1">${Utils.escapeHtml(t.trim())}</span>`).join('')
+                : null;
+
             const rows = [
-                ['Cores', cfg.cores ?? cfg.cpulimit ?? '-'],
-                ['Memory', cfg.memory ? Utils.formatBytes(cfg.memory * 1024 * 1024) : '-'],
-                ['Network', cfg.net0 ? cfg.net0.split(',')[0] : '-'],
-                ['Boot disk', cfg.scsi0 || cfg.virtio0 || cfg.ide2 || cfg.rootfs || '-'],
-                ['Description', cfg.description ? Utils.escapeHtml(cfg.description.substring(0, 100)) : '-'],
-            ].filter(([, v]) => v !== '-');
+                { key: 'Cores',       val: cfg.cores ?? cfg.cpulimit ?? null,                           wide: false },
+                { key: 'Memory',      val: cfg.memory ? Utils.formatBytes(cfg.memory * 1024 * 1024) : null, wide: false },
+                { key: 'Network',     val: cfg.net0 ? Utils.escapeHtml(cfg.net0.split(',')[0]) : null,  wide: false },
+                { key: 'Tags',        val: tagsHtml,                                                     wide: false },
+                { key: 'Boot disk',   val: cfg.scsi0 || cfg.virtio0 || cfg.ide2 || cfg.rootfs ? Utils.escapeHtml(cfg.scsi0 || cfg.virtio0 || cfg.ide2 || cfg.rootfs) : null, wide: true },
+                { key: 'Description', val: cfg.description ? Utils.escapeHtml(cfg.description.substring(0, 200)) : null, wide: true },
+            ].filter(r => r.val !== null && r.val !== '');
 
             el.innerHTML = rows.length > 0 ? `
                 <div class="sidebar-divider mb-3"></div>
                 <div class="text-muted small mb-2 text-uppercase" style="letter-spacing:.06em">Configuration</div>
                 <div class="row g-2">
-                    ${rows.map(([k, v]) => `
-                        <div class="col-6">
-                            <div class="text-muted small">${k}</div>
-                            <div style="font-size:.9rem">${v}</div>
+                    ${rows.map(({ key, val, wide }) => `
+                        <div class="${wide ? 'col-12' : 'col-6'}">
+                            <div class="text-muted small">${key}</div>
+                            <div style="font-size:.9rem;word-break:break-word">${val}</div>
                         </div>
                     `).join('')}
                 </div>

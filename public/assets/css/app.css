@@ -580,6 +580,10 @@ body {
     font-size: 0.8rem;
     border-radius: var(--radius-sm);
 }
+.btn-action:disabled {
+    pointer-events: auto;
+    cursor: not-allowed;
+}
 .btn-action.dropdown-toggle::after {
     display: none;
 }
@@ -1114,6 +1118,63 @@ body {
     background: none;
     padding: 0;
     font-size: inherit;
+}
+
+/* ===== Cloud Images Grid ===== */
+.ci-images-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 0.75rem;
+}
+
+.ci-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    flex-direction: column;
+}
+
+.ci-card:hover {
+    border-color: var(--border-light);
+    box-shadow: var(--shadow-sm);
+    transform: translateY(-2px);
+}
+
+.ci-card-accent {
+    height: 4px;
+    flex-shrink: 0;
+}
+
+.ci-card-body {
+    padding: 0.85rem 1rem;
+    flex: 1;
+}
+
+.ci-card-name {
+    font-weight: 600;
+    font-size: 0.9rem;
+    margin-bottom: 0.2rem;
+}
+
+.ci-card-sub {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.ci-card-footer {
+    padding: 0.5rem 1rem;
+    border-top: 1px solid var(--border-color);
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    background: var(--bg-elevated);
+}
+
+.ci-card:hover .ci-card-footer {
+    color: var(--accent-green);
 }
 
 /* SSH Terminal Modal */

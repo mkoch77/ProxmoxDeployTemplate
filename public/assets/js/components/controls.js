@@ -21,10 +21,10 @@ const Controls = {
     async performAction(node, type, vmid, action, name = '') {
         const labels = {
             start:    'start',
-            stop:     'force stop',
+            stop:     'force stop (hard poweroff)',
             shutdown: 'shut down',
             reboot:   'reboot',
-            reset:    'reset',
+            reset:    'hard reboot (reset)',
         };
 
         const label = labels[action] || action;
@@ -55,35 +55,72 @@ const Controls = {
 
     renderButtons(guest) {
         const { node, type, vmid, name, status } = guest;
-        const id = guest.vmid;
         const running = status === 'running';
-        const dis = (cond) => cond ? '' : 'disabled style="opacity:0.35;pointer-events:none"';
+        const e = Utils.escapeHtml(name || '');
+        const dimOff = running ? ' disabled style="opacity:0.3;pointer-events:none"' : '';
+        const dimOn  = running ? '' : ' disabled style="opacity:0.3;pointer-events:none"';
         let html = '';
 
+        // Start
         if (Permissions.has('vm.start')) {
-            html += `<button class="btn btn-success btn-action me-1" title="Start" ${dis(!running)} onclick="Controls.performAction('${node}','${type}',${id},'start','${Utils.escapeHtml(name || '')}')">
-                        <i class="bi bi-play-fill"></i>
-                     </button>`;
+            html += `<button class="btn btn-success btn-action me-1" title="Start"${dimOff}
+                onclick="Controls.performAction('${node}','${type}',${vmid},'start','${e}')">
+                <i class="bi bi-play-fill"></i></button>`;
         }
+
+        // Reboot dropdown (Graceful Reboot / Hard Reboot)
         if (Permissions.has('vm.reboot')) {
-            html += `<button class="btn btn-warning btn-action me-1" title="Reboot" ${dis(running)} onclick="Controls.performAction('${node}','${type}',${id},'reboot','${Utils.escapeHtml(name || '')}')">
-                        <i class="bi bi-arrow-clockwise"></i>
-                     </button>`;
+            html += `<div class="btn-group btn-group-sm me-1">
+                <button class="btn btn-warning btn-action" title="Graceful Reboot"${dimOn}
+                    onclick="Controls.performAction('${node}','${type}',${vmid},'reboot','${e}')">
+                    <i class="bi bi-arrow-clockwise"></i></button>
+                <button class="btn btn-warning dropdown-toggle dropdown-toggle-split"${dimOn}
+                    data-bs-toggle="dropdown" aria-expanded="false">
+                    <span class="visually-hidden">Toggle Dropdown</span></button>
+                <ul class="dropdown-menu">
+                    <li><a class="dropdown-item" href="#"
+                        onclick="event.preventDefault();Controls.performAction('${node}','${type}',${vmid},'reboot','${e}')">
+                        <i class="bi bi-arrow-clockwise me-2"></i>Graceful Reboot</a></li>
+                    <li><a class="dropdown-item" href="#"
+                        onclick="event.preventDefault();Controls.performAction('${node}','${type}',${vmid},'reset','${e}')">
+                        <i class="bi bi-arrow-repeat me-2"></i>Hard Reboot (Reset)</a></li>
+                </ul>
+            </div>`;
         }
-        if (Permissions.has('vm.shutdown')) {
-            html += `<button class="btn btn-outline-warning btn-action me-1" title="Shutdown" ${dis(running)} onclick="Controls.performAction('${node}','${type}',${id},'shutdown','${Utils.escapeHtml(name || '')}')">
-                        <i class="bi bi-power"></i>
-                     </button>`;
+
+        // Power Off dropdown (Graceful Shutdown / Hard Poweroff)
+        const hasShutdown = Permissions.has('vm.shutdown');
+        const hasStop     = Permissions.has('vm.stop');
+        if (hasShutdown || hasStop) {
+            const primaryAction   = hasShutdown ? 'shutdown' : 'stop';
+            const primaryTitle    = hasShutdown ? 'Graceful Shutdown' : 'Hard Poweroff';
+            const primaryIcon     = hasShutdown ? 'bi-power' : 'bi-stop-fill';
+            html += `<div class="btn-group btn-group-sm me-1">
+                <button class="btn btn-outline-warning btn-action" title="${primaryTitle}"${dimOn}
+                    onclick="Controls.performAction('${node}','${type}',${vmid},'${primaryAction}','${e}')">
+                    <i class="bi ${primaryIcon}"></i></button>`;
+            if (hasShutdown && hasStop) {
+                html += `<button class="btn btn-outline-warning dropdown-toggle dropdown-toggle-split"${dimOn}
+                    data-bs-toggle="dropdown" aria-expanded="false">
+                    <span class="visually-hidden">Toggle Dropdown</span></button>
+                <ul class="dropdown-menu">
+                    <li><a class="dropdown-item" href="#"
+                        onclick="event.preventDefault();Controls.performAction('${node}','${type}',${vmid},'shutdown','${e}')">
+                        <i class="bi bi-power me-2"></i>Graceful Shutdown</a></li>
+                    <li><a class="dropdown-item" href="#"
+                        onclick="event.preventDefault();Controls.performAction('${node}','${type}',${vmid},'stop','${e}')">
+                        <i class="bi bi-stop-fill me-2"></i>Hard Poweroff (Force Stop)</a></li>
+                </ul>`;
+            }
+            html += `</div>`;
         }
-        if (Permissions.has('vm.stop')) {
-            html += `<button class="btn btn-danger btn-action me-1" title="Force Stop" ${dis(running)} onclick="Controls.performAction('${node}','${type}',${id},'stop','${Utils.escapeHtml(name || '')}')">
-                        <i class="bi bi-stop-fill"></i>
-                     </button>`;
-        }
+
+        // Delete (only when stopped)
         if (Permissions.has('vm.delete')) {
-            html += `<button class="btn btn-danger btn-action" title="Delete" ${dis(!running)} onclick="Controls.deleteGuest('${node}','${type}',${id},'${Utils.escapeHtml(name || '')}')">
-                        <i class="bi bi-trash-fill"></i>
-                     </button>`;
+            const delTitle = running ? 'Delete (stop VM first)' : 'Delete VM/CT';
+            html += `<button class="btn btn-danger btn-action" title="${delTitle}"${dimOff}
+                onclick="Controls.deleteGuest('${node}','${type}',${vmid},'${e}')">
+                <i class="bi bi-trash-fill"></i></button>`;
         }
 
         return html;

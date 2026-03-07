@@ -91,6 +91,10 @@ if ($directCommand) {
 
 $exitCode = -1;
 
+// Emit an initial status line so we can verify the SSE stream is alive
+$authMethod = ($keyPath && file_exists($keyPath)) ? 'key' : ($password ? 'password' : 'none');
+sse('data', base64_encode("\r\nConnecting to {$sshHost} (auth: {$authMethod})...\r\n"));
+
 if ($keyPath && file_exists($keyPath)) {
     // ── Path A: system ssh + proc_open with pipes (key auth) ───────────────
     // We use regular pipes (not pty) for proc_open.  SSH's -tt flag allocates
@@ -170,7 +174,8 @@ if ($keyPath && file_exists($keyPath)) {
     }
 
     foreach ($pipes as $p) @fclose($p);
-    proc_close($process);
+    $rc = proc_close($process);
+    if ($exitCode === -1) $exitCode = $rc;
 
 } elseif ($password) {
     // ── Path B: phpseclib3 PTY (password auth) ─────────────────────────────
@@ -186,7 +191,17 @@ if ($keyPath && file_exists($keyPath)) {
                     sse('data', base64_encode($chunk));
                 }
             } catch (ConnectionClosedException $e) {
-                if (!$ssh->isTimeout()) break;
+                if (!$ssh->isTimeout()) {
+                    // Channel closed — drain any remaining buffered output
+                    try {
+                        $ssh->setTimeout(0.1);
+                        $last = $ssh->read();
+                        if ($last !== '' && $last !== false) {
+                            sse('data', base64_encode($last));
+                        }
+                    } catch (\Exception $e2) {}
+                    break;
+                }
             }
             $input = drainInput($inputFile);
             if ($input !== '') {

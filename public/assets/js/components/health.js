@@ -35,6 +35,9 @@ const Health = {
             <div id="health-cluster-stats" class="row g-3 mb-4"></div>
             <div class="section-header mt-4">
                 <h2><i class="bi bi-hdd-rack-fill"></i> Nodes</h2>
+                <button class="btn btn-sm btn-outline-secondary" onclick="Health.showSshSetup()">
+                    <i class="bi bi-key-fill me-1"></i>SSH Key Setup
+                </button>
             </div>
             <div id="health-nodes" class="row g-3 mb-4"></div>
             <div class="section-header mt-4">
@@ -601,5 +604,64 @@ const Health = {
         if (pct >= 90) return 'level-danger';
         if (pct >= 70) return 'level-warn';
         return 'level-ok';
+    },
+
+    async deployKeyToNodes(btn) {
+        const resultsEl = document.getElementById('ssh-deploy-results');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Deploying...';
+        resultsEl.innerHTML = '';
+        try {
+            const res = await API.post('api/ssh-deploy-key.php', {});
+            resultsEl.innerHTML = res.results.map(r => `
+                <div class="d-flex align-items-center gap-2 mb-1">
+                    <i class="bi ${r.success ? 'bi-check-circle-fill text-success' : 'bi-x-circle-fill text-danger'}"></i>
+                    <span class="small">${escapeHtml(r.node)} (${escapeHtml(r.ip)})${r.error ? ' — ' + escapeHtml(r.error) : ''}</span>
+                </div>`).join('');
+            const allOk = res.results.every(r => r.success);
+            if (allOk) Toast.success('SSH key deployed to all nodes');
+            else Toast.warning('Some nodes failed — see details above');
+        } catch (e) {
+            resultsEl.innerHTML = `<p class="text-danger small">${escapeHtml(e.message || 'Deploy failed')}</p>`;
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-cloud-upload me-1"></i>Deploy to All Nodes';
+        }
+    },
+
+    async showSshSetup() {
+        const modal = new bootstrap.Modal(document.getElementById('sshSetupModal'));
+        const keyEl = document.getElementById('ssh-setup-pubkey');
+        const cmdsEl = document.getElementById('ssh-setup-commands');
+        keyEl.textContent = 'Loading...';
+        cmdsEl.innerHTML = '';
+        modal.show();
+
+        try {
+            const res = await API.get('api/ssh-pubkey.php');
+            const pubKey = res.public_key;
+            keyEl.textContent = pubKey;
+
+            const nodes = (this.data?.nodes || []).sort((a, b) => a.node.localeCompare(b.node));
+            if (nodes.length > 0) {
+                cmdsEl.innerHTML = nodes.map(n => {
+                    const ip = n.ip || n.node;
+                    return `<div class="mb-2">
+                        <small class="text-muted">${escapeHtml(n.node)} (${escapeHtml(ip)})</small>
+                        <div class="input-group input-group-sm mt-1">
+                            <input type="text" class="form-control font-monospace" readonly
+                                value="ssh-copy-id -i /dev/stdin root@${escapeHtml(ip)} <<< ${escapeHtml("'" + pubKey + "'")}">
+                            <button class="btn btn-outline-secondary" onclick="navigator.clipboard.writeText(this.previousElementSibling.value).then(()=>Toast.success('Copied!'))">
+                                <i class="bi bi-clipboard"></i>
+                            </button>
+                        </div>
+                    </div>`;
+                }).join('');
+            } else {
+                cmdsEl.innerHTML = '<p class="text-muted small">No nodes found. Copy the key manually.</p>';
+            }
+        } catch (e) {
+            keyEl.textContent = 'Error: ' + (e.message || 'Could not load public key');
+        }
     },
 };

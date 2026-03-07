@@ -4,8 +4,13 @@ const Templates = {
     currentFilter: { type: '', node: '', search: '' },
     currentSort: { col: 'vmid', dir: 'asc' },
 
+    // Cloud-image tag state
+    ciSelectedTags: [],
+    ciPendingColors: {},
+    ciExistingTags: {},
+
     // Community scripts state
-    activeTab: 'local',
+    activeTab: 'community',
     communityData: null,        // raw categories array from API
     communityFilter: { type: '', category: '', search: '' },
     communityLoading: false,
@@ -47,6 +52,9 @@ const Templates = {
                 <button class="deploy-tab-btn ${this.activeTab === 'local' ? 'active' : ''}" onclick="Templates.switchTab('local')">
                     <i class="bi bi-hdd-stack me-2"></i>Local Templates
                 </button>
+                <button class="deploy-tab-btn ${this.activeTab === 'cloudinit' ? 'active' : ''}" onclick="Templates.switchTab('cloudinit')">
+                    <i class="bi bi-clouds-fill me-2"></i>Cloud Images
+                </button>
             </div>
 
             <div id="tab-local" style="${this.activeTab === 'local' ? '' : 'display:none'}">
@@ -77,6 +85,11 @@ const Templates = {
                     <div class="loading-spinner"><div class="spinner-border text-primary"></div></div>
                 </div>
             </div>
+
+            <div id="tab-cloudinit" style="${this.activeTab === 'cloudinit' ? '' : 'display:none'}">
+                <p style="color:var(--text-muted)" class="mb-3">Deploy a fresh virtual machine from a cloud image with automated cloud-init configuration.</p>
+                <div id="ci-grid" class="ci-images-grid"></div>
+            </div>
         `;
 
         // Local tab filter events
@@ -102,23 +115,31 @@ const Templates = {
         if (this.activeTab === 'community') {
             this.loadCommunityScripts();
         }
+        if (this.activeTab === 'cloudinit') {
+            this.renderCloudImages();
+        }
     },
 
     switchTab(tab) {
         this.activeTab = tab;
         document.getElementById('tab-local').style.display = tab === 'local' ? '' : 'none';
         document.getElementById('tab-community').style.display = tab === 'community' ? '' : 'none';
+        document.getElementById('tab-cloudinit').style.display = tab === 'cloudinit' ? '' : 'none';
 
         document.querySelectorAll('.deploy-tab-btn').forEach(btn => btn.classList.remove('active'));
         document.querySelectorAll('.deploy-tab-btn').forEach(btn => {
             if ((tab === 'local' && btn.textContent.includes('Local')) ||
-                (tab === 'community' && btn.textContent.includes('Community'))) {
+                (tab === 'community' && btn.textContent.includes('Community')) ||
+                (tab === 'cloudinit' && btn.textContent.includes('Cloud Images'))) {
                 btn.classList.add('active');
             }
         });
 
         if (tab === 'community' && !this.communityData && !this.communityLoading) {
             this.loadCommunityScripts();
+        }
+        if (tab === 'cloudinit') {
+            this.renderCloudImages();
         }
     },
 
@@ -406,7 +427,6 @@ const Templates = {
             theme: { background: '#0d1117', foreground: '#e6edf3', cursor: '#58a6ff' },
             fontSize: 13,
             fontFamily: '"Cascadia Code", "Fira Code", monospace',
-            rows: 30,
             scrollback: 5000,
             convertEol: true,
             cursorBlink: true,
@@ -424,6 +444,11 @@ const Templates = {
             fitAddon.fit();
             term.focus();
         }, { once: true });
+
+        // Refit on container resize (e.g. window resize)
+        const resizeObs = new ResizeObserver(() => { try { fitAddon.fit(); } catch(_) {} });
+        resizeObs.observe(container);
+        termModalEl.addEventListener('hidden.bs.modal', () => resizeObs.disconnect(), { once: true });
 
         // Re-focus whenever the user clicks inside the terminal area
         container.addEventListener('mousedown', () => term.focus());
@@ -515,6 +540,257 @@ const Templates = {
             this._term = null;
         }
         this._termToken = null;
+    },
+
+    // ===== Cloud Images =====
+
+    CI_IMAGES: {
+        'ubuntu-24.04': { name: 'Ubuntu 24.04 LTS', subtitle: 'Noble Numbat', color: '#E95420', default_user: 'ubuntu' },
+        'ubuntu-22.04': { name: 'Ubuntu 22.04 LTS', subtitle: 'Jammy Jellyfish', color: '#E95420', default_user: 'ubuntu' },
+        'debian-12':    { name: 'Debian 12', subtitle: 'Bookworm', color: '#D70A53', default_user: 'debian' },
+        'debian-11':    { name: 'Debian 11', subtitle: 'Bullseye', color: '#D70A53', default_user: 'debian' },
+        'rocky-9':      { name: 'Rocky Linux 9', subtitle: 'GenericCloud', color: '#10B981', default_user: 'rocky' },
+        'almalinux-9':  { name: 'AlmaLinux 9', subtitle: 'GenericCloud', color: '#1D6FA4', default_user: 'almalinux' },
+    },
+
+    renderCloudImages() {
+        const grid = document.getElementById('ci-grid');
+        if (!grid) return;
+
+        grid.innerHTML = Object.entries(this.CI_IMAGES).map(([id, img]) => `
+            <div class="ci-card" onclick="Templates.openCloudImageModal('${id}')">
+                <div class="ci-card-accent" style="background:${img.color}"></div>
+                <div class="ci-card-body">
+                    <div class="ci-card-name">${escapeHtml(img.name)}</div>
+                    <div class="ci-card-sub">${escapeHtml(img.subtitle)}</div>
+                    <div class="mt-2">
+                        <span class="badge" style="background:${img.color}22;color:${img.color};border:1px solid ${img.color}44;font-size:0.7rem">
+                            user: ${escapeHtml(img.default_user)}
+                        </span>
+                    </div>
+                </div>
+                <div class="ci-card-footer">
+                    <i class="bi bi-rocket-takeoff-fill me-1"></i>Deploy
+                </div>
+            </div>
+        `).join('');
+    },
+
+    async openCloudImageModal(imageId) {
+        const img = this.CI_IMAGES[imageId];
+        if (!img) return;
+        this._ciImageId = imageId;
+
+        document.getElementById('ci-modal-image-name').textContent = img.name;
+
+        // Reset all form fields
+        document.getElementById('ci-name').value = '';
+        document.getElementById('ci-cores').value = '2';
+        document.getElementById('ci-memory').value = '2048';
+        document.getElementById('ci-disk').value = '10';
+        document.getElementById('ci-user').value = img.default_user;
+        document.getElementById('ci-password').value = '';
+        document.getElementById('ci-sshkeys').value = window.APP_USER?.ssh_public_keys || '';
+        document.getElementById('ci-packages').value = '';
+        document.getElementById('ci-runcmd').value = '';
+
+        // Reset tags
+        this.ciSelectedTags = [];
+        this.ciPendingColors = {};
+        document.getElementById('ci-tag-input').value = '';
+        document.getElementById('ci-tag-color').value = '#0088cc';
+        document.getElementById('ci-tag-fg').value = '#ffffff';
+        this.renderCiTagChips();
+        API.getTags().then(data => {
+            this.ciExistingTags = data.colors || {};
+            const list = document.getElementById('ci-tag-suggestions');
+            if (list) list.innerHTML = (data.tags || []).map(t => `<option value="${escapeHtml(t)}">`).join('');
+        }).catch(() => {});
+        document.getElementById('ci-nameserver').value = '';
+        document.getElementById('ci-searchdomain').value = '';
+        document.getElementById('ci-ip').value = '';
+        document.getElementById('ci-gw').value = '';
+
+        // Fill node select
+        const nodeSelect = document.getElementById('ci-node');
+        const onlineNodes = (this.nodes || []).filter(n => n.status === 'online');
+        nodeSelect.innerHTML = onlineNodes.map(n => `<option value="${escapeHtml(n.node)}">${escapeHtml(n.node)}</option>`).join('');
+
+        // Reset IP type to DHCP
+        document.getElementById('ci-ip-dhcp').checked = true;
+        document.getElementById('ci-static-fields').style.display = 'none';
+
+        // Load next VMID
+        try {
+            const res = await API.getNextVmid();
+            document.getElementById('ci-vmid').value = res.vmid || res;
+        } catch (_) {}
+
+        // Load storages/bridges for default node
+        if (onlineNodes.length > 0) {
+            this.loadCloudInitResources(onlineNodes[0].node);
+        }
+
+        new bootstrap.Modal(document.getElementById('cloudInitModal')).show();
+    },
+
+    async loadCloudInitResources(node) {
+        if (!node) return;
+
+        document.getElementById('ci-storage').innerHTML = '<option value="">Loading...</option>';
+        document.getElementById('ci-bridge').innerHTML = '<option value="">Loading...</option>';
+
+        try {
+            const [storages, networks] = await Promise.all([
+                API.getStorages(node, 'images'),
+                API.getNetworks(node),
+            ]);
+
+            const storageOpts = (storages || [])
+                .filter(s => s.enabled !== 0)
+                .map(s => `<option value="${escapeHtml(s.storage)}">${escapeHtml(s.storage)} (${escapeHtml(s.type || '')})</option>`)
+                .join('');
+            document.getElementById('ci-storage').innerHTML = storageOpts || '<option value="">No storages found</option>';
+            const defStorage = window.APP_USER?.default_storage;
+            if (defStorage && [...document.getElementById('ci-storage').options].some(o => o.value === defStorage)) {
+                document.getElementById('ci-storage').value = defStorage;
+            }
+
+            const bridgeOpts = (networks || [])
+                .filter(n => n.type === 'bridge')
+                .map(n => `<option value="${escapeHtml(n.iface)}">${escapeHtml(n.iface)}</option>`)
+                .join('');
+            document.getElementById('ci-bridge').innerHTML = bridgeOpts || '<option value="">No bridges found</option>';
+        } catch (_) {
+            document.getElementById('ci-storage').innerHTML = '<option value="">Load failed</option>';
+            document.getElementById('ci-bridge').innerHTML = '<option value="">Load failed</option>';
+        }
+    },
+
+    async submitCloudImage(event) {
+        event.preventDefault();
+
+        const ipType = document.querySelector('input[name="ci-ip-type"]:checked')?.value || 'dhcp';
+
+        const params = {
+            image_id:        this._ciImageId,
+            vmid:            parseInt(document.getElementById('ci-vmid').value),
+            name:            document.getElementById('ci-name').value.trim(),
+            node:            document.getElementById('ci-node').value,
+            storage:         document.getElementById('ci-storage').value,
+            bridge:          document.getElementById('ci-bridge').value,
+            cores:           parseInt(document.getElementById('ci-cores').value),
+            memory:          parseInt(document.getElementById('ci-memory').value),
+            disk_size:       parseInt(document.getElementById('ci-disk').value),
+            ci_user:         document.getElementById('ci-user').value.trim(),
+            ci_password:     document.getElementById('ci-password').value,
+            ci_sshkeys:      document.getElementById('ci-sshkeys').value.trim(),
+            ci_nameserver:   document.getElementById('ci-nameserver').value.trim(),
+            ci_searchdomain: document.getElementById('ci-searchdomain').value.trim(),
+            ip_type:         ipType,
+            tags:            this.ciSelectedTags.join(';'),
+            ci_packages:     document.getElementById('ci-packages').value,
+            ci_runcmd:       document.getElementById('ci-runcmd').value,
+        };
+
+        if (ipType === 'static') {
+            params.ci_ip = document.getElementById('ci-ip').value.trim();
+            params.ci_gw  = document.getElementById('ci-gw').value.trim();
+        }
+
+        // Persist new/changed tag colors
+        const colorUpdates = Object.entries(this.ciPendingColors);
+        if (colorUpdates.length > 0) {
+            await Promise.allSettled(colorUpdates.map(([tag, color]) => API.setTagColor(tag, color.bg, color.fg)));
+        }
+
+        // Close the config modal
+        bootstrap.Modal.getInstance(document.getElementById('cloudInitModal'))?.hide();
+
+        // Set terminal title and open terminal modal
+        const title = `Deploying ${this.CI_IMAGES[this._ciImageId]?.name || ''} (VM ${params.vmid}) on ${params.node}`;
+        document.getElementById('ssh-terminal-title').textContent = title;
+        document.getElementById('ssh-terminal-status').textContent = 'Starting…';
+
+        const container = document.getElementById('ssh-terminal-container');
+        container.innerHTML = '';
+
+        const term = new Terminal({
+            theme: { background: '#0d1117', foreground: '#e6edf3', cursor: '#58a6ff' },
+            fontSize: 13,
+            fontFamily: '"Cascadia Code", "Fira Code", monospace',
+            scrollback: 5000,
+            convertEol: true,
+            cursorBlink: true,
+        });
+        const fitAddon = new FitAddon.FitAddon();
+        term.loadAddon(fitAddon);
+        term.open(container);
+
+        const termModalEl = document.getElementById('sshTerminalModal');
+        const termModal = new bootstrap.Modal(termModalEl, { focus: false });
+        termModalEl.addEventListener('shown.bs.modal', () => { fitAddon.fit(); term.focus(); }, { once: true });
+        const resizeObs2 = new ResizeObserver(() => { try { fitAddon.fit(); } catch(_) {} });
+        resizeObs2.observe(container);
+        termModalEl.addEventListener('hidden.bs.modal', () => resizeObs2.disconnect(), { once: true });
+        container.addEventListener('mousedown', () => term.focus());
+        termModal.show();
+
+        this._term = term;
+        this._termEventSource = null;
+        this._termToken = null;
+
+        // Get session token
+        let token;
+        try {
+            const res = await API.cloudInitStart(params);
+            token = res.token;
+            this._termToken = token;
+        } catch (err) {
+            term.write('\r\n\x1B[31mFailed to start deployment: ' + (err.message || err) + '\x1B[0m\r\n');
+            document.getElementById('ssh-terminal-status').textContent = 'Error';
+            return;
+        }
+
+        // Connect SSE stream
+        const es = new EventSource('api/terminal-output.php?token=' + encodeURIComponent(token));
+        this._termEventSource = es;
+
+        es.addEventListener('data', (e) => {
+            term.write(Uint8Array.from(atob(e.data), c => c.charCodeAt(0)));
+        });
+
+        es.addEventListener('done', (e) => {
+            es.close();
+            const result = JSON.parse(e.data);
+            const statusEl = document.getElementById('ssh-terminal-status');
+            if (result.success) {
+                term.write('\r\n\x1B[32m✓ Deployment completed successfully\x1B[0m\r\n');
+                statusEl.innerHTML = '<span class="text-success">Completed</span>';
+                Toast.success('VM deployed successfully');
+            } else {
+                term.write(`\r\n\x1B[31m✗ Exited with code ${result.exit_code}\x1B[0m\r\n`);
+                statusEl.innerHTML = `<span class="text-danger">Failed (exit ${result.exit_code})</span>`;
+                Toast.error('Deployment failed');
+            }
+        });
+
+        es.addEventListener('error', (e) => {
+            try { const d = JSON.parse(e.data); term.write('\r\n\x1B[31mError: ' + d.message + '\x1B[0m\r\n'); } catch (_) {}
+            document.getElementById('ssh-terminal-status').textContent = 'Connection lost';
+            es.close();
+        });
+
+        es.onopen = () => {
+            document.getElementById('ssh-terminal-status').textContent = 'Connected — deployment running…';
+        };
+
+        const statusEl = document.getElementById('ssh-terminal-status');
+        term.onData((data) => {
+            if (!this._termToken) return;
+            API.post('api/terminal-input.php', { token: this._termToken, data: btoa(data) })
+                .catch(() => {});
+        });
     },
 
     // ===== Local Templates =====
@@ -631,16 +907,82 @@ const Templates = {
                 <td><i class="bi ${Utils.typeIcon(t.type)}" style="opacity:0.6"></i> ${Utils.typeLabel(t.type)}</td>
                 <td style="color:var(--text-secondary)">${Utils.escapeHtml(t.node)}</td>
                 <td style="color:var(--text-secondary)">${t.maxdisk ? Utils.formatBytes(t.maxdisk) : '-'}</td>
-                <td style="text-align:right">
-                    <button class="btn btn-primary btn-sm btn-action"
+                <td style="text-align:right;white-space:nowrap">
+                    <button class="btn btn-primary btn-sm btn-action me-1"
                         onclick="Deploy.open(${JSON.stringify(t).replace(/"/g, '&quot;')})">
                         <i class="bi bi-rocket-takeoff-fill"></i> Deploy
                     </button>
+                    ${Permissions.has('vm.delete') ? `<button class="btn btn-outline-danger btn-sm btn-action"
+                        data-vmid="${t.vmid}" data-node="${escapeHtml(t.node)}" data-type="${escapeHtml(t.type)}" data-name="${escapeHtml(t.name || 'Unnamed')}"
+                        onclick="Templates.deleteTemplate(this)">
+                        <i class="bi bi-trash"></i>
+                    </button>` : ''}
                 </td>
             </tr>`;
         }
 
         html += '</tbody></table>';
         container.innerHTML = html;
-    }
+    },
+
+    onCiTagInput() {
+        const tagName = document.getElementById('ci-tag-input').value.trim().toLowerCase();
+        const existing = this.ciExistingTags[tagName];
+        if (existing) {
+            document.getElementById('ci-tag-color').value = '#' + existing.bg;
+            document.getElementById('ci-tag-fg').value = '#' + existing.fg;
+        }
+    },
+
+    addCiTag() {
+        const input = document.getElementById('ci-tag-input');
+        const tagName = input.value.trim().toLowerCase();
+        if (!tagName || !/^[a-z0-9\-_]+$/.test(tagName)) return;
+        if (this.ciSelectedTags.includes(tagName)) { input.value = ''; return; }
+        const bg = document.getElementById('ci-tag-color').value.replace('#', '');
+        const fg = document.getElementById('ci-tag-fg').value.replace('#', '');
+        const existing = this.ciExistingTags[tagName];
+        if (!existing || existing.bg !== bg || existing.fg !== fg) {
+            this.ciPendingColors[tagName] = { bg, fg };
+        }
+        this.ciSelectedTags.push(tagName);
+        input.value = '';
+        document.getElementById('ci-tag-color').value = '#0088cc';
+        document.getElementById('ci-tag-fg').value = '#ffffff';
+        this.renderCiTagChips();
+    },
+
+    removeCiTag(tagName) {
+        this.ciSelectedTags = this.ciSelectedTags.filter(t => t !== tagName);
+        delete this.ciPendingColors[tagName];
+        this.renderCiTagChips();
+    },
+
+    renderCiTagChips() {
+        const container = document.getElementById('ci-tags-chips');
+        if (!container) return;
+        container.innerHTML = this.ciSelectedTags.map(tag => {
+            const color = this.ciPendingColors[tag] || this.ciExistingTags[tag] || { bg: '6c757d', fg: 'ffffff' };
+            return `<span class="badge d-inline-flex align-items-center gap-1" style="background:#${color.bg};color:#${color.fg}">
+                <i class="bi bi-tag-fill" style="font-size:0.65rem"></i>
+                ${escapeHtml(tag)}
+                <i class="bi bi-x" style="cursor:pointer;font-size:0.75rem" onclick="Templates.removeCiTag('${escapeHtml(tag)}')"></i>
+            </span>`;
+        }).join('');
+    },
+
+    async deleteTemplate(btn) {
+        const { vmid, node, type, name } = btn.dataset;
+        if (!confirm(`Delete template "${name}" (${vmid}) on ${node}? This cannot be undone.`)) return;
+        btn.disabled = true;
+        try {
+            await API.deleteGuest(node, type, vmid);
+            Toast.success(`Template ${name} deleted`);
+            this.templates = this.templates.filter(t => !(t.vmid == vmid && t.node === node));
+            this.updateView();
+        } catch (e) {
+            Toast.error(e.message || 'Delete failed');
+            btn.disabled = false;
+        }
+    },
 };
