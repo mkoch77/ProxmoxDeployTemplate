@@ -87,3 +87,26 @@ function loadSshKeyFile(input, targetId) {
     };
     reader.readAsText(file);
 }
+
+/**
+ * Get the least loaded online node name from the loadbalancer.
+ * Returns null if unavailable. Caches result for 30 seconds.
+ */
+Utils._leastLoadedCache = { node: null, ts: 0 };
+Utils.getLeastLoadedNode = async function() {
+    const now = Date.now();
+    if (this._leastLoadedCache.node && now - this._leastLoadedCache.ts < 30000) {
+        return this._leastLoadedCache.node;
+    }
+    try {
+        const data = await API.getSilent('api/loadbalancer.php');
+        const nodes = data?.balance?.nodes;
+        if (!nodes || !nodes.length) return null;
+        // balance.nodes only contains online non-maintenance nodes, sorted by score (lowest = least loaded)
+        const sorted = [...nodes].sort((a, b) => (a.score ?? 100) - (b.score ?? 100));
+        this._leastLoadedCache = { node: sorted[0].node, ts: now };
+        return sorted[0].node;
+    } catch (_) {
+        return null;
+    }
+};

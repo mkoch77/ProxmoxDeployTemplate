@@ -13,8 +13,11 @@ const Templates = {
     customImages: [],
     customUnregistered: [],
 
+    // Service templates state
+    serviceTemplates: [],
+
     // Community scripts state
-    activeTab: 'community',
+    activeTab: 'cloudinit',
     communityData: null,        // raw categories array from API
     communityFilter: { type: '', category: '', search: '' },
     communityLoading: false,
@@ -49,15 +52,15 @@ const Templates = {
             </div>
 
             <div class="deploy-tabs mb-4">
+                <button class="deploy-tab-btn ${this.activeTab === 'cloudinit' ? 'active' : ''}" onclick="Templates.switchTab('cloudinit')">
+                    <i class="bi bi-clouds-fill me-2"></i>Cloud Images
+                </button>
                 <button class="deploy-tab-btn ${this.activeTab === 'community' ? 'active' : ''}" onclick="Templates.switchTab('community')">
                     <i class="bi bi-cloud-download me-2"></i>Community Scripts
                     <span class="badge bg-secondary ms-1" style="font-size:0.65rem">tteck</span>
                 </button>
-                <button class="deploy-tab-btn ${this.activeTab === 'local' ? 'active' : ''}" onclick="Templates.switchTab('local')">
-                    <i class="bi bi-hdd-stack me-2"></i>Local Templates
-                </button>
-                <button class="deploy-tab-btn ${this.activeTab === 'cloudinit' ? 'active' : ''}" onclick="Templates.switchTab('cloudinit')">
-                    <i class="bi bi-clouds-fill me-2"></i>Cloud Images
+                <button class="deploy-tab-btn ${this.activeTab === 'services' ? 'active' : ''}" onclick="Templates.switchTab('services')">
+                    <i class="bi bi-box-seam me-2"></i>Service Templates
                 </button>
                 <button class="deploy-tab-btn ${this.activeTab === 'custom' ? 'active' : ''}" onclick="Templates.switchTab('custom')">
                     <i class="bi bi-hdd-fill me-2"></i>Custom Images
@@ -65,6 +68,18 @@ const Templates = {
                 <button class="deploy-tab-btn ${this.activeTab === 'windows' ? 'active' : ''}" onclick="Templates.switchTab('windows')">
                     <i class="bi bi-windows me-2"></i>Windows ISO
                 </button>
+                <button class="deploy-tab-btn ${this.activeTab === 'local' ? 'active' : ''}" onclick="Templates.switchTab('local')">
+                    <i class="bi bi-hdd-stack me-2"></i>Local Templates
+                </button>
+            </div>
+
+            <div id="tab-services" style="${this.activeTab === 'services' ? '' : 'display:none'}">
+                <p style="color:var(--text-muted)" class="mb-3">
+                    Pre-configured service templates based on cloud images. Deploy a ready-to-use server with packages and setup commands included.
+                </p>
+                <div id="service-templates-grid" class="ci-images-grid">
+                    <div class="loading-spinner"><div class="spinner-border text-primary"></div></div>
+                </div>
             </div>
 
             <div id="tab-local" style="${this.activeTab === 'local' ? '' : 'display:none'}">
@@ -103,7 +118,7 @@ const Templates = {
 
             <div id="tab-custom" style="${this.activeTab === 'custom' ? '' : 'display:none'}">
                 <p style="color:var(--text-muted)" class="mb-3">
-                    Upload custom OS images (Windows with Sysprep/cloudbase-init, custom Linux, FreeBSD, etc.)
+                    Upload custom OS images (Windows with Sysprep/cloudbase-init, custom Linux, etc.)
                     and deploy them to your cluster.
                 </p>
                 <div class="d-flex gap-2 mb-3">
@@ -149,6 +164,9 @@ const Templates = {
             this.updateView();
         }, 300));
 
+        if (this.activeTab === 'services') {
+            this.loadServiceTemplates();
+        }
         if (this.activeTab === 'community') {
             this.loadCommunityScripts();
         }
@@ -165,15 +183,16 @@ const Templates = {
 
     switchTab(tab) {
         this.activeTab = tab;
-        document.getElementById('tab-local').style.display = tab === 'local' ? '' : 'none';
-        document.getElementById('tab-community').style.display = tab === 'community' ? '' : 'none';
-        document.getElementById('tab-cloudinit').style.display = tab === 'cloudinit' ? '' : 'none';
-        document.getElementById('tab-custom').style.display = tab === 'custom' ? '' : 'none';
-        document.getElementById('tab-windows').style.display = tab === 'windows' ? '' : 'none';
+        const tabs = ['services', 'local', 'community', 'cloudinit', 'custom', 'windows'];
+        tabs.forEach(t => {
+            const el = document.getElementById('tab-' + t);
+            if (el) el.style.display = tab === t ? '' : 'none';
+        });
 
         document.querySelectorAll('.deploy-tab-btn').forEach(btn => btn.classList.remove('active'));
         document.querySelectorAll('.deploy-tab-btn').forEach(btn => {
-            if ((tab === 'local' && btn.textContent.includes('Local')) ||
+            if ((tab === 'services' && btn.textContent.includes('Service Templates')) ||
+                (tab === 'local' && btn.textContent.includes('Local')) ||
                 (tab === 'community' && btn.textContent.includes('Community')) ||
                 (tab === 'cloudinit' && btn.textContent.includes('Cloud Images')) ||
                 (tab === 'custom' && btn.textContent.includes('Custom Images')) ||
@@ -182,6 +201,9 @@ const Templates = {
             }
         });
 
+        if (tab === 'services') {
+            this.loadServiceTemplates();
+        }
         if (tab === 'community' && !this.communityData && !this.communityLoading) {
             this.loadCommunityScripts();
         }
@@ -443,6 +465,12 @@ const Templates = {
         this._currentScriptPath = scriptPath;
 
         new bootstrap.Modal(modal).show();
+
+        // Pre-select least loaded node
+        Utils.getLeastLoadedNode().then(best => {
+            const sel = document.getElementById('cs-ssh-node');
+            if (sel && best && [...sel.options].some(o => o.value === best)) sel.value = best;
+        });
     },
 
     copyInstallCmd() {
@@ -613,8 +641,6 @@ const Templates = {
         'fedora-41':         { name: 'Fedora 41',         subtitle: 'Cloud Base',      color: '#51A2DA', default_user: 'fedora' },
         'opensuse-leap-15.6':{ name: 'openSUSE Leap 15.6',subtitle: 'Minimal Cloud',   color: '#73BA25', default_user: 'opensuse' },
         'arch-linux':        { name: 'Arch Linux',        subtitle: 'Rolling (latest)', color: '#1793D1', default_user: 'arch' },
-        // BSD
-        'freebsd-14':        { name: 'FreeBSD 14.4',      subtitle: 'RELEASE',         color: '#AB2B28', default_user: 'freebsd' },
     },
 
     renderCloudImages() {
@@ -641,6 +667,7 @@ const Templates = {
     },
 
     async openCloudImageModal(imageId) {
+        this._editingServiceTemplate = null;
         let img;
         if (imageId.startsWith('custom:')) {
             const customId = parseInt(imageId.split(':')[1]);
@@ -683,7 +710,7 @@ const Templates = {
         document.getElementById('ci-ip').value = '';
         document.getElementById('ci-gw').value = '';
 
-        // Fill node select
+        // Fill node select — pre-select least loaded node
         const nodeSelect = document.getElementById('ci-node');
         const onlineNodes = (this.nodes || []).filter(n => n.status === 'online');
         nodeSelect.innerHTML = onlineNodes.map(n => `<option value="${escapeHtml(n.node)}">${escapeHtml(n.node)}</option>`).join('');
@@ -698,9 +725,14 @@ const Templates = {
             document.getElementById('ci-vmid').value = res.vmid || res;
         } catch (_) {}
 
-        // Load storages/bridges for default node
-        if (onlineNodes.length > 0) {
-            this.loadCloudInitResources(onlineNodes[0].node);
+        // Pre-select least loaded node, then load resources
+        const bestNode = await Utils.getLeastLoadedNode();
+        if (bestNode && onlineNodes.some(n => n.node === bestNode)) {
+            nodeSelect.value = bestNode;
+        }
+        const selectedNode = nodeSelect.value || (onlineNodes.length > 0 ? onlineNodes[0].node : null);
+        if (selectedNode) {
+            this.loadCloudInitResources(selectedNode);
         }
 
         new bootstrap.Modal(document.getElementById('cloudInitModal')).show();
@@ -1064,7 +1096,7 @@ const Templates = {
         l26: 'Linux',
         win10: 'Windows 10/Server 2016+',
         win11: 'Windows 11/Server 2022+',
-        other: 'Other / FreeBSD',
+        other: 'Other',
     },
 
     OS_TYPE_COLORS: {
@@ -1193,7 +1225,7 @@ const Templates = {
                                         <option value="l26">Linux</option>
                                         <option value="win10">Windows 10 / Server 2016+</option>
                                         <option value="win11">Windows 11 / Server 2022+</option>
-                                        <option value="other">Other / FreeBSD</option>
+                                        <option value="other">Other</option>
                                     </select>
                                 </div>
                             </div>
@@ -1801,16 +1833,24 @@ const Templates = {
         </div>`;
         document.body.insertAdjacentHTML('beforeend', html);
 
-        // Load nodes and next VMID
+        // Load nodes and next VMID — pre-select least loaded node
         try {
-            const [nodes, nextVmid] = await Promise.all([
+            const [nodes, nextVmid, bestNode] = await Promise.all([
                 API.getNodes(),
                 API.getNextVmid(),
+                Utils.getLeastLoadedNode(),
             ]);
             const nodeSelect = document.getElementById('win-node');
-            (nodes || []).filter(n => n.status === 'online').forEach(n => {
+            const onlineNodes = (nodes || []).filter(n => n.status === 'online');
+            onlineNodes.forEach(n => {
                 nodeSelect.innerHTML += `<option value="${escapeHtml(n.node)}">${escapeHtml(n.node)}</option>`;
             });
+            if (bestNode && onlineNodes.some(n => n.node === bestNode)) {
+                nodeSelect.value = bestNode;
+            }
+            if (nodeSelect.value) {
+                this.loadWindowsDeployResources(nodeSelect.value);
+            }
             if (nextVmid?.vmid) document.getElementById('win-vmid').value = nextVmid.vmid;
         } catch (_) {}
 
@@ -1947,5 +1987,258 @@ const Templates = {
             if (!this._termToken) return;
             API.post('api/terminal-input.php', { token: this._termToken, data: btoa(data) }).catch(() => {});
         });
+    },
+
+    // ===== Service Templates =====
+
+    async loadServiceTemplates() {
+        const grid = document.getElementById('service-templates-grid');
+        if (!grid) return;
+        grid.innerHTML = '<div class="loading-spinner"><div class="spinner-border text-primary"></div></div>';
+
+        try {
+            this.serviceTemplates = await API.getServiceTemplates();
+            this.renderServiceTemplates();
+        } catch (e) {
+            grid.innerHTML = '<p class="text-danger">Failed to load service templates</p>';
+        }
+    },
+
+    renderServiceTemplates() {
+        const grid = document.getElementById('service-templates-grid');
+        if (!grid) return;
+
+        const escapeHtml = Utils.escapeHtml || (s => s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])));
+
+        if (this.serviceTemplates.length === 0) {
+            grid.innerHTML = `
+                <div class="text-center py-5" style="grid-column:1/-1">
+                    <i class="bi bi-box-seam" style="font-size:3rem;opacity:0.3"></i>
+                    <p class="mt-2" style="color:var(--text-muted)">No service templates yet.<br>
+                    Open a Cloud Image deploy dialog, configure packages &amp; commands, then click <strong>Save as Service Template</strong>.</p>
+                </div>`;
+            return;
+        }
+
+        grid.innerHTML = this.serviceTemplates.map(tpl => {
+            const baseImg = this.CI_IMAGES[tpl.base_image];
+            const baseName = baseImg ? baseImg.name : tpl.base_image;
+            const pkgCount = tpl.packages ? tpl.packages.split('\n').filter(Boolean).length : 0;
+            const cmdCount = tpl.runcmd ? tpl.runcmd.split('\n').filter(Boolean).length : 0;
+
+            return `
+            <div class="ci-card service-tpl-card" onclick="Templates.deployServiceTemplate(${tpl.id})">
+                <div class="ci-card-accent" style="background:${escapeHtml(tpl.color)}"></div>
+                <div class="ci-card-body">
+                    <div class="ci-card-name"><i class="bi ${escapeHtml(tpl.icon)} me-1"></i>${escapeHtml(tpl.name)}</div>
+                    <div class="ci-card-sub">${escapeHtml(tpl.description)}</div>
+                    <div class="mt-2 d-flex flex-wrap gap-1">
+                        <span class="badge" style="background:${escapeHtml(tpl.color)}22;color:${escapeHtml(tpl.color)};border:1px solid ${escapeHtml(tpl.color)}44;font-size:0.7rem">
+                            ${escapeHtml(baseName)}
+                        </span>
+                        <span class="badge bg-secondary" style="font-size:0.65rem">${tpl.cores} CPU / ${tpl.memory} MB</span>
+                        ${pkgCount ? `<span class="badge bg-secondary" style="font-size:0.65rem">${pkgCount} packages</span>` : ''}
+                        ${cmdCount ? `<span class="badge bg-secondary" style="font-size:0.65rem">${cmdCount} commands</span>` : ''}
+                    </div>
+                </div>
+                <div class="ci-card-footer d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-rocket-takeoff-fill me-1"></i>Deploy</span>
+                    <span class="d-flex gap-1" onclick="event.stopPropagation()">
+                        <button class="btn btn-sm btn-outline-light border-0 p-0 px-1" title="Edit" onclick="Templates.editServiceTemplate(${tpl.id})">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger border-0 p-0 px-1" title="Delete" onclick="Templates.deleteServiceTemplate(${tpl.id}, '${escapeHtml(tpl.name).replace(/'/g, "\\'")}')">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </span>
+                </div>
+            </div>`;
+        }).join('');
+    },
+
+    async deployServiceTemplate(id) {
+        const tpl = this.serviceTemplates.find(t => t.id === id || t.id === String(id));
+        if (!tpl) return;
+
+        // Open the cloud-init modal with the base image, then fill in template values
+        await this.openCloudImageModal(tpl.base_image);
+
+        // Pre-fill from template
+        document.getElementById('ci-cores').value = tpl.cores || 2;
+        document.getElementById('ci-memory').value = tpl.memory || 2048;
+        document.getElementById('ci-disk').value = tpl.disk_size || 10;
+        document.getElementById('ci-packages').value = tpl.packages || '';
+        document.getElementById('ci-runcmd').value = tpl.runcmd || '';
+
+        // Pre-fill tags if any
+        if (tpl.tags) {
+            this.ciSelectedTags = tpl.tags.split(';').filter(Boolean);
+            this.renderCiTagChips();
+        }
+
+        // Update modal title to show template name
+        const titleEl = document.getElementById('ci-modal-image-name');
+        const baseImg = this.CI_IMAGES[tpl.base_image];
+        titleEl.textContent = `${tpl.name} (${baseImg ? baseImg.name : tpl.base_image})`;
+    },
+
+    showSaveServiceTemplate() {
+        const packages = document.getElementById('ci-packages').value.trim();
+        const runcmd = document.getElementById('ci-runcmd').value.trim();
+
+        if (!packages && !runcmd) {
+            Toast.warning('Add at least some packages or run commands before saving as a template.');
+            return;
+        }
+
+        const existingName = this._editingServiceTemplate?.name || '';
+
+        const html = `
+        <div class="modal fade" id="saveServiceTplModal" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content bg-dark">
+                    <div class="modal-header">
+                        <h5 class="modal-title"><i class="bi bi-box-seam me-2"></i>Save as Service Template</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">Template Name <span class="text-danger">*</span></label>
+                            <input type="text" id="svc-tpl-name" class="form-control" placeholder="e.g. LAMP Server" value="${Utils.escapeHtml(existingName)}" maxlength="255" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Description</label>
+                            <input type="text" id="svc-tpl-desc" class="form-control" placeholder="Short description of what this template provides" value="${Utils.escapeHtml(this._editingServiceTemplate?.description || '')}">
+                        </div>
+                        <div class="row g-2 mb-3">
+                            <div class="col-6">
+                                <label class="form-label">Icon</label>
+                                <select id="svc-tpl-icon" class="form-select">
+                                    <option value="bi-box-seam" ${(!this._editingServiceTemplate || this._editingServiceTemplate.icon === 'bi-box-seam') ? 'selected' : ''}>Box (default)</option>
+                                    <option value="bi-stack" ${this._editingServiceTemplate?.icon === 'bi-stack' ? 'selected' : ''}>Stack</option>
+                                    <option value="bi-globe" ${this._editingServiceTemplate?.icon === 'bi-globe' ? 'selected' : ''}>Globe</option>
+                                    <option value="bi-database" ${this._editingServiceTemplate?.icon === 'bi-database' ? 'selected' : ''}>Database</option>
+                                    <option value="bi-shield-lock" ${this._editingServiceTemplate?.icon === 'bi-shield-lock' ? 'selected' : ''}>Security</option>
+                                    <option value="bi-hdd-network" ${this._editingServiceTemplate?.icon === 'bi-hdd-network' ? 'selected' : ''}>Network</option>
+                                    <option value="bi-envelope" ${this._editingServiceTemplate?.icon === 'bi-envelope' ? 'selected' : ''}>Mail</option>
+                                    <option value="bi-filetype-php" ${this._editingServiceTemplate?.icon === 'bi-filetype-php' ? 'selected' : ''}>PHP</option>
+                                    <option value="bi-filetype-py" ${this._editingServiceTemplate?.icon === 'bi-filetype-py' ? 'selected' : ''}>Python</option>
+                                    <option value="bi-filetype-java" ${this._editingServiceTemplate?.icon === 'bi-filetype-java' ? 'selected' : ''}>Java</option>
+                                    <option value="bi-cup-hot" ${this._editingServiceTemplate?.icon === 'bi-cup-hot' ? 'selected' : ''}>Cup</option>
+                                    <option value="bi-gear" ${this._editingServiceTemplate?.icon === 'bi-gear' ? 'selected' : ''}>Gear</option>
+                                    <option value="bi-chat-dots" ${this._editingServiceTemplate?.icon === 'bi-chat-dots' ? 'selected' : ''}>Chat</option>
+                                    <option value="bi-cloud" ${this._editingServiceTemplate?.icon === 'bi-cloud' ? 'selected' : ''}>Cloud</option>
+                                    <option value="bi-code-slash" ${this._editingServiceTemplate?.icon === 'bi-code-slash' ? 'selected' : ''}>Code</option>
+                                </select>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label">Color</label>
+                                <input type="color" id="svc-tpl-color" class="form-control form-control-color w-100" value="${this._editingServiceTemplate?.color || this.CI_IMAGES[this._ciImageId]?.color || '#6c757d'}">
+                            </div>
+                        </div>
+                        <div class="p-2 rounded" style="background:var(--card-bg);font-size:0.85rem">
+                            <strong>Will be saved:</strong><br>
+                            Base Image: <code>${Utils.escapeHtml(this.CI_IMAGES[this._ciImageId]?.name || this._ciImageId)}</code><br>
+                            CPU: <code>${document.getElementById('ci-cores').value}</code> /
+                            RAM: <code>${document.getElementById('ci-memory').value} MB</code> /
+                            Disk: <code>${document.getElementById('ci-disk').value} GB</code><br>
+                            Packages: <code>${(packages.split('\n').filter(Boolean).length)} packages</code><br>
+                            Run Commands: <code>${(runcmd.split('\n').filter(Boolean).length)} commands</code>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-primary" onclick="Templates.saveServiceTemplate()">
+                            <i class="bi bi-floppy me-1"></i>Save Template
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+
+        // Remove old modal if exists
+        document.getElementById('saveServiceTplModal')?.remove();
+        document.body.insertAdjacentHTML('beforeend', html);
+        new bootstrap.Modal(document.getElementById('saveServiceTplModal')).show();
+    },
+
+    async saveServiceTemplate() {
+        const name = document.getElementById('svc-tpl-name').value.trim();
+        if (!name) {
+            Toast.warning('Please enter a template name.');
+            return;
+        }
+
+        const data = {
+            name,
+            description: document.getElementById('svc-tpl-desc').value.trim(),
+            base_image: this._ciImageId,
+            icon: document.getElementById('svc-tpl-icon').value,
+            color: document.getElementById('svc-tpl-color').value,
+            cores: parseInt(document.getElementById('ci-cores').value) || 2,
+            memory: parseInt(document.getElementById('ci-memory').value) || 2048,
+            disk_size: parseInt(document.getElementById('ci-disk').value) || 10,
+            packages: document.getElementById('ci-packages').value.trim(),
+            runcmd: document.getElementById('ci-runcmd').value.trim(),
+            tags: this.ciSelectedTags.join(';'),
+        };
+
+        if (this._editingServiceTemplate?.id) {
+            data.id = this._editingServiceTemplate.id;
+        }
+
+        try {
+            await API.saveServiceTemplate(data);
+            Toast.success(`Service template "${name}" saved`);
+            bootstrap.Modal.getInstance(document.getElementById('saveServiceTplModal'))?.hide();
+            this._editingServiceTemplate = null;
+            // Reload if on services tab
+            if (this.activeTab === 'services') {
+                this.loadServiceTemplates();
+            }
+        } catch (e) {
+            Toast.error(e.message || 'Failed to save template');
+        }
+    },
+
+    async editServiceTemplate(id) {
+        const tpl = this.serviceTemplates.find(t => t.id === id || t.id === String(id));
+        if (!tpl) return;
+
+        // Open the cloud-init modal with the template's base image
+        await this.openCloudImageModal(tpl.base_image);
+
+        // Fill in template values
+        document.getElementById('ci-cores').value = tpl.cores || 2;
+        document.getElementById('ci-memory').value = tpl.memory || 2048;
+        document.getElementById('ci-disk').value = tpl.disk_size || 10;
+        document.getElementById('ci-packages').value = tpl.packages || '';
+        document.getElementById('ci-runcmd').value = tpl.runcmd || '';
+
+        if (tpl.tags) {
+            this.ciSelectedTags = tpl.tags.split(';').filter(Boolean);
+            this.renderCiTagChips();
+        }
+
+        // Update modal title
+        const titleEl = document.getElementById('ci-modal-image-name');
+        const baseImg = this.CI_IMAGES[tpl.base_image];
+        titleEl.textContent = `Edit: ${tpl.name} (${baseImg ? baseImg.name : tpl.base_image})`;
+
+        // Store reference for save
+        this._editingServiceTemplate = tpl;
+    },
+
+    async deleteServiceTemplate(id, name) {
+        if (!confirm(`Delete service template "${name}"?`)) return;
+
+        try {
+            await API.deleteServiceTemplate(id);
+            Toast.success(`Template "${name}" deleted`);
+            this.serviceTemplates = this.serviceTemplates.filter(t => t.id !== id && t.id !== String(id));
+            this.renderServiceTemplates();
+        } catch (e) {
+            Toast.error(e.message || 'Failed to delete template');
+        }
     },
 };

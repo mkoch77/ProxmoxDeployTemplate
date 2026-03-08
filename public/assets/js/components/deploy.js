@@ -42,8 +42,13 @@ const Deploy = {
                 sshEl.value = window.APP_USER.ssh_public_keys;
             }
 
-            // Load storages and networks for the default target node
-            this.loadNodeResources(template.node);
+            // Pre-select least loaded node, then load resources
+            const bestNode = await Utils.getLeastLoadedNode();
+            const nodeSelect = document.getElementById('deploy-target-node');
+            if (bestNode && nodeSelect && [...nodeSelect.options].some(o => o.value === bestNode)) {
+                nodeSelect.value = bestNode;
+            }
+            this.loadNodeResources(nodeSelect?.value || template.node);
         } catch (err) {
             body.innerHTML = `<div class="alert alert-danger">Failed to load: ${Utils.escapeHtml(err.message)}</div>`;
         }

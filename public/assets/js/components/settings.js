@@ -1,5 +1,5 @@
 const Settings = {
-    _activeTab: 'monitoring',
+    _activeTab: 'logs',
     _monitoringData: null,
     _lbData: null,
     _tasksInterval: null,
@@ -22,8 +22,13 @@ const Settings = {
             </div>
 
             <ul class="nav nav-tabs settings-tabs mb-4" role="tablist">
+                ${Permissions.has('logs.view') ? `<li class="nav-item" role="presentation">
+                    <button class="nav-link" data-tab="logs" onclick="Settings.switchTab('logs')">
+                        <i class="bi bi-journal-text me-1"></i>Logs
+                    </button>
+                </li>` : ''}
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link active" data-tab="monitoring" onclick="Settings.switchTab('monitoring')">
+                    <button class="nav-link" data-tab="monitoring" onclick="Settings.switchTab('monitoring')">
                         <i class="bi bi-graph-up me-1"></i>Monitoring
                     </button>
                 </li>
@@ -37,11 +42,6 @@ const Settings = {
                         <i class="bi bi-terminal-fill me-1"></i>Tasks
                     </button>
                 </li>
-                ${Permissions.has('logs.view') ? `<li class="nav-item" role="presentation">
-                    <button class="nav-link" data-tab="logs" onclick="Settings.switchTab('logs')">
-                        <i class="bi bi-journal-text me-1"></i>Logs
-                    </button>
-                </li>` : ''}
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" data-tab="ssh" onclick="Settings.switchTab('ssh')">
                         <i class="bi bi-key-fill me-1"></i>SSH Keys
@@ -219,11 +219,6 @@ const Settings = {
                         <div class="form-text">How much deviation from the cluster average triggers a recommendation.</div>
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">Evaluation interval (minutes)</label>
-                        <input type="number" class="form-control" id="set-lb-interval" min="1" max="60" value="${s.interval_minutes || 5}">
-                        <div class="form-text">How often the cron job evaluates cluster balance.</div>
-                    </div>
-                    <div class="col-md-4">
                         <label class="form-label">Max. concurrent migrations</label>
                         <input type="number" class="form-control" id="set-lb-max-concurrent" min="1" max="10" value="${s.max_concurrent || 3}">
                         <div class="form-text">Max migrations applied per evaluation run.</div>
@@ -273,7 +268,6 @@ const Settings = {
             cpu_weight: parseInt(document.getElementById('set-lb-cpu-weight')?.value || '50'),
             ram_weight: parseInt(document.getElementById('set-lb-ram-weight')?.value || '50'),
             threshold: parseInt(document.getElementById('set-lb-threshold')?.value || '3'),
-            interval_minutes: parseInt(document.getElementById('set-lb-interval')?.value || '5'),
             max_concurrent: parseInt(document.getElementById('set-lb-max-concurrent')?.value || '3'),
         };
         try {
@@ -292,7 +286,6 @@ const Settings = {
             cpu_weight: 50,
             ram_weight: 50,
             threshold: 3,
-            interval_minutes: 5,
             max_concurrent: 3,
         };
         try {

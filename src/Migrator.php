@@ -61,6 +61,7 @@ class Migrator
            19 => self::migration019(),
            20 => self::migration020(),
            21 => self::migration021(),
+           22 => self::migration022(),
         ];
     }
 
@@ -537,5 +538,154 @@ class Migrator
                 PRIMARY KEY (vmid)
             );
         ";
+    }
+
+    private static function migration022(): string
+    {
+        return "
+            CREATE TABLE IF NOT EXISTS service_templates (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                base_image VARCHAR(100) NOT NULL,
+                icon VARCHAR(50) NOT NULL DEFAULT 'bi-box-seam',
+                color VARCHAR(20) NOT NULL DEFAULT '#6c757d',
+                cores INTEGER NOT NULL DEFAULT 2,
+                memory INTEGER NOT NULL DEFAULT 2048,
+                disk_size INTEGER NOT NULL DEFAULT 10,
+                packages TEXT NOT NULL DEFAULT '',
+                runcmd TEXT NOT NULL DEFAULT '',
+                tags TEXT NOT NULL DEFAULT '',
+                created_by INTEGER REFERENCES users(id),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ";
+    }
+
+    /**
+     * Seed default service templates after migrations.
+     * Uses name-based check so new built-in templates are added automatically.
+     */
+    public static function seed(): void
+    {
+        $db = Database::connection();
+
+        try {
+            $existing = $db->query('SELECT name FROM service_templates')
+                ->fetchAll(\PDO::FETCH_COLUMN);
+        } catch (\Exception $e) {
+            return; // table doesn't exist yet
+        }
+
+        $builtins = self::getBuiltinServiceTemplates();
+        $stmt = $db->prepare('INSERT INTO service_templates
+            (name, description, base_image, icon, color, cores, memory, disk_size, packages, runcmd, tags)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+
+        foreach ($builtins as $tpl) {
+            if (in_array($tpl['name'], $existing, true)) continue;
+            $stmt->execute([
+                $tpl['name'], $tpl['description'], $tpl['base_image'],
+                $tpl['icon'], $tpl['color'],
+                $tpl['cores'], $tpl['memory'], $tpl['disk_size'],
+                $tpl['packages'], $tpl['runcmd'], $tpl['tags'],
+            ]);
+        }
+    }
+
+    private static function getBuiltinServiceTemplates(): array
+    {
+        return [
+            [
+                'name' => 'LAMP Server',
+                'description' => 'Apache, MySQL, PHP on Ubuntu 24.04 — ready-to-use web server stack',
+                'base_image' => 'ubuntu-24.04',
+                'icon' => 'bi-stack',
+                'color' => '#E95420',
+                'cores' => 2, 'memory' => 2048, 'disk_size' => 20,
+                'packages' => implode("\n", [
+                    'apache2', 'mysql-server', 'php', 'libapache2-mod-php',
+                    'php-mysql', 'php-curl', 'php-gd', 'php-mbstring', 'php-xml', 'php-zip',
+                ]),
+                'runcmd' => implode("\n", [
+                    'systemctl enable apache2',
+                    'systemctl enable mysql',
+                    'systemctl start apache2',
+                    'systemctl start mysql',
+                    'ufw allow in "Apache Full"',
+                    'mysql -e "ALTER USER \'root\'@\'localhost\' IDENTIFIED WITH mysql_native_password BY \'changeme\'; FLUSH PRIVILEGES;"',
+                    'echo "<?php phpinfo(); ?>" > /var/www/html/info.php',
+                    'systemctl restart apache2',
+                ]),
+                'tags' => 'lamp;webserver',
+            ],
+            [
+                'name' => 'Nextcloud Server',
+                'description' => 'Nextcloud with Apache, MariaDB & PHP 8.2 on Debian 12 — private cloud storage',
+                'base_image' => 'debian-12',
+                'icon' => 'bi-cloud',
+                'color' => '#0082c9',
+                'cores' => 2, 'memory' => 4096, 'disk_size' => 50,
+                'packages' => implode("\n", [
+                    'apache2', 'mariadb-server',
+                    'php', 'php-gd', 'php-mysql', 'php-curl', 'php-mbstring',
+                    'php-intl', 'php-gmp', 'php-bcmath', 'php-xml', 'php-zip',
+                    'php-imagick', 'php-apcu', 'php-redis', 'php-bz2',
+                    'libapache2-mod-php',
+                    'redis-server', 'unzip', 'curl', 'sudo',
+                ]),
+                'runcmd' => implode("\n", [
+                    'systemctl enable apache2 mariadb redis-server',
+                    'systemctl start apache2 mariadb redis-server',
+                    // MariaDB: create nextcloud database and user
+                    'mysql -e "CREATE DATABASE IF NOT EXISTS nextcloud CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;"',
+                    'mysql -e "CREATE USER IF NOT EXISTS \'nextcloud\'@\'localhost\' IDENTIFIED BY \'changeme\';"',
+                    'mysql -e "GRANT ALL PRIVILEGES ON nextcloud.* TO \'nextcloud\'@\'localhost\'; FLUSH PRIVILEGES;"',
+                    // Download and install Nextcloud
+                    'curl -sL https://download.nextcloud.com/server/releases/latest.zip -o /tmp/nextcloud.zip',
+                    'unzip -q /tmp/nextcloud.zip -d /var/www/',
+                    'chown -R www-data:www-data /var/www/nextcloud',
+                    'rm /tmp/nextcloud.zip',
+                    // Create data directory
+                    'mkdir -p /var/www/nextcloud/data',
+                    'chown www-data:www-data /var/www/nextcloud/data',
+                    // Apache config
+                    'cat > /etc/apache2/sites-available/nextcloud.conf << \'APACHEEOF\'
+<VirtualHost *:80>
+    DocumentRoot /var/www/nextcloud
+    <Directory /var/www/nextcloud>
+        Require all granted
+        AllowOverride All
+        Options FollowSymLinks MultiViews
+        <IfModule mod_dav.c>
+            Dav off
+        </IfModule>
+    </Directory>
+</VirtualHost>
+APACHEEOF',
+                    'a2ensite nextcloud.conf',
+                    'a2dissite 000-default.conf',
+                    'a2enmod rewrite headers env dir mime',
+                    // PHP tuning
+                    'sed -i "s/memory_limit = .*/memory_limit = 512M/" /etc/php/8.2/apache2/php.ini',
+                    'sed -i "s/upload_max_filesize = .*/upload_max_filesize = 1024M/" /etc/php/8.2/apache2/php.ini',
+                    'sed -i "s/post_max_size = .*/post_max_size = 1024M/" /etc/php/8.2/apache2/php.ini',
+                    'sed -i "s/max_execution_time = .*/max_execution_time = 300/" /etc/php/8.2/apache2/php.ini',
+                    // Restart Apache
+                    'systemctl restart apache2',
+                    // Run Nextcloud CLI installer
+                    'sudo -u www-data php /var/www/nextcloud/occ maintenance:install --database "mysql" --database-name "nextcloud" --database-user "nextcloud" --database-pass "changeme" --admin-user "admin" --admin-pass "changeme"',
+                    // Set trusted domain to all (user should restrict later)
+                    'sudo -u www-data php /var/www/nextcloud/occ config:system:set trusted_domains 1 --value="*"',
+                    // Enable Redis memcache
+                    'sudo -u www-data php /var/www/nextcloud/occ config:system:set memcache.local --value="\\OC\\Memcache\\APCu"',
+                    'sudo -u www-data php /var/www/nextcloud/occ config:system:set memcache.locking --value="\\OC\\Memcache\\Redis"',
+                    'sudo -u www-data php /var/www/nextcloud/occ config:system:set redis host --value="localhost"',
+                    'sudo -u www-data php /var/www/nextcloud/occ config:system:set redis port --value="6379" --type=integer',
+                ]),
+                'tags' => 'nextcloud;cloud;storage',
+            ],
+        ];
     }
 }

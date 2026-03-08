@@ -495,6 +495,29 @@ body {
     background: rgba(255, 255, 255, 0.02);
 }
 
+/* ===== Bulk Action Bar ===== */
+.bulk-action-bar {
+    background: var(--bg-card);
+    border: 1px solid var(--accent-blue);
+    border-radius: var(--radius-lg);
+    padding: 0.65rem 1rem;
+    box-shadow: 0 0 12px rgba(59, 130, 246, 0.15);
+}
+
+.guest-table tbody tr.row-selected {
+    background: rgba(59, 130, 246, 0.08);
+}
+
+.guest-table tbody tr.row-selected:hover {
+    background: rgba(59, 130, 246, 0.12);
+}
+
+.guest-table .form-check-input {
+    cursor: pointer;
+    width: 1em;
+    height: 1em;
+}
+
 /* ===== Filter Bar ===== */
 .filter-bar {
     background: var(--bg-card);

@@ -78,14 +78,6 @@ const CLOUD_IMAGES = [
         'url'          => 'https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2',
         'default_user' => 'arch',
     ],
-    // ── BSD ──────────────────────────────────────────────────────────────────
-    'freebsd-14' => [
-        'name'         => 'FreeBSD 14.4',
-        'url'          => 'https://download.freebsd.org/releases/VM-IMAGES/14.4-RELEASE/amd64/Latest/FreeBSD-14.4-RELEASE-amd64.qcow2.xz',
-        'default_user' => 'freebsd',
-        'ostype'       => 'other',
-        'compressed'   => 'xz',
-    ],
 ];
 
 // ── Validate inputs ──────────────────────────────────────────────────────────
@@ -273,166 +265,46 @@ $lines[] = 'qm set $VMID --boot order=scsi0';
 $lines[] = 'qm set $VMID --serial0 socket --vga serial0';
 $lines[] = 'qm set $VMID --agent enabled=1';
 $lines[] = '';
-$ostype = $image['ostype'] ?? 'l26';
-$isBsd = in_array($ostype, ['other', 'freebsd'], true) || str_contains(strtolower($image['name'] ?? ''), 'freebsd');
-
 $lines[] = "echo '==> [5/8] Configuring Cloud-Init...'";
 
 $snippetDir = '/var/lib/vz/snippets';
 $lines[] = 'mkdir -p ' . escapeshellarg($snippetDir);
 
-if ($isBsd) {
-    // ── FreeBSD: use standard cloud-init + inject guest agent via disk modification ──
-    $ciSetCmd = 'qm set $VMID --ciuser ' . escapeshellarg($ciUser);
-    if ($ciPassword) {
-        $ciSetCmd .= ' --cipassword ' . escapeshellarg($ciPassword);
-    }
-    $lines[] = $ciSetCmd;
-    if ($ciSshKeys) {
-        $lines[] = 'echo ' . escapeshellarg(base64_encode($ciSshKeys)) . ' | base64 -d > "$KEY"';
-        $lines[] = 'qm set $VMID --sshkeys "$KEY"';
-        $lines[] = 'rm -f "$KEY"';
-    }
-    $lines[] = 'qm set $VMID --citype nocloud';
-    $lines[] = 'qm set $VMID --ipconfig0 ' . escapeshellarg($ipconfig);
-    if ($ciNameserver)   $lines[] = 'qm set $VMID --nameserver '   . escapeshellarg($ciNameserver);
-    if ($ciSearchdomain) $lines[] = 'qm set $VMID --searchdomain ' . escapeshellarg($ciSearchdomain);
-    if ($tags)           $lines[] = 'qm set $VMID --tags '         . escapeshellarg($tags);
-
-    $lines[] = '';
-    $lines[] = "echo '==> [6/8] Injecting guest agent installer into disk...'";
-
-    // Use guestfish/virt-customize or qemu-nbd to inject a firstboot script
-    // This is more reliable than cloud-init runcmd on FreeBSD
-    $bsdPkgs = array_merge(['qemu-guest-agent'], $ciPackages);
-    $pkgList = implode(' ', $bsdPkgs);
-
-    $installScript = $snippetDir . '/bsd_firstboot_' . $vmid . '.sh';
-    $lines[] = 'cat > ' . escapeshellarg($installScript) . " << 'BSD_SCRIPT_EOF'";
-    $lines[] = '#!/bin/sh';
-    $lines[] = '# Wait for network';
-    $lines[] = 'sleep 15';
-    $lines[] = 'ASSUME_ALWAYS_YES=yes pkg bootstrap -f 2>/dev/null';
-    $lines[] = 'ASSUME_ALWAYS_YES=yes pkg install -y ' . $pkgList;
-    $lines[] = 'sysrc qemu_guest_agent_enable=YES';
-    $lines[] = 'service qemu-guest-agent start 2>/dev/null || true';
-    foreach ($ciRuncmd as $cmd) {
-        $lines[] = escapeshellcmd($cmd);
-    }
-    $lines[] = '# Remove this firstboot script after execution';
-    $lines[] = 'rm -f /usr/local/etc/rc.d/pve_firstboot';
-    $lines[] = 'sysrc -x pve_firstboot_enable 2>/dev/null';
-    $lines[] = 'BSD_SCRIPT_EOF';
-    $lines[] = 'chmod +x ' . escapeshellarg($installScript);
-
-    // Inject firstboot script into the VM disk using qemu-nbd + mount
-    // Get the actual disk path from the storage
-    $lines[] = '';
-    $lines[] = 'DISK_PATH=$(pvesm path $(qm config $VMID | grep "^scsi0:" | sed "s/scsi0: //;s/,.*//"))';
-    $lines[] = 'echo "    Disk: $DISK_PATH"';
-    $lines[] = '';
-    $lines[] = '# Inject into disk — disable set -e for this section since failures are non-fatal';
-    $lines[] = 'INJECT_OK=0';
-    $lines[] = 'set +e';
-    $lines[] = '';
-    $lines[] = '# Method 1: virt-customize (cleanest approach)';
-    $lines[] = 'if [ "$INJECT_OK" = "0" ] && command -v virt-customize >/dev/null 2>&1; then';
-    $lines[] = '  echo "    Using virt-customize..."';
-    $lines[] = '  virt-customize -a "$DISK_PATH" \\';
-    $lines[] = '    --upload ' . escapeshellarg($installScript) . ':/usr/local/etc/rc.d/pve_firstboot \\';
-    $lines[] = '    --chmod 0755:/usr/local/etc/rc.d/pve_firstboot \\';
-    $lines[] = '    --run-command \'echo pve_firstboot_enable=YES >> /etc/rc.conf\' 2>/dev/null';
-    $lines[] = '  [ $? -eq 0 ] && INJECT_OK=1 && echo "    Injected via virt-customize"';
-    $lines[] = 'fi';
-    $lines[] = '';
-    $lines[] = '# Method 2: guestfish';
-    $lines[] = 'if [ "$INJECT_OK" = "0" ] && command -v guestfish >/dev/null 2>&1; then';
-    $lines[] = '  echo "    Using guestfish..."';
-    $lines[] = '  guestfish --rw -a "$DISK_PATH" -i \\';
-    $lines[] = '    upload ' . escapeshellarg($installScript) . ' /usr/local/etc/rc.d/pve_firstboot : \\';
-    $lines[] = '    chmod 0755 /usr/local/etc/rc.d/pve_firstboot : \\';
-    $lines[] = '    sh "echo pve_firstboot_enable=YES >> /etc/rc.conf" 2>/dev/null';
-    $lines[] = '  [ $? -eq 0 ] && INJECT_OK=1 && echo "    Injected via guestfish"';
-    $lines[] = 'fi';
-    $lines[] = '';
-    $lines[] = '# Method 3: qemu-nbd + UFS mount';
-    $lines[] = 'if [ "$INJECT_OK" = "0" ]; then';
-    $lines[] = '  echo "    Using qemu-nbd + mount..."';
-    $lines[] = '  modprobe nbd max_part=16 2>/dev/null';
-    $lines[] = '  NBD_DEV=""';
-    $lines[] = '  for dev in /dev/nbd0 /dev/nbd1 /dev/nbd2 /dev/nbd3; do';
-    $lines[] = '    if [ -b "$dev" ] && qemu-nbd --connect="$dev" "$DISK_PATH" 2>/dev/null; then';
-    $lines[] = '      NBD_DEV="$dev"';
-    $lines[] = '      break';
-    $lines[] = '    fi';
-    $lines[] = '  done';
-    $lines[] = '  if [ -n "$NBD_DEV" ]; then';
-    $lines[] = '    sleep 2';
-    $lines[] = '    partprobe "$NBD_DEV" 2>/dev/null';
-    $lines[] = '    sleep 1';
-    $lines[] = '    MNT_DIR=$(mktemp -d)';
-    $lines[] = '    for part in "${NBD_DEV}p4" "${NBD_DEV}p3" "${NBD_DEV}p2"; do';
-    $lines[] = '      [ -b "$part" ] && mount -t ufs -o ufstype=ufs2 "$part" "$MNT_DIR" 2>/dev/null && break';
-    $lines[] = '    done';
-    $lines[] = '    if mountpoint -q "$MNT_DIR"; then';
-    $lines[] = '      cp ' . escapeshellarg($installScript) . ' "$MNT_DIR/usr/local/etc/rc.d/pve_firstboot"';
-    $lines[] = '      chmod 755 "$MNT_DIR/usr/local/etc/rc.d/pve_firstboot"';
-    $lines[] = '      echo \'pve_firstboot_enable="YES"\' >> "$MNT_DIR/etc/rc.conf"';
-    $lines[] = '      umount "$MNT_DIR"';
-    $lines[] = '      INJECT_OK=1';
-    $lines[] = '      echo "    Injected via qemu-nbd"';
-    $lines[] = '    fi';
-    $lines[] = '    qemu-nbd --disconnect="$NBD_DEV" 2>/dev/null';
-    $lines[] = '    rmdir "$MNT_DIR" 2>/dev/null';
-    $lines[] = '  fi';
-    $lines[] = 'fi';
-    $lines[] = '';
-    $lines[] = 'set -e';
-    $lines[] = '';
-    $lines[] = 'rm -f ' . escapeshellarg($installScript);
-    $lines[] = 'if [ "$INJECT_OK" = "0" ]; then';
-    $lines[] = '  echo "    WARNING: Could not inject firstboot script."';
-    $lines[] = '  echo "    Install libguestfs-tools on this node: apt-get install -y libguestfs-tools"';
-    $lines[] = '  echo "    Then re-deploy, or install qemu-guest-agent manually inside the VM."';
-    $lines[] = 'fi';
-} else {
-    // ── Linux: standard Proxmox cloud-init + vendor-data for guest agent ──
-    $ciSetCmd = 'qm set $VMID --ciuser ' . escapeshellarg($ciUser);
-    if ($ciPassword) {
-        $ciSetCmd .= ' --cipassword ' . escapeshellarg($ciPassword);
-    }
-    $lines[] = $ciSetCmd;
-    if ($ciSshKeys) {
-        $lines[] = 'echo ' . escapeshellarg(base64_encode($ciSshKeys)) . ' | base64 -d > "$KEY"';
-        $lines[] = 'qm set $VMID --sshkeys "$KEY"';
-        $lines[] = 'rm -f "$KEY"';
-    }
-    $lines[] = 'qm set $VMID --ipconfig0 ' . escapeshellarg($ipconfig);
-    if ($ciNameserver)   $lines[] = 'qm set $VMID --nameserver '   . escapeshellarg($ciNameserver);
-    if ($ciSearchdomain) $lines[] = 'qm set $VMID --searchdomain ' . escapeshellarg($ciSearchdomain);
-    if ($tags)           $lines[] = 'qm set $VMID --tags '         . escapeshellarg($tags);
-
-    $vendorFile = $snippetDir . '/ci_vendor_' . $vmid . '.yaml';
-    $lines[] = '';
-    $lines[] = "echo '==> [6/8] Configuring QEMU guest agent installation...'";
-    $lines[] = 'cat > ' . escapeshellarg($vendorFile) . " << 'CI_VENDOR_EOF'";
-    $lines[] = '#cloud-config';
-    $lines[] = 'packages:';
-    $lines[] = '  - qemu-guest-agent';
-    foreach ($ciPackages as $pkg) {
-        $lines[] = '  - ' . $pkg;
-    }
-    $lines[] = 'runcmd:';
-    $lines[] = '  - ["sh", "-c", "command -v systemctl >/dev/null 2>&1 && { systemctl daemon-reload; systemctl enable --now qemu-guest-agent; } || { service qemu-guest-agent start 2>/dev/null || true; }"]';
-    foreach ($ciRuncmd as $cmd) {
-        $lines[] = '  - ' . json_encode($cmd);
-    }
-    $lines[] = 'CI_VENDOR_EOF';
-    // Enable snippets on local storage (required for vendor-data/cicustom)
-    $lines[] = 'pvesm set local --content "$(pvesm status --storage local --output-format json 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);c=d[0].get(\'content\',\'\') if d else \'\';parts=set(c.split(\',\')) if c else set();parts.add(\'snippets\');print(\',\'.join(parts))" 2>/dev/null || echo "images,rootdir,vztmpl,iso,backup,snippets")" 2>/dev/null || true';
-    // PVE 8.1+ uses --vendor-data; older PVE uses --cicustom vendor=
-    $lines[] = 'qm set $VMID --vendor-data ' . escapeshellarg('local:snippets/ci_vendor_' . $vmid . '.yaml') . ' 2>/dev/null || qm set $VMID --cicustom ' . escapeshellarg('vendor=local:snippets/ci_vendor_' . $vmid . '.yaml') . ' 2>/dev/null || true';
+$ciSetCmd = 'qm set $VMID --ciuser ' . escapeshellarg($ciUser);
+if ($ciPassword) {
+    $ciSetCmd .= ' --cipassword ' . escapeshellarg($ciPassword);
 }
+$lines[] = $ciSetCmd;
+if ($ciSshKeys) {
+    $lines[] = 'echo ' . escapeshellarg(base64_encode($ciSshKeys)) . ' | base64 -d > "$KEY"';
+    $lines[] = 'qm set $VMID --sshkeys "$KEY"';
+    $lines[] = 'rm -f "$KEY"';
+}
+$lines[] = 'qm set $VMID --ipconfig0 ' . escapeshellarg($ipconfig);
+if ($ciNameserver)   $lines[] = 'qm set $VMID --nameserver '   . escapeshellarg($ciNameserver);
+if ($ciSearchdomain) $lines[] = 'qm set $VMID --searchdomain ' . escapeshellarg($ciSearchdomain);
+if ($tags)           $lines[] = 'qm set $VMID --tags '         . escapeshellarg($tags);
+
+$vendorFile = $snippetDir . '/ci_vendor_' . $vmid . '.yaml';
+$lines[] = '';
+$lines[] = "echo '==> [6/8] Configuring QEMU guest agent installation...'";
+$lines[] = 'cat > ' . escapeshellarg($vendorFile) . " << 'CI_VENDOR_EOF'";
+$lines[] = '#cloud-config';
+$lines[] = 'packages:';
+$lines[] = '  - qemu-guest-agent';
+foreach ($ciPackages as $pkg) {
+    $lines[] = '  - ' . $pkg;
+}
+$lines[] = 'runcmd:';
+$lines[] = '  - ["sh", "-c", "command -v systemctl >/dev/null 2>&1 && { systemctl daemon-reload; systemctl enable --now qemu-guest-agent; } || { service qemu-guest-agent start 2>/dev/null || true; }"]';
+foreach ($ciRuncmd as $cmd) {
+    $lines[] = '  - ' . json_encode($cmd);
+}
+$lines[] = 'CI_VENDOR_EOF';
+// Enable snippets on local storage (required for vendor-data/cicustom)
+$lines[] = 'pvesm set local --content "$(pvesm status --storage local --output-format json 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);c=d[0].get(\'content\',\'\') if d else \'\';parts=set(c.split(\',\')) if c else set();parts.add(\'snippets\');print(\',\'.join(parts))" 2>/dev/null || echo "images,rootdir,vztmpl,iso,backup,snippets")" 2>/dev/null || true';
+// PVE 8.1+ uses --vendor-data; older PVE uses --cicustom vendor=
+$lines[] = 'qm set $VMID --vendor-data ' . escapeshellarg('local:snippets/ci_vendor_' . $vmid . '.yaml') . ' 2>/dev/null || qm set $VMID --cicustom ' . escapeshellarg('vendor=local:snippets/ci_vendor_' . $vmid . '.yaml') . ' 2>/dev/null || true';
 
 $lines[] = '';
 $lines[] = "echo '==> [7/8] Resizing disk to " . (int)$diskSize . "G...'";
@@ -442,10 +314,8 @@ $lines[] = "echo '==> [8/8] Starting VM...'";
 $lines[] = 'qm start $VMID';
 $lines[] = 'rm -f "$IMG"';
 // Keep cloud-init vendor snippet for 60s so Proxmox can regenerate the drive if needed
-if (!$isBsd) {
-    $snippetCleanup = escapeshellarg($snippetDir . '/ci_vendor_' . $vmid . '.yaml');
-    $lines[] = '(sleep 60 && rm -f ' . $snippetCleanup . ') &';
-}
+$lines[] = '(sleep 60 && rm -f ' . escapeshellarg($snippetDir . '/ci_vendor_' . $vmid . '.yaml') . ') &';
+
 $lines[] = "echo ''";
 $lines[] = 'echo "==> Done! VM $VMID (' . addslashes($name) . ') is starting."';
 $lines[] = "echo '    The QEMU guest agent will install on first boot — the IP appears in the dashboard once it is running.'";

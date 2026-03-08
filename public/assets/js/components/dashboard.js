@@ -1,11 +1,12 @@
 const Dashboard = {
     refreshInterval: null,
     currentFilter: { type: '', node: '', search: '', status: '', os: '' },
-    currentSort: { col: 'vmid', dir: 'asc' },
+    currentSort: { col: 'name', dir: 'asc' },
     groupBy: '',
     guests: [],
     nodes: [],
     pendingMigrations: {},
+    selectedGuests: new Set(),  // Set of "vmid:node" keys
     _ipRefreshInterval: null,
     _ipLoading: false,
 
@@ -55,6 +56,14 @@ const Dashboard = {
             ]);
             this.guests = guests;
             this.nodes = nodes;
+
+            // Clean stale selections (VMs that no longer exist)
+            if (this.selectedGuests.size > 0) {
+                const validKeys = new Set(guests.map(g => `${g.vmid}:${g.node}`));
+                for (const key of [...this.selectedGuests]) {
+                    if (!validKeys.has(key)) this.selectedGuests.delete(key);
+                }
+            }
 
             // Load pending loadbalancer recommendations (non-blocking)
             this.pendingMigrations = {};
@@ -147,6 +156,18 @@ const Dashboard = {
                     <button class="btn btn-outline-light" data-filter-type="lxc">CTs</button>
                 </div>
                 <input id="filter-search" type="text" class="form-control form-control-sm" placeholder="Search by name or ID..." style="width:220px;">
+            </div>
+
+            <div id="bulk-action-bar" class="bulk-action-bar mt-3" style="display:none">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <span class="text-muted small"><strong id="bulk-count">0</strong> selected</span>
+                    <div class="vr" style="border-color:var(--border-color);opacity:0.3"></div>
+                    ${Permissions.has('vm.start') ? `<button class="btn btn-success btn-sm" onclick="Dashboard.bulkAction('start')"><i class="bi bi-play-fill me-1"></i>Start</button>` : ''}
+                    ${Permissions.has('vm.shutdown') ? `<button class="btn btn-outline-warning btn-sm" onclick="Dashboard.bulkAction('shutdown')"><i class="bi bi-power me-1"></i>Shutdown</button>` : ''}
+                    ${Permissions.has('vm.stop') ? `<button class="btn btn-warning btn-sm" onclick="Dashboard.bulkAction('stop')"><i class="bi bi-stop-fill me-1"></i>Force Stop</button>` : ''}
+                    ${Permissions.has('vm.delete') ? `<button class="btn btn-danger btn-sm" onclick="Dashboard.bulkAction('delete')"><i class="bi bi-trash-fill me-1"></i>Delete</button>` : ''}
+                    <button class="btn btn-outline-secondary btn-sm ms-auto" onclick="Dashboard.clearSelection()"><i class="bi bi-x-lg me-1"></i>Clear</button>
+                </div>
             </div>
 
             <div id="guest-table-container" class="guest-table mt-3">
@@ -391,7 +412,8 @@ const Dashboard = {
 
         let html = `<table class="table table-dark table-hover mb-0">
             <thead>
-                <tr>`;
+                <tr>
+                    <th style="width:40px;text-align:center"><input type="checkbox" class="form-check-input" id="select-all-cb" onclick="Dashboard.toggleSelectAll(this)" title="Select all"></th>`;
 
         for (const c of sortableCols) {
             html += `<th class="sortable-th" onclick="Dashboard.setSort('${c.key}')" style="cursor:pointer;user-select:none">${c.label} ${this.sortIcon(c.key)}</th>`;
@@ -413,7 +435,10 @@ const Dashboard = {
                 ? g.tags.split(';').filter(Boolean).map(t =>
                     `<span class="badge vm-tag me-1">${Utils.escapeHtml(t.trim())}</span>`).join('')
                 : '<span style="color:var(--text-muted)">-</span>';
-            return `<tr class="vm-row" style="cursor:pointer" onclick="Dashboard.openVmDetail(event,${g.vmid},'${Utils.escapeHtml(g.node)}','${Utils.escapeHtml(g.type)}')">
+            const selKey = `${g.vmid}:${g.node}`;
+            const checked = this.selectedGuests.has(selKey) ? 'checked' : '';
+            return `<tr class="vm-row ${checked ? 'row-selected' : ''}" style="cursor:pointer" onclick="Dashboard.openVmDetail(event,${g.vmid},'${Utils.escapeHtml(g.node)}','${Utils.escapeHtml(g.type)}')">
+                <td style="text-align:center" onclick="event.stopPropagation()"><input type="checkbox" class="form-check-input guest-cb" data-key="${selKey}" ${checked} onchange="Dashboard.toggleSelect(this)"></td>
                 <td><strong style="color:var(--accent-blue)">${g.vmid}</strong></td>
                 <td>${Utils.escapeHtml(g.name || '-')}</td>
                 <td><i class="bi ${Utils.typeIcon(g.type)}" style="opacity:0.6"></i> ${Utils.typeLabel(g.type)}</td>
@@ -455,7 +480,7 @@ const Dashboard = {
                 const label = key === '__none__' ? noneLabel : key;
                 const groupGuests = groups.get(key);
                 html += `<tr style="background:var(--bg-secondary)">
-                    <td colspan="12" style="padding:.35rem .75rem;border-bottom:1px solid var(--border-color)">
+                    <td colspan="13" style="padding:.35rem .75rem;border-bottom:1px solid var(--border-color)">
                         <span class="badge vm-tag me-2">${Utils.escapeHtml(label)}</span>
                         <span class="text-muted small">${groupGuests.length} guest${groupGuests.length !== 1 ? 's' : ''}</span>
                     </td>
@@ -473,6 +498,8 @@ const Dashboard = {
         html += '</tbody></table>';
         container.innerHTML = html;
 
+        // Restore bulk bar state after full re-render
+        this._updateBulkBar();
     },
 
     _refreshIps() {
@@ -655,6 +682,135 @@ const Dashboard = {
         // Power controls
         html += Controls.renderButtons(guest);
         return html;
+    },
+
+    toggleSelect(checkbox) {
+        const key = checkbox.dataset.key;
+        if (checkbox.checked) {
+            this.selectedGuests.add(key);
+            checkbox.closest('tr')?.classList.add('row-selected');
+        } else {
+            this.selectedGuests.delete(key);
+            checkbox.closest('tr')?.classList.remove('row-selected');
+        }
+        this._updateBulkBar();
+    },
+
+    toggleSelectAll(checkbox) {
+        const cbs = document.querySelectorAll('.guest-cb');
+        if (checkbox.checked) {
+            cbs.forEach(cb => {
+                cb.checked = true;
+                this.selectedGuests.add(cb.dataset.key);
+                cb.closest('tr')?.classList.add('row-selected');
+            });
+        } else {
+            cbs.forEach(cb => {
+                cb.checked = false;
+                this.selectedGuests.delete(cb.dataset.key);
+                cb.closest('tr')?.classList.remove('row-selected');
+            });
+        }
+        this._updateBulkBar();
+    },
+
+    clearSelection() {
+        this.selectedGuests.clear();
+        document.querySelectorAll('.guest-cb').forEach(cb => {
+            cb.checked = false;
+            cb.closest('tr')?.classList.remove('row-selected');
+        });
+        const selectAll = document.getElementById('select-all-cb');
+        if (selectAll) selectAll.checked = false;
+        this._updateBulkBar();
+    },
+
+    _updateBulkBar() {
+        const bar = document.getElementById('bulk-action-bar');
+        const count = document.getElementById('bulk-count');
+        if (!bar) return;
+        if (this.selectedGuests.size > 0) {
+            bar.style.display = '';
+            if (count) count.textContent = this.selectedGuests.size;
+        } else {
+            bar.style.display = 'none';
+        }
+        // Update select-all checkbox state
+        const allCbs = document.querySelectorAll('.guest-cb');
+        const selectAll = document.getElementById('select-all-cb');
+        if (selectAll && allCbs.length > 0) {
+            selectAll.checked = this.selectedGuests.size > 0 && this.selectedGuests.size >= allCbs.length;
+            selectAll.indeterminate = this.selectedGuests.size > 0 && this.selectedGuests.size < allCbs.length;
+        }
+    },
+
+    _getSelectedGuests() {
+        return this.guests.filter(g => this.selectedGuests.has(`${g.vmid}:${g.node}`));
+    },
+
+    async bulkAction(action) {
+        const selected = this._getSelectedGuests();
+        if (selected.length === 0) {
+            Toast.info('No VMs/CTs selected');
+            return;
+        }
+
+        let targets;
+        let actionLabel;
+
+        switch (action) {
+            case 'start':
+                targets = selected.filter(g => g.status === 'stopped');
+                actionLabel = 'start';
+                if (targets.length === 0) { Toast.info('No stopped VMs/CTs in selection'); return; }
+                break;
+            case 'shutdown':
+                targets = selected.filter(g => g.status === 'running');
+                actionLabel = 'shut down';
+                if (targets.length === 0) { Toast.info('No running VMs/CTs in selection'); return; }
+                break;
+            case 'stop':
+                targets = selected.filter(g => g.status === 'running');
+                actionLabel = 'force stop';
+                if (targets.length === 0) { Toast.info('No running VMs/CTs in selection'); return; }
+                break;
+            case 'delete':
+                targets = selected.filter(g => g.status === 'stopped');
+                actionLabel = 'delete';
+                if (targets.length === 0) { Toast.info('Only stopped VMs/CTs can be deleted'); return; }
+                break;
+            default:
+                return;
+        }
+
+        const names = targets.slice(0, 5).map(g => g.name || g.vmid).join(', ') + (targets.length > 5 ? ` +${targets.length - 5} more` : '');
+        if (!confirm(`${actionLabel.charAt(0).toUpperCase() + actionLabel.slice(1)} ${targets.length} guest${targets.length !== 1 ? 's' : ''}?\n\n${names}`)) return;
+
+        if (action === 'delete') {
+            // Double confirmation for bulk delete
+            if (!confirm(`This will permanently delete ${targets.length} VM${targets.length !== 1 ? 's' : ''}/CT${targets.length !== 1 ? 's' : ''}. This cannot be undone!\n\nAre you sure?`)) return;
+        }
+
+        Toast.info(`${actionLabel.charAt(0).toUpperCase() + actionLabel.slice(1)}ing ${targets.length} guests...`);
+        let ok = 0, fail = 0;
+
+        for (const g of targets) {
+            try {
+                if (action === 'delete') {
+                    await API.deleteGuest(g.node, g.type, g.vmid);
+                } else {
+                    await API.power(g.node, g.type, g.vmid, action);
+                }
+                ok++;
+            } catch (_) {
+                fail++;
+            }
+        }
+
+        const msg = `${ok}/${targets.length} ${actionLabel} initiated` + (fail > 0 ? ` (${fail} failed)` : '');
+        fail > 0 ? Toast.error(msg) : Toast.success(msg);
+        this.clearSelection();
+        setTimeout(() => this.loadData(), 3000);
     },
 
     async startAll() {

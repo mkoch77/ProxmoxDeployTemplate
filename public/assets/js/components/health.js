@@ -682,14 +682,18 @@ const Health = {
         btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Applying…';
 
         try {
-            await API.post('api/monitoring-rightsizing.php', {
+            const result = await API.post('api/monitoring-rightsizing.php', {
                 vmid, node, vm_type: vmType,
                 cpu_cores: rec.cpu_cores || undefined,
                 mem_bytes: rec.mem_bytes || undefined,
             });
 
+            // Use the resolved node/type from the backend (VM may have been migrated)
+            const actualNode = result.node || node;
+            const actualType = result.vm_type || vmType;
+
             btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Restarting…';
-            await API.post('api/power.php', { node, type: vmType, vmid, action: 'reboot' });
+            await API.post('api/power.php', { node: actualNode, type: actualType, vmid, action: 'reboot' });
 
             Toast.success(`VM ${vmid} updated and restarting`);
             const row = btn.closest('tr');

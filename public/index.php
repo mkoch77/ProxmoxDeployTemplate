@@ -425,6 +425,9 @@ $perms = $user['permissions'];
                     </form>
                 </div>
                 <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-info me-auto" onclick="Templates.showSaveServiceTemplate()">
+                        <i class="bi bi-box-seam me-1"></i>Save as Service Template
+                    </button>
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="submit" form="ci-form" class="btn btn-success">
                         <i class="bi bi-rocket-takeoff-fill me-1"></i>Deploy

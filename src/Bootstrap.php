@@ -22,5 +22,6 @@ class Bootstrap
 
         Session::start();
         Migrator::run();
+        Migrator::seed();
     }
 }

@@ -59,7 +59,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($config)) Response::error('Invalid values', 400);
 
     try {
-        $api->setGuestConfig($node, $vmType, $vmid, $config);
+        // Resolve the current node for this VM (it may have been migrated)
+        $resources = $api->getClusterResources();
+        $actualNode = null;
+        foreach ($resources['data'] ?? [] as $res) {
+            if (($res['vmid'] ?? 0) == $vmid && in_array($res['type'] ?? '', ['qemu', 'lxc'], true)) {
+                $actualNode = $res['node'];
+                $vmType = $res['type'];
+                break;
+            }
+        }
+
+        if (!$actualNode) {
+            Response::error("VM {$vmid} not found in cluster — it may have been deleted or migrated", 404);
+        }
+
+        $api->setGuestConfig($actualNode, $vmType, $vmid, $config);
 
         // Record apply so the suggestion is suppressed until VM reboots and new data flows in
         $db = Database::connection();
@@ -67,12 +82,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute([$vmid]);
 
         AppLogger::info('monitoring', "Right-sizing applied to VM {$vmid}", [
-            'vmid' => $vmid, 'node' => $node, 'changes' => $changes,
+            'vmid' => $vmid, 'node' => $actualNode, 'changes' => $changes,
         ], $user['id']);
 
         Response::success([
             'applied' => true,
             'changes' => $changes,
+            'node' => $actualNode,
+            'vm_type' => $vmType,
             'restart_required' => true,
             'message' => "Configuration updated. Restart VM {$vmid} to apply changes.",
         ]);

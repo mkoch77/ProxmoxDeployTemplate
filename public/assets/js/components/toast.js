@@ -1,5 +1,20 @@
 const Toast = {
+    _recent: new Map(),  // dedup: "type:message" → timestamp
+
     show(message, type = 'info') {
+        // Deduplicate: suppress identical toasts within 3 seconds
+        const dedupeKey = `${type}:${message}`;
+        const now = Date.now();
+        const lastShown = this._recent.get(dedupeKey);
+        if (lastShown && now - lastShown < 3000) return;
+        this._recent.set(dedupeKey, now);
+        // Clean old entries
+        if (this._recent.size > 20) {
+            for (const [k, t] of this._recent) {
+                if (now - t > 5000) this._recent.delete(k);
+            }
+        }
+
         const container = document.getElementById('toast-container');
         const icons = {
             success: 'bi-check-circle-fill',

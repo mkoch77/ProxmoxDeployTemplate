@@ -33,7 +33,10 @@ const API = {
             return data.data ?? data;
         } catch (err) {
             if (!silent && err.name !== 'AbortError') {
-                Toast.error(err.message || 'Request failed');
+                const msg = (err instanceof TypeError && err.message.includes('NetworkError'))
+                    ? 'Connection lost — server not reachable'
+                    : (err.message || 'Request failed');
+                Toast.error(msg);
             }
             throw err;
         }
@@ -198,6 +201,20 @@ const API = {
 
     cloudInitStart(params) {
         return this.post('api/cloud-init-start.php', params);
+    },
+
+    // --- Service Templates ---
+
+    getServiceTemplates() {
+        return this.get('api/service-templates.php');
+    },
+
+    saveServiceTemplate(data) {
+        return this.post('api/service-templates.php', data);
+    },
+
+    deleteServiceTemplate(id) {
+        return this.delete(`api/service-templates.php?id=${id}`);
     },
 
     // --- Custom Images ---
