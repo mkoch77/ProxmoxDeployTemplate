@@ -518,6 +518,126 @@ body {
     height: 1em;
 }
 
+/* ===== Pagination Bar ===== */
+.pagination-bar {
+    background: var(--bg-card);
+    border-top: 1px solid var(--border-color);
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
+    font-size: 0.8rem;
+}
+
+.pagination-bar .btn-outline-secondary {
+    border-color: var(--border-light);
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    padding: 0.2rem 0.5rem;
+}
+
+.pagination-bar .btn-outline-secondary:hover:not(:disabled) {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+}
+
+.pagination-bar .btn-outline-secondary.disabled {
+    opacity: 0.4;
+}
+
+.pagination-per-page {
+    width: auto !important;
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-light) !important;
+    color: var(--text-secondary) !important;
+    font-size: 0.75rem !important;
+    padding: 0.2rem 1.8rem 0.2rem 0.5rem !important;
+}
+
+/* ===== Resource Hover Tooltip ===== */
+.resource-tooltip {
+    position: fixed;
+    z-index: 10000;
+    display: none;
+    min-width: 260px;
+    max-width: 320px;
+    padding: 0.6rem 0.8rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    backdrop-filter: blur(12px);
+    color: var(--text-primary);
+    font-size: 0.78rem;
+    opacity: 0;
+    transition: opacity 0.15s;
+    pointer-events: none;
+}
+
+.resource-tooltip.visible {
+    display: block;
+    opacity: 1;
+}
+
+.rt-title {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.35rem;
+}
+
+.rt-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.3rem;
+}
+
+.rt-label {
+    font-weight: 600;
+    min-width: 32px;
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+}
+
+.rt-bar-track {
+    flex: 1;
+    height: 6px;
+    background: var(--bg-elevated);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.rt-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s;
+}
+
+.rt-val {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.rt-loading {
+    text-align: center;
+    padding: 0.5rem;
+}
+
+.rt-empty {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    text-align: center;
+    padding: 0.3rem;
+}
+
+/* ===== Snapshot Tree ===== */
+.snap-tree .snap-node {
+    transition: background 0.15s;
+}
+.snap-tree .snap-node:hover {
+    background: rgba(255,255,255,0.04);
+}
+
 /* ===== Filter Bar ===== */
 .filter-bar {
     background: var(--bg-card);

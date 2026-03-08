@@ -5,6 +5,10 @@ const Settings = {
     _tasksInterval: null,
     _tasksNode: '',
     _tasksNodes: [],
+    _tasksPage: 1,
+    _tasksPerPage: 50,
+    _logsPage: 1,
+    _logsPerPage: 50,
 
     init() {
         this.render();
@@ -346,6 +350,7 @@ const Settings = {
 
     _selectTasksNode(node) {
         this._tasksNode = node;
+        this._tasksPage = 1;
         if (node) {
             this._loadTasks();
             this._startTasksRefresh();
@@ -364,6 +369,17 @@ const Settings = {
         }
     },
 
+    setTasksPage(page) {
+        this._tasksPage = page;
+        this._loadTasks();
+    },
+
+    setTasksPerPage(perPage) {
+        this._tasksPerPage = perPage;
+        this._tasksPage = 1;
+        this._loadTasks();
+    },
+
     async _loadTasks() {
         if (!this._tasksNode) return;
         const container = document.getElementById('tasks-table-container');
@@ -377,11 +393,13 @@ const Settings = {
                 </div>`;
                 return;
             }
+            const pag = Utils.paginate(tasks, this._tasksPage, this._tasksPerPage);
+            this._tasksPage = pag.page;
             let html = `<div class="guest-table"><table class="table table-dark table-hover mb-0">
                 <thead><tr>
                     <th>Time</th><th>Type</th><th>VMID</th><th>User</th><th>Status</th><th style="text-align:right">Action</th>
                 </tr></thead><tbody>`;
-            for (const t of tasks) {
+            for (const t of pag.items) {
                 const statusColor = t.status === 'OK' ? 'var(--accent-green)' :
                     (t.status && t.status !== 'running') ? 'var(--accent-red)' : 'var(--accent-amber)';
                 const statusIcon = t.status === 'OK' ? 'bi-check-circle-fill' :
@@ -400,6 +418,7 @@ const Settings = {
                 </tr>`;
             }
             html += '</tbody></table></div>';
+            html += Utils.paginationHtml(pag, 'Settings.setTasksPage', 'Settings.setTasksPerPage');
             container.innerHTML = html;
         } catch (err) {
             container.innerHTML = `<div class="alert alert-danger" style="border-radius:var(--radius-md)">Error: ${Utils.escapeHtml(err.message)}</div>`;
@@ -432,14 +451,15 @@ const Settings = {
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <h5 class="settings-section-title mb-0"><i class="bi bi-journal-text me-2"></i>Application Logs</h5>
                     <div class="d-flex gap-2 align-items-center">
-                        <select id="logs-level-filter" class="form-select form-select-sm" style="width:auto;" onchange="Settings.loadLogs()">
+                        <select id="logs-level-filter" class="form-select form-select-sm" style="width:auto;" onchange="Settings._logsPage=1;Settings.loadLogs()">
+                            <option value="no-debug" selected>All (excl. Debug)</option>
                             <option value="">All Levels</option>
                             <option value="debug">Debug</option>
                             <option value="info">Info</option>
                             <option value="warning">Warning</option>
                             <option value="error">Error</option>
                         </select>
-                        <select id="logs-category-filter" class="form-select form-select-sm" style="width:auto;" onchange="Settings.loadLogs()">
+                        <select id="logs-category-filter" class="form-select form-select-sm" style="width:auto;" onchange="Settings._logsPage=1;Settings.loadLogs()">
                             <option value="">All Categories</option>
                         </select>
                         <button class="btn btn-sm btn-outline-light" onclick="Settings.loadLogs()">
@@ -454,13 +474,24 @@ const Settings = {
         `;
     },
 
+    setLogsPage(page) {
+        this._logsPage = page;
+        this.loadLogs();
+    },
+
+    setLogsPerPage(perPage) {
+        this._logsPerPage = perPage;
+        this._logsPage = 1;
+        this.loadLogs();
+    },
+
     async loadLogs() {
         const container = document.getElementById('logs-table-container');
         if (!container) return;
         const level = document.getElementById('logs-level-filter')?.value || '';
         const category = document.getElementById('logs-category-filter')?.value || '';
         try {
-            const res = await API.get('api/logs.php', { limit: 200, level, category });
+            const res = await API.get('api/logs.php', { limit: 500, level, category });
             const logs = res.logs || [];
             const categories = res.categories || [];
 
@@ -482,6 +513,9 @@ const Settings = {
                 return;
             }
 
+            const pag = Utils.paginate(logs, this._logsPage, this._logsPerPage);
+            this._logsPage = pag.page;
+
             const levelBadge = (lvl) => {
                 const cls = lvl === 'error' ? 'bg-danger' : lvl === 'warning' ? 'bg-warning text-dark' : 'bg-info text-dark';
                 return `<span class="badge ${cls}">${escapeHtml(lvl)}</span>`;
@@ -491,7 +525,7 @@ const Settings = {
                 <thead><tr>
                     <th>Time</th><th>Level</th><th>Category</th><th>Message</th><th>User</th>
                 </tr></thead><tbody>`;
-            for (const l of logs) {
+            for (const l of pag.items) {
                 const time = new Date(l.created_at).toLocaleString();
                 html += `<tr>
                     <td class="text-nowrap small">${escapeHtml(time)}</td>
@@ -502,6 +536,7 @@ const Settings = {
                 </tr>`;
             }
             html += '</tbody></table></div>';
+            html += Utils.paginationHtml(pag, 'Settings.setLogsPage', 'Settings.setLogsPerPage');
             container.innerHTML = html;
         } catch (err) {
             container.innerHTML = `<div class="alert alert-danger">Error: ${escapeHtml(err.message)}</div>`;

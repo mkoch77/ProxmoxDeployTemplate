@@ -8,7 +8,13 @@ class Response
     {
         http_response_code($status);
         header('Content-Type: application/json; charset=utf-8');
-        echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $json = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+        if ($json === false) {
+            http_response_code(500);
+            echo json_encode(['error' => true, 'message' => 'JSON encoding failed: ' . json_last_error_msg()]);
+        } else {
+            echo $json;
+        }
         exit;
     }
 

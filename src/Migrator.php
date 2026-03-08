@@ -62,6 +62,7 @@ class Migrator
            20 => self::migration020(),
            21 => self::migration021(),
            22 => self::migration022(),
+           23 => self::migration023(),
         ];
     }
 
@@ -560,6 +561,25 @@ class Migrator
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
+        ";
+    }
+
+    private static function migration023(): string
+    {
+        return "
+            INSERT INTO permissions (key, description)
+            VALUES ('vm.snapshot', 'Manage VM/CT snapshots')
+            ON CONFLICT (key) DO NOTHING;
+
+            INSERT INTO role_permissions (role_id, permission_id)
+            SELECT r.id, p.id FROM roles r, permissions p
+            WHERE r.name = 'admin' AND p.key = 'vm.snapshot'
+            AND NOT EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role_id = r.id AND rp.permission_id = p.id);
+
+            INSERT INTO role_permissions (role_id, permission_id)
+            SELECT r.id, p.id FROM roles r, permissions p
+            WHERE r.name = 'operator' AND p.key = 'vm.snapshot'
+            AND NOT EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role_id = r.id AND rp.permission_id = p.id);
         ";
     }
 

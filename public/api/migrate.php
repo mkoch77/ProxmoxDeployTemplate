@@ -35,6 +35,28 @@ if ($body['node'] === $body['target']) {
 
 try {
     $api = Helpers::createAPI();
+    $target = $body['target'];
+
+    // Verify target node is online
+    $nodes = $api->getNodes()['data'] ?? [];
+    $targetOnline = false;
+    foreach ($nodes as $n) {
+        if (($n['node'] ?? '') === $target) {
+            $targetOnline = ($n['status'] ?? '') === 'online';
+            break;
+        }
+    }
+    if (!$targetOnline) {
+        Response::error('Target node is not online', 400);
+    }
+
+    // Verify target node is not in maintenance mode
+    $db = \App\Database::connection();
+    $stmt = $db->prepare('SELECT 1 FROM maintenance_nodes WHERE node_name = ?');
+    $stmt->execute([$target]);
+    if ($stmt->fetch()) {
+        Response::error('Target node is in maintenance mode', 400);
+    }
 
     $online = !empty($body['online']);
     $result = $api->migrateGuest(

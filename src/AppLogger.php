@@ -50,7 +50,9 @@ class AppLogger
         $where = [];
         $params = [];
 
-        if ($level) {
+        if ($level === 'no-debug') {
+            $where[] = "l.level != 'debug'";
+        } elseif ($level) {
             $where[] = 'l.level = ?';
             $params[] = $level;
         }

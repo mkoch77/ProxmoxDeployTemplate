@@ -452,6 +452,34 @@ class Loadbalancer
             throw new \RuntimeException('Recommendation has already been processed');
         }
 
+        // Verify target node is still online
+        $nodes = $api->getNodes()['data'] ?? [];
+        $targetOnline = false;
+        foreach ($nodes as $n) {
+            if (($n['node'] ?? '') === $rec['target_node']) {
+                $targetOnline = ($n['status'] ?? '') === 'online';
+                break;
+            }
+        }
+        if (!$targetOnline) {
+            $stmt = $db->prepare('UPDATE drs_recommendations SET status = ?, error_message = ? WHERE id = ?');
+            $stmt->execute(['error', 'Target node is not online', $recommendationId]);
+            $rec['status'] = 'error';
+            $rec['error_message'] = 'Target node is not online';
+            return $rec;
+        }
+
+        // Verify target node is not in maintenance mode
+        $maintStmt = $db->prepare('SELECT 1 FROM maintenance_nodes WHERE node_name = ?');
+        $maintStmt->execute([$rec['target_node']]);
+        if ($maintStmt->fetch()) {
+            $stmt = $db->prepare('UPDATE drs_recommendations SET status = ?, error_message = ? WHERE id = ?');
+            $stmt->execute(['error', 'Target node is in maintenance mode', $recommendationId]);
+            $rec['status'] = 'error';
+            $rec['error_message'] = 'Target node is in maintenance mode';
+            return $rec;
+        }
+
         try {
             $result = $api->migrateGuest(
                 $rec['source_node'],

@@ -37,6 +37,11 @@ class ProxmoxAPI
 
     private function request(string $method, string $path, array $params = []): array
     {
+        // Validate path segments to prevent injection via node/VM names
+        if (preg_match('#[^a-zA-Z0-9/_\-.:+]#', $path)) {
+            throw new \InvalidArgumentException('Invalid characters in API path');
+        }
+
         $lastError = null;
 
         AppLogger::debug('api', "Proxmox API {$method} {$path}", ['params' => array_keys($params)]);
@@ -381,6 +386,31 @@ class ProxmoxAPI
     public function deleteGuest(string $node, string $type, int $vmid): array
     {
         return $this->delete("/nodes/{$node}/{$type}/{$vmid}");
+    }
+
+    // --- Snapshots ---
+
+    public function getSnapshots(string $node, string $type, int $vmid): array
+    {
+        return $this->get("/nodes/{$node}/{$type}/{$vmid}/snapshot");
+    }
+
+    public function createSnapshot(string $node, string $type, int $vmid, string $snapname, string $description = '', bool $vmstate = false): array
+    {
+        $params = ['snapname' => $snapname];
+        if ($description) $params['description'] = $description;
+        if ($type === 'qemu' && $vmstate) $params['vmstate'] = 1;
+        return $this->post("/nodes/{$node}/{$type}/{$vmid}/snapshot", $params);
+    }
+
+    public function deleteSnapshot(string $node, string $type, int $vmid, string $snapname): array
+    {
+        return $this->delete("/nodes/{$node}/{$type}/{$vmid}/snapshot/{$snapname}");
+    }
+
+    public function rollbackSnapshot(string $node, string $type, int $vmid, string $snapname): array
+    {
+        return $this->post("/nodes/{$node}/{$type}/{$vmid}/snapshot/{$snapname}/rollback");
     }
 
     // --- Migration ---

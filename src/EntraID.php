@@ -57,7 +57,8 @@ class EntraID
         curl_close($ch);
 
         if ($httpCode !== 200) {
-            throw new \RuntimeException('Token exchange failed: ' . $response);
+            AppLogger::error('auth', 'EntraID token exchange failed', ['http_code' => $httpCode]);
+            throw new \RuntimeException('Token exchange failed (HTTP ' . $httpCode . ')');
         }
 
         $data = json_decode($response, true);
@@ -78,6 +79,29 @@ class EntraID
         $payload = json_decode(base64_decode(strtr($parts[1], '-_', '+/')), true);
         if (!$payload) {
             throw new \RuntimeException('Failed to decode ID token');
+        }
+
+        // Validate issuer matches our tenant
+        $tenantId = Config::get('ENTRAID_TENANT_ID');
+        $expectedIssuer = "https://login.microsoftonline.com/{$tenantId}/v2.0";
+        if (($payload['iss'] ?? '') !== $expectedIssuer) {
+            throw new \RuntimeException('Invalid token issuer');
+        }
+
+        // Validate audience matches our client ID
+        $clientId = Config::get('ENTRAID_CLIENT_ID');
+        if (($payload['aud'] ?? '') !== $clientId) {
+            throw new \RuntimeException('Invalid token audience');
+        }
+
+        // Validate token is not expired
+        if (isset($payload['exp']) && $payload['exp'] < time()) {
+            throw new \RuntimeException('Token has expired');
+        }
+
+        // Validate token is not used before its validity period
+        if (isset($payload['nbf']) && $payload['nbf'] > time() + 60) {
+            throw new \RuntimeException('Token not yet valid');
         }
 
         return [

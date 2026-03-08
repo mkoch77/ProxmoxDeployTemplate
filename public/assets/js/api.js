@@ -280,6 +280,24 @@ const API = {
         return this.post('api/delete-guest.php', { node, type, vmid });
     },
 
+    // --- Snapshots ---
+
+    getSnapshots(node, type, vmid) {
+        return this.get('api/snapshots.php', { node, type, vmid });
+    },
+
+    createSnapshot(node, type, vmid, snapname, description = '', vmstate = false) {
+        return this.post('api/snapshots.php', { node, type, vmid, action: 'create', snapname, description, vmstate });
+    },
+
+    deleteSnapshot(node, type, vmid, snapname) {
+        return this.post('api/snapshots.php', { node, type, vmid, action: 'delete', snapname });
+    },
+
+    deleteAllSnapshots(node, type, vmid) {
+        return this.post('api/snapshots.php', { node, type, vmid, action: 'delete-all' });
+    },
+
     // --- HA ---
 
     haEnable(sid) {

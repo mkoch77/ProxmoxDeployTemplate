@@ -66,6 +66,56 @@ const Utils = {
     cpuPercent(cpu) {
         if (cpu == null) return '-';
         return (cpu * 100).toFixed(1) + '%';
+    },
+
+    /**
+     * Paginate an array and return the current page slice + metadata.
+     * @param {Array} items - Full data array
+     * @param {number} page - Current page (1-based)
+     * @param {number} perPage - Items per page
+     * @returns {{ items: Array, page: number, perPage: number, totalPages: number, total: number }}
+     */
+    paginate(items, page, perPage) {
+        const total = items.length;
+        const totalPages = Math.max(1, Math.ceil(total / perPage));
+        const p = Math.max(1, Math.min(page, totalPages));
+        const start = (p - 1) * perPage;
+        return {
+            items: items.slice(start, start + perPage),
+            page: p,
+            perPage,
+            totalPages,
+            total,
+        };
+    },
+
+    /**
+     * Render pagination controls HTML.
+     * @param {object} pag - Result from Utils.paginate()
+     * @param {string} callbackPrefix - JS expression prefix, e.g. "Dashboard.setPage"
+     * @param {string} perPageCallback - JS expression prefix for per-page change, e.g. "Dashboard.setPerPage"
+     * @returns {string} HTML string
+     */
+    paginationHtml(pag, callbackPrefix, perPageCallback) {
+        if (pag.total === 0) return '';
+        const { page, totalPages, total, perPage } = pag;
+        const options = [25, 50, 100, 200];
+        let html = `<div class="d-flex justify-content-between align-items-center px-2 py-2 pagination-bar">`;
+        html += `<div class="text-muted small">Showing ${((page - 1) * perPage) + 1}–${Math.min(page * perPage, total)} of ${total}</div>`;
+        html += `<div class="d-flex align-items-center gap-2">`;
+        html += `<select class="form-select form-select-sm pagination-per-page" onchange="${perPageCallback}(+this.value)">`;
+        for (const o of options) {
+            html += `<option value="${o}" ${o === perPage ? 'selected' : ''}>${o} / page</option>`;
+        }
+        html += `</select>`;
+        html += `<div class="btn-group btn-group-sm">`;
+        html += `<button class="btn btn-outline-secondary" ${page <= 1 ? 'disabled' : ''} onclick="${callbackPrefix}(1)" title="First"><i class="bi bi-chevron-double-left"></i></button>`;
+        html += `<button class="btn btn-outline-secondary" ${page <= 1 ? 'disabled' : ''} onclick="${callbackPrefix}(${page - 1})" title="Previous"><i class="bi bi-chevron-left"></i></button>`;
+        html += `<span class="btn btn-outline-secondary disabled" style="min-width:80px">${page} / ${totalPages}</span>`;
+        html += `<button class="btn btn-outline-secondary" ${page >= totalPages ? 'disabled' : ''} onclick="${callbackPrefix}(${page + 1})" title="Next"><i class="bi bi-chevron-right"></i></button>`;
+        html += `<button class="btn btn-outline-secondary" ${page >= totalPages ? 'disabled' : ''} onclick="${callbackPrefix}(${totalPages})" title="Last"><i class="bi bi-chevron-double-right"></i></button>`;
+        html += `</div></div></div>`;
+        return html;
     }
 };
 
@@ -108,5 +158,168 @@ Utils.getLeastLoadedNode = async function() {
         return sorted[0].node;
     } catch (_) {
         return null;
+    }
+};
+
+/**
+ * Resource hover tooltip for VMs and Nodes.
+ * Shows mini resource bars with monitoring data on hover.
+ */
+const ResourceTooltip = {
+    _el: null,
+    _cache: new Map(),
+    _timer: null,
+    _abortCtrl: null,
+
+    _getEl() {
+        if (!this._el) {
+            const div = document.createElement('div');
+            div.id = 'resource-tooltip';
+            div.className = 'resource-tooltip';
+            document.body.appendChild(div);
+            this._el = div;
+        }
+        return this._el;
+    },
+
+    _bar(label, pct, val) {
+        const p = Math.min(100, Math.max(0, pct));
+        const cls = p >= 90 ? 'bg-danger' : p >= 70 ? 'bg-warning' : 'bg-success';
+        return `<div class="rt-row">
+            <span class="rt-label">${label}</span>
+            <div class="rt-bar-track"><div class="rt-bar-fill ${cls}" style="width:${p}%"></div></div>
+            <span class="rt-val">${val}</span>
+        </div>`;
+    },
+
+    showVm(el, vmid, status) {
+        if (status !== 'running') return;
+        this._timer = setTimeout(() => this._loadVm(el, vmid), 300);
+    },
+
+    async _loadVm(el, vmid) {
+        const cacheKey = `vm:${vmid}`;
+        const cached = this._cache.get(cacheKey);
+        const now = Date.now();
+        if (cached && now - cached.ts < 15000) {
+            this._render(el, cached.html);
+            return;
+        }
+
+        const tip = this._getEl();
+        tip.innerHTML = '<div class="rt-loading"><div class="spinner-border spinner-border-sm"></div></div>';
+        this._position(el, tip);
+        tip.classList.add('visible');
+
+        try {
+            this._abortCtrl = new AbortController();
+            const data = await API.getSilent('api/monitoring.php', { action: 'vm-summary', vmid, timerange: '1h' });
+            const s = data?.summary;
+            if (!s || !s.samples || +s.samples === 0) {
+                this._render(el, '<div class="rt-empty">No monitoring data</div>');
+                return;
+            }
+            const cpuPct = Math.round((+s.avg_cpu || 0) * 100);
+            const cpuMax = Math.round((+s.max_cpu || 0) * 100);
+            const memTotal = +s.mem_total || 0;
+            const memAvg = +s.avg_mem || 0;
+            const memPct = memTotal > 0 ? Math.round((memAvg / memTotal) * 100) : 0;
+            const netIn = +s.avg_net_in || 0;
+            const netOut = +s.avg_net_out || 0;
+
+            let html = '<div class="rt-title">1h Average</div>';
+            html += this._bar('CPU', cpuPct, `${cpuPct}% (max ${cpuMax}%)`);
+            html += this._bar('RAM', memPct, `${Utils.formatBytes(memAvg)} / ${Utils.formatBytes(memTotal)}`);
+            html += `<div class="rt-row">
+                <span class="rt-label">Net</span>
+                <span class="rt-val" style="flex:1;text-align:right"><i class="bi bi-arrow-down" style="color:var(--accent-green)"></i> ${Utils.formatBytes(netIn)}/s &nbsp;<i class="bi bi-arrow-up" style="color:var(--accent-blue)"></i> ${Utils.formatBytes(netOut)}/s</span>
+            </div>`;
+
+            this._cache.set(cacheKey, { html, ts: now });
+            this._render(el, html);
+        } catch (_) {
+            this.hide();
+        }
+    },
+
+    showNode(el, nodeName) {
+        this._timer = setTimeout(() => this._loadNode(el, nodeName), 300);
+    },
+
+    async _loadNode(el, nodeName) {
+        const cacheKey = `node:${nodeName}`;
+        const cached = this._cache.get(cacheKey);
+        const now = Date.now();
+        if (cached && now - cached.ts < 15000) {
+            this._render(el, cached.html);
+            return;
+        }
+
+        const tip = this._getEl();
+        tip.innerHTML = '<div class="rt-loading"><div class="spinner-border spinner-border-sm"></div></div>';
+        this._position(el, tip);
+        tip.classList.add('visible');
+
+        try {
+            const data = await API.getSilent('api/monitoring.php', { action: 'node', node: nodeName, timerange: '1h' });
+            const metrics = data?.metrics || [];
+            if (metrics.length === 0) {
+                this._render(el, '<div class="rt-empty">No monitoring data</div>');
+                return;
+            }
+            // Calculate averages from metrics array
+            const avg = (arr, key) => arr.reduce((s, m) => s + (+m[key] || 0), 0) / arr.length;
+            const max = (arr, key) => Math.max(...arr.map(m => +m[key] || 0));
+            const cpuAvg = Math.round(avg(metrics, 'cpu_pct') * 100);
+            const cpuMax = Math.round(max(metrics, 'cpu_pct') * 100);
+            const last = metrics[metrics.length - 1];
+            const memTotal = +last.mem_total || 0;
+            const memAvg = Math.round(avg(metrics, 'mem_used'));
+            const memPct = memTotal > 0 ? Math.round((memAvg / memTotal) * 100) : 0;
+            const netIn = Math.round(avg(metrics, 'net_in_bytes'));
+            const netOut = Math.round(avg(metrics, 'net_out_bytes'));
+
+            let html = '<div class="rt-title">1h Average</div>';
+            html += this._bar('CPU', cpuAvg, `${cpuAvg}% (max ${cpuMax}%)`);
+            html += this._bar('RAM', memPct, `${Utils.formatBytes(memAvg)} / ${Utils.formatBytes(memTotal)}`);
+            html += `<div class="rt-row">
+                <span class="rt-label">Net</span>
+                <span class="rt-val" style="flex:1;text-align:right"><i class="bi bi-arrow-down" style="color:var(--accent-green)"></i> ${Utils.formatBytes(netIn)}/s &nbsp;<i class="bi bi-arrow-up" style="color:var(--accent-blue)"></i> ${Utils.formatBytes(netOut)}/s</span>
+            </div>`;
+
+            this._cache.set(cacheKey, { html, ts: now });
+            this._render(el, html);
+        } catch (_) {
+            this.hide();
+        }
+    },
+
+    _render(el, html) {
+        const tip = this._getEl();
+        tip.innerHTML = html;
+        this._position(el, tip);
+        tip.classList.add('visible');
+    },
+
+    _position(el, tip) {
+        const rect = el.getBoundingClientRect();
+        tip.style.display = 'block';
+        const tipRect = tip.getBoundingClientRect();
+        let top = rect.top - tipRect.height - 8;
+        let left = rect.left + (rect.width / 2) - (tipRect.width / 2);
+        // Flip below if not enough space above
+        if (top < 8) top = rect.bottom + 8;
+        // Keep within viewport
+        left = Math.max(8, Math.min(left, window.innerWidth - tipRect.width - 8));
+        tip.style.top = top + 'px';
+        tip.style.left = left + 'px';
+    },
+
+    hide() {
+        clearTimeout(this._timer);
+        this._timer = null;
+        if (this._el) {
+            this._el.classList.remove('visible');
+        }
     }
 };

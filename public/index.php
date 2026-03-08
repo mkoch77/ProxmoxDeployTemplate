@@ -81,6 +81,11 @@ $perms = $user['permissions'];
                 </div>
             </a>
             <div class="d-flex align-items-center gap-3">
+                <button id="cluster-info-btn" class="btn btn-link p-0 d-none" title="Cluster Info"
+                    onclick="App.showClusterWarnings('info')" style="font-size:1.1rem;line-height:1;color:var(--bs-info)">
+                    <i class="bi bi-info-circle-fill"></i>
+                    <span id="cluster-info-count" class="badge bg-info text-dark ms-1" style="font-size:0.65rem;vertical-align:middle"></span>
+                </button>
                 <button id="cluster-warnings-btn" class="btn btn-link p-0 d-none" title="Cluster Alerts"
                     onclick="App.showClusterWarnings()" style="font-size:1.1rem;line-height:1">
                     <i class="bi bi-exclamation-triangle-fill"></i>
@@ -98,12 +103,6 @@ $perms = $user['permissions'];
                     <ul class="dropdown-menu dropdown-menu-end dropdown-menu-dark">
                         <li><span class="dropdown-item-text text-muted small"><?= htmlspecialchars($user['username']) ?></span></li>
                         <li><hr class="dropdown-divider"></li>
-                        <li>
-                            <a class="dropdown-item d-flex align-items-center justify-content-between" href="#" onclick="App.cycleTheme(); return false;">
-                                <span><i class="bi bi-circle-half me-2"></i>Theme</span>
-                                <span id="theme-label" class="badge bg-secondary ms-2"><?= ucfirst($theme) ?></span>
-                            </a>
-                        </li>
                         <?php if (in_array('users.manage', $perms)): ?>
                         <li><a class="dropdown-item" href="#users" onclick="App.navigate('users');"><i class="bi bi-people-fill me-2"></i>User Management</a></li>
                         <?php endif; ?>
@@ -157,6 +156,12 @@ $perms = $user['permissions'];
                     <span>Loadbalancing</span>
                 </a>
                 <?php endif; ?>
+                <?php if (in_array('cluster.health.view', $perms)): ?>
+                <a href="#reports" class="sidebar-link" data-page="reports" title="Reports">
+                    <div class="sidebar-icon"><i class="bi bi-file-earmark-spreadsheet-fill"></i></div>
+                    <span>Reports</span>
+                </a>
+                <?php endif; ?>
                 <?php if (in_array('admin', $user['roles'] ?? [])): ?>
                 <div class="sidebar-spacer"></div>
                 <a href="#settings" class="sidebar-link" data-page="settings" title="Settings">
@@ -181,15 +186,15 @@ $perms = $user['permissions'];
         </main>
     </div>
 
-    <!-- Cluster Warnings Modal -->
+    <!-- Cluster Alerts Modal -->
     <div class="modal fade" id="clusterWarningsModal" tabindex="-1">
-        <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
             <div class="modal-content glass-modal">
-                <div class="modal-header border-danger" style="border-bottom-color:var(--bs-danger)!important">
-                    <h5 class="modal-title text-danger"><i class="bi bi-exclamation-triangle-fill me-2"></i>Cluster Alerts</h5>
+                <div class="modal-header" id="cluster-warnings-header">
+                    <h5 class="modal-title" id="cluster-warnings-title"><i class="bi bi-exclamation-triangle-fill me-2"></i>Cluster Alerts</h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
-                <div class="modal-body" id="cluster-warnings-body"></div>
+                <div class="modal-body" id="cluster-warnings-body" style="max-height:60vh;overflow-y:auto"></div>
             </div>
         </div>
     </div>
@@ -244,6 +249,14 @@ $perms = $user['permissions'];
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold"><i class="bi bi-circle-half me-1"></i>Theme</label>
+                        <select class="form-select" id="profile-theme">
+                            <option value="auto">Auto (System)</option>
+                            <option value="dark">Dark</option>
+                            <option value="light">Light</option>
+                        </select>
+                    </div>
                     <div class="mb-3">
                         <label class="form-label fw-semibold">Default Storage <small class="text-muted">(pre-selected in all storage dropdowns)</small></label>
                         <select class="form-select" id="profile-default-storage">
@@ -535,6 +548,10 @@ $perms = $user['permissions'];
     <script src="assets/js/components/maintenance.js?v=<?= $v ?>"></script>
     <script src="assets/js/components/updater.js?v=<?= $v ?>"></script>
     <script src="assets/js/components/loadbalancer.js?v=<?= $v ?>"></script>
+    <?php if (in_array('cluster.health.view', $perms)): ?>
+    <script src="assets/js/vendor/xlsx.mini.min.js?v=<?= $v ?>"></script>
+    <script src="assets/js/components/reports.js?v=<?= $v ?>"></script>
+    <?php endif; ?>
     <?php if (in_array('monitoring.view', $perms)): ?>
     <script src="assets/js/components/monitoring.js?v=<?= $v ?>"></script>
     <?php endif; ?>

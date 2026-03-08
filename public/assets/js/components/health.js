@@ -3,6 +3,8 @@ const Health = {
     data: null,
     storageSort: { col: 'storage', dir: 'asc' },
     haSort: { col: 'resource', dir: 'asc' },
+    _haPage: 1,
+    _haPerPage: 50,
 
     async init() {
         this.render();
@@ -195,7 +197,8 @@ const Health = {
 
             return `
                 <div class="col-md-6 col-xl-4">
-                    <div class="node-card ${maint ? 'maintenance' : ''} ${!isOnline ? 'offline' : ''}" style="cursor:${isOnline ? 'pointer' : 'default'}" ${isOnline ? `onclick="Health.showNodeInfo('${escapeHtml(id)}')"` : ''}>
+                    <div class="node-card ${maint ? 'maintenance' : ''} ${!isOnline ? 'offline' : ''}" style="cursor:${isOnline ? 'pointer' : 'default'}" ${isOnline ? `onclick="Health.showNodeInfo('${escapeHtml(id)}')"` : ''}
+                        ${isOnline ? `onmouseenter="ResourceTooltip.showNode(this,'${escapeHtml(id)}')" onmouseleave="ResourceTooltip.hide()"` : ''}>
                         <div class="d-flex justify-content-between align-items-center mb-3">
                             <div>
                                 <h5 class="mb-0"><i class="bi bi-hdd-rack me-2"></i>${escapeHtml(id)}</h5>
@@ -329,6 +332,19 @@ const Health = {
         this.renderStorage();
     },
 
+    setHaPage(page) {
+        this._haPage = page;
+        this._lastHaKey = '';
+        this.renderHA();
+    },
+
+    setHaPerPage(perPage) {
+        this._haPerPage = perPage;
+        this._haPage = 1;
+        this._lastHaKey = '';
+        this.renderHA();
+    },
+
     setSortHA(col) {
         if (this.haSort.col === col) {
             this.haSort.dir = this.haSort.dir === 'asc' ? 'desc' : 'asc';
@@ -336,6 +352,7 @@ const Health = {
             this.haSort.col = col;
             this.haSort.dir = 'asc';
         }
+        this._haPage = 1;
         this._lastHaKey = '';
         this.renderHA();
     },
@@ -469,11 +486,14 @@ const Health = {
         const canManage = Permissions.has('cluster.ha');
 
         // Skip full rebuild if data unchanged
-        const haKey = rows.map(r => `${r.sid}:${r.ha?.state || ''}:${r.node}`).join('|') + ':' + col + dir;
+        const haKey = rows.map(r => `${r.sid}:${r.ha?.state || ''}:${r.node}`).join('|') + ':' + col + dir + ':' + this._haPage + ':' + this._haPerPage;
         if (haKey === this._lastHaKey && container.querySelector('tbody')) return;
         this._lastHaKey = haKey;
 
         const activeStates = ['started', 'enabled'];
+        const pag = Utils.paginate(rows, this._haPage, this._haPerPage);
+        this._haPage = pag.page;
+        const pageRows = pag.items;
 
         container.innerHTML = `
             <div class="section-header mt-4">
@@ -492,7 +512,7 @@ const Health = {
                             </tr>
                         </thead>
                         <tbody>
-                            ${rows.map(r => {
+                            ${pageRows.map(r => {
                                 const label = r.name
                                     ? `${escapeHtml(r.name)} <small class="text-muted">(${r.type === 'lxc' ? 'CT' : 'VM'}:${r.vmid})</small>`
                                     : `<small class="text-muted">${r.type === 'lxc' ? 'CT' : 'VM'}:${r.vmid}</small>`;
@@ -531,6 +551,7 @@ const Health = {
                             `}).join('')}
                         </tbody>
                     </table>
+                    ${Utils.paginationHtml(pag, 'Health.setHaPage', 'Health.setHaPerPage')}
                 </div>
             ` : '<p class="text-muted">No VMs or CTs found.</p>'}
         `;
@@ -599,6 +620,8 @@ const Health = {
         } catch (_) {}
     },
 
+    _dismissedVmids: new Set(), // dismissed right-sizing VMIDs (session only)
+
     async loadRightSizing(silent = false) {
         const container = document.getElementById('health-rightsizing');
         if (!container) return;
@@ -609,7 +632,11 @@ const Health = {
                 : await API.get('api/monitoring-rightsizing.php', { timerange: '24h' });
             const recs = data.recommendations || [];
 
-            if (!recs.length) {
+            // Store total count for top bar, filter dismissed for display
+            this._rightSizingTotal = recs.length;
+            const visible = recs.filter(r => !this._dismissedVmids.has(r.vmid));
+
+            if (!visible.length) {
                 container.innerHTML = '';
                 return;
             }
@@ -631,10 +658,10 @@ const Health = {
                             </tr>
                         </thead>
                         <tbody>
-                            ${recs.map(r => {
+                            ${visible.map(r => {
                                 const hasRec = r.recommended && (r.recommended.cpu_cores || r.recommended.mem_bytes);
                                 return `
-                                <tr class="${r.severity === 'critical' ? 'table-danger' : r.severity === 'undersized' ? 'table-warning' : ''}">
+                                <tr class="${r.severity === 'critical' ? 'table-danger' : r.severity === 'undersized' ? 'table-warning' : ''}" data-rs-vmid="${r.vmid}">
                                     <td>
                                         <strong>${r.vmid} — ${escapeHtml(r.name)}</strong>
                                         <br><small class="text-muted">${escapeHtml(r.node)} · ${r.vm_type}</small>
@@ -651,12 +678,15 @@ const Health = {
                                         <div class="small text-muted">${Utils.formatBytes(r.current.mem_bytes)}${r.recommended?.mem_bytes ? ` → <strong>${Utils.formatBytes(r.recommended.mem_bytes)}</strong>` : ''}</div>
                                     </td>
                                     <td>${r.suggestions.map(s => `<div class="small fw-semibold">${escapeHtml(s)}</div>`).join('')}</td>
-                                    <td>
-                                        ${hasRec ? `<button class="btn btn-sm btn-outline-success" title="Apply recommended values"
+                                    <td class="text-nowrap">
+                                        ${hasRec ? `<button class="btn btn-sm btn-outline-success me-1" title="Apply recommended values"
                                             data-rec='${JSON.stringify(r.recommended).replace(/'/g, "&#39;")}'
                                             onclick="Health.applyRightSizing(${r.vmid}, '${escapeHtml(r.node)}', '${r.vm_type}', this)">
                                             <i class="bi bi-check-lg"></i> Apply
-                                        </button>` : ''}
+                                        </button>` : ''}<button class="btn btn-sm btn-outline-secondary" title="Dismiss"
+                                            onclick="Health.dismissRightSizingVm(${r.vmid})">
+                                            <i class="bi bi-x-lg"></i>
+                                        </button>
                                     </td>
                                 </tr>`;
                             }).join('')}
@@ -706,6 +736,49 @@ const Health = {
             Toast.error(e.message);
             btn.disabled = false;
             btn.innerHTML = origHtml;
+        }
+    },
+
+    dismissRightSizingVm(vmid) {
+        this._dismissedVmids.add(vmid);
+
+        // Remove the row
+        const row = document.querySelector(`tr[data-rs-vmid="${vmid}"]`);
+        if (row) row.remove();
+
+        // If table is now empty, hide the whole section
+        const tbody = document.querySelector('#health-rightsizing tbody');
+        if (tbody && !tbody.children.length) {
+            document.getElementById('health-rightsizing').innerHTML = '';
+        }
+
+        // Update top bar info icon — if all suggestions are dismissed, hide it
+        this._updateTopBarInfo();
+    },
+
+    _updateTopBarInfo() {
+        if (typeof App === 'undefined' || !App._infos) return;
+        const totalRecs = this._rightSizingTotal || 0;
+        const allDismissed = this._dismissedVmids.size >= totalRecs;
+
+        if (allDismissed) {
+            // Dismiss rightsizing in top bar
+            for (const info of App._infos) {
+                if (info.cat === 'rightsizing') {
+                    App._dismissedInfos.add(info.cat + ':' + info.msg);
+                }
+            }
+        }
+
+        const activeInfos = App._infos.filter(i => !App._dismissedInfos.has(i.cat + ':' + i.msg));
+        const infoBtn = document.getElementById('cluster-info-btn');
+        const infoCnt = document.getElementById('cluster-info-count');
+        if (infoBtn) {
+            if (activeInfos.length === 0) {
+                infoBtn.classList.add('d-none');
+            } else {
+                infoCnt.textContent = activeInfos.length;
+            }
         }
     },
 

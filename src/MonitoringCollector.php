@@ -242,6 +242,73 @@ class MonitoringCollector
         return $result;
     }
 
+    /**
+     * Find VMs with sustained high CPU or RAM over the last N minutes.
+     * Returns only VMs where ALL samples in the window exceed the threshold.
+     */
+    public static function getVmAlerts(int $minutes = 5): array
+    {
+        $db = Database::connection();
+        $interval = "{$minutes} minutes";
+
+        // Minimum samples: at least half the expected count (collection every 10s)
+        $minSamples = max(3, intdiv($minutes * 60, 10) / 2);
+
+        $stmt = $db->prepare("
+            SELECT
+                vmid,
+                MAX(name) as name,
+                MAX(node) as node,
+                MAX(vm_type) as vm_type,
+                COUNT(*) as samples,
+                ROUND((AVG(cpu_pct) * 100)::numeric, 1) as avg_cpu_pct,
+                ROUND((MIN(cpu_pct) * 100)::numeric, 1) as min_cpu_pct,
+                MAX(mem_total) as mem_total,
+                ROUND((AVG(mem_used)::float / NULLIF(MAX(mem_total), 0) * 100)::numeric, 1) as avg_mem_pct,
+                ROUND((MIN(mem_used)::float / NULLIF(MAX(mem_total), 0) * 100)::numeric, 1) as min_mem_pct
+            FROM vm_metrics
+            WHERE ts >= NOW() - ?::interval
+              AND status = 'running'
+            GROUP BY vmid
+            HAVING COUNT(*) >= ?
+        ");
+        $stmt->execute([$interval, $minSamples]);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        $alerts = [];
+        foreach ($rows as $r) {
+            $cpuAlerts = [];
+            $ramAlerts = [];
+
+            // CPU: min >= threshold means ALL samples were above it (values are now 0-100%)
+            if ((float)$r['min_cpu_pct'] >= 95) {
+                $cpuAlerts[] = ['level' => 'danger', 'pct' => (float)$r['avg_cpu_pct']];
+            } elseif ((float)$r['min_cpu_pct'] >= 85) {
+                $cpuAlerts[] = ['level' => 'warning', 'pct' => (float)$r['avg_cpu_pct']];
+            }
+
+            // RAM: min >= threshold (already 0-100%)
+            if ((float)$r['min_mem_pct'] >= 95) {
+                $ramAlerts[] = ['level' => 'danger', 'pct' => (float)$r['avg_mem_pct']];
+            } elseif ((float)$r['min_mem_pct'] >= 85) {
+                $ramAlerts[] = ['level' => 'warning', 'pct' => (float)$r['avg_mem_pct']];
+            }
+
+            if ($cpuAlerts || $ramAlerts) {
+                $alerts[] = [
+                    'vmid' => (int)$r['vmid'],
+                    'name' => $r['name'],
+                    'node' => $r['node'],
+                    'vm_type' => $r['vm_type'],
+                    'cpu' => $cpuAlerts[0] ?? null,
+                    'ram' => $ramAlerts[0] ?? null,
+                ];
+            }
+        }
+
+        return $alerts;
+    }
+
     private static function parseTimerange(string $range): string
     {
         $map = [

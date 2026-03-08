@@ -94,6 +94,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         ]);
     }
 
+    if ($action === 'vm-alerts') {
+        $alerts = MonitoringCollector::getVmAlerts(5);
+        Response::success(['alerts' => $alerts]);
+    }
+
     Response::error('Unknown action', 400);
 }
 

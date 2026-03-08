@@ -9,6 +9,8 @@ const Dashboard = {
     selectedGuests: new Set(),  // Set of "vmid:node" keys
     _ipRefreshInterval: null,
     _ipLoading: false,
+    _page: 1,
+    _perPage: 50,
 
     async init() {
         this.render();
@@ -77,6 +79,17 @@ const Dashboard = {
                     }
                 }
             } catch (_) { /* LB not available or no permission */ }
+
+            // Load maintenance nodes so migrate dropdown excludes them
+            this.maintenanceNodeNames = new Set();
+            try {
+                const maint = await API.getSilent('api/maintenance.php');
+                if (Array.isArray(maint)) {
+                    for (const row of maint) {
+                        if (row.node_name) this.maintenanceNodeNames.add(row.node_name);
+                    }
+                }
+            } catch (_) { /* no permission or not available */ }
 
             this.updateView();
         } catch (err) {
@@ -180,27 +193,32 @@ const Dashboard = {
                 content.querySelectorAll('[data-filter-type]').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 this.currentFilter.type = btn.dataset.filterType;
+                this._page = 1;
                 this.updateView();
             });
         });
 
         document.getElementById('filter-node').addEventListener('change', (e) => {
             this.currentFilter.node = e.target.value;
+            this._page = 1;
             this.updateView();
         });
 
         document.getElementById('filter-status').addEventListener('change', (e) => {
             this.currentFilter.status = e.target.value;
+            this._page = 1;
             this.updateView();
         });
 
         document.getElementById('filter-os').addEventListener('change', (e) => {
             this.currentFilter.os = e.target.value;
+            this._page = 1;
             this.updateView();
         });
 
         document.getElementById('filter-search').addEventListener('input', Utils.debounce((e) => {
             this.currentFilter.search = e.target.value.toLowerCase();
+            this._page = 1;
             this.updateView();
         }, 300));
 
@@ -211,6 +229,19 @@ const Dashboard = {
         });
     },
 
+    setPage(page) {
+        this._page = page;
+        this._lastTableKey = '';
+        this.updateView();
+    },
+
+    setPerPage(perPage) {
+        this._perPage = perPage;
+        this._page = 1;
+        this._lastTableKey = '';
+        this.updateView();
+    },
+
     setSort(col) {
         if (this.currentSort.col === col) {
             this.currentSort.dir = this.currentSort.dir === 'asc' ? 'desc' : 'asc';
@@ -218,6 +249,7 @@ const Dashboard = {
             this.currentSort.col = col;
             this.currentSort.dir = 'asc';
         }
+        this._page = 1;
         this._lastTableKey = '';
         this.updateView();
     },
@@ -382,7 +414,7 @@ const Dashboard = {
 
         // If the set of VMs and their statuses/nodes hasn't changed, update only
         // the frequently-changing cells in-place to avoid flickering.
-        const tableKey = guests.map(g => `${g.vmid}:${g.node}:${g.status}`).join('|') + ':' + this.groupBy;
+        const tableKey = guests.map(g => `${g.vmid}:${g.node}:${g.status}`).join('|') + ':' + this.groupBy + ':' + this._page + ':' + this._perPage;
         if (tableKey === this._lastTableKey && container.querySelector('tbody')) {
             for (const g of guests) {
                 const id = `${g.vmid}-${g.node}`;
@@ -437,7 +469,8 @@ const Dashboard = {
                 : '<span style="color:var(--text-muted)">-</span>';
             const selKey = `${g.vmid}:${g.node}`;
             const checked = this.selectedGuests.has(selKey) ? 'checked' : '';
-            return `<tr class="vm-row ${checked ? 'row-selected' : ''}" style="cursor:pointer" onclick="Dashboard.openVmDetail(event,${g.vmid},'${Utils.escapeHtml(g.node)}','${Utils.escapeHtml(g.type)}')">
+            return `<tr class="vm-row ${checked ? 'row-selected' : ''}" style="cursor:pointer" onclick="Dashboard.openVmDetail(event,${g.vmid},'${Utils.escapeHtml(g.node)}','${Utils.escapeHtml(g.type)}')"
+                onmouseenter="ResourceTooltip.showVm(this,${g.vmid},'${g.status}')" onmouseleave="ResourceTooltip.hide()">
                 <td style="text-align:center" onclick="event.stopPropagation()"><input type="checkbox" class="form-check-input guest-cb" data-key="${selKey}" ${checked} onchange="Dashboard.toggleSelect(this)"></td>
                 <td><strong style="color:var(--accent-blue)">${g.vmid}</strong></td>
                 <td>${Utils.escapeHtml(g.name || '-')}</td>
@@ -454,9 +487,14 @@ const Dashboard = {
             </tr>`;
         };
 
+        // Paginate
+        const pag = Utils.paginate(guests, this._page, this._perPage);
+        this._page = pag.page;
+        const pageGuests = pag.items;
+
         if (this.groupBy === 'tags' || this.groupBy === 'os') {
             const groups = new Map();
-            for (const g of guests) {
+            for (const g of pageGuests) {
                 let keys;
                 if (this.groupBy === 'tags') {
                     const tags = g.tags ? g.tags.split(';').map(t => t.trim()).filter(Boolean) : [];
@@ -490,12 +528,13 @@ const Dashboard = {
                 }
             }
         } else {
-            for (const g of guests) {
+            for (const g of pageGuests) {
                 html += guestRowHtml(g);
             }
         }
 
         html += '</tbody></table>';
+        html += Utils.paginationHtml(pag, 'Dashboard.setPage', 'Dashboard.setPerPage');
         container.innerHTML = html;
 
         // Restore bulk bar state after full re-render
@@ -656,7 +695,7 @@ const Dashboard = {
 
         // Migrate button — disabled when not running or no target nodes available
         if (Permissions.has('vm.migrate')) {
-            const otherNodes = this.nodes.filter(n => n.node !== guest.node && n.status === 'online');
+            const otherNodes = this.nodes.filter(n => n.node !== guest.node && n.status === 'online' && !this.maintenanceNodeNames?.has(n.node));
             if (running && otherNodes.length > 0) {
                 const dropId = `migrate-drop-${guest.vmid}`;
                 html += `<div class="btn-group me-1">
@@ -677,6 +716,14 @@ const Dashboard = {
                     <i class="bi bi-shuffle"></i>
                 </button>`;
             }
+        }
+
+        // Snapshot manager button
+        if (Permissions.has('vm.snapshot')) {
+            html += `<button class="btn btn-outline-info btn-action me-1" title="Snapshot Manager"
+                onclick="event.stopPropagation();Dashboard.openSnapshotManager('${guest.node}','${guest.type}',${guest.vmid},'${Utils.escapeHtml(guest.name || '')}')">
+                <i class="bi bi-camera"></i>
+            </button>`;
         }
 
         // Power controls
@@ -1005,6 +1052,237 @@ const Dashboard = {
             setTimeout(() => this.loadData(), 3000);
         } catch (err) {
             // Error shown by API
+        }
+    },
+
+    // --- Snapshot Manager ---
+
+    _snapCtx: null, // { node, type, vmid, name }
+
+    async openSnapshotManager(node, type, vmid, name) {
+        this._snapCtx = { node, type, vmid, name };
+        const title = `Snapshots — ${name || vmid}`;
+
+        let modal = document.getElementById('snapshot-modal');
+        if (!modal) {
+            document.body.insertAdjacentHTML('beforeend', `
+                <div class="modal fade" id="snapshot-modal" tabindex="-1">
+                    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                        <div class="modal-content bg-dark text-light">
+                            <div class="modal-header border-secondary">
+                                <h5 class="modal-title" id="snapshot-modal-title"></h5>
+                                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body" id="snapshot-modal-body"></div>
+                        </div>
+                    </div>
+                </div>
+            `);
+            modal = document.getElementById('snapshot-modal');
+        }
+
+        document.getElementById('snapshot-modal-title').innerHTML = `<i class="bi bi-camera me-2"></i>${Utils.escapeHtml(title)}`;
+        document.getElementById('snapshot-modal-body').innerHTML = `
+            <div class="text-center py-4">
+                <div class="spinner-border spinner-border-sm" role="status"></div>
+                <span class="ms-2 text-muted">Loading snapshots...</span>
+            </div>`;
+
+        const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
+        bsModal.show();
+
+        await this._loadSnapshots();
+    },
+
+    async _loadSnapshots() {
+        const ctx = this._snapCtx;
+        if (!ctx) return;
+
+        const body = document.getElementById('snapshot-modal-body');
+        try {
+            const snapshots = await API.getSnapshots(ctx.node, ctx.type, ctx.vmid);
+            this._renderSnapshots(snapshots, body);
+        } catch (err) {
+            body.innerHTML = `<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-2"></i>${Utils.escapeHtml(err.message)}</div>`;
+        }
+    },
+
+    _renderSnapshots(snapshots, body) {
+        const ctx = this._snapCtx;
+        const esc = Utils.escapeHtml;
+
+        // Filter out 'current' and build tree
+        const snaps = snapshots.filter(s => s.name !== 'current');
+        const hasSnaps = snaps.length > 0;
+
+        // Build parent-child map
+        const childMap = {};
+        for (const s of snaps) {
+            const parent = s.parent || '__root__';
+            if (!childMap[parent]) childMap[parent] = [];
+            childMap[parent].push(s);
+        }
+
+        // Sort children by snaptime
+        for (const key of Object.keys(childMap)) {
+            childMap[key].sort((a, b) => (a.snaptime || 0) - (b.snaptime || 0));
+        }
+
+        // Create snapshot form
+        let html = `
+            <div class="mb-3 p-3" style="background:var(--card-bg);border-radius:8px;border:1px solid var(--border-color)">
+                <div class="d-flex gap-2 align-items-end flex-wrap">
+                    <div class="flex-grow-1">
+                        <label class="form-label small mb-1">Snapshot Name</label>
+                        <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary" id="snap-name"
+                            placeholder="e.g. before-update" pattern="[a-zA-Z0-9_\\-]+" required>
+                    </div>
+                    <div class="flex-grow-1">
+                        <label class="form-label small mb-1">Description (optional)</label>
+                        <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary" id="snap-desc" placeholder="Optional description">
+                    </div>
+                    <div>
+                        <button class="btn btn-primary btn-sm" onclick="Dashboard._createSnapshot()">
+                            <i class="bi bi-camera me-1"></i>Create
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        if (!hasSnaps) {
+            html += `
+                <div class="text-center py-4" style="color:var(--text-muted)">
+                    <i class="bi bi-camera" style="font-size:2rem;opacity:0.3"></i>
+                    <p class="mt-2 mb-0">No snapshots</p>
+                </div>`;
+        } else {
+            html += `
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="text-muted small">${snaps.length} snapshot${snaps.length !== 1 ? 's' : ''}</span>
+                    <button class="btn btn-outline-danger btn-sm" onclick="Dashboard._deleteAllSnapshots()">
+                        <i class="bi bi-trash me-1"></i>Delete All
+                    </button>
+                </div>
+                <div class="snap-tree">
+            `;
+
+            // Render tree recursively starting from roots
+            const roots = childMap['__root__'] || [];
+            // Also collect orphans whose parent doesn't exist in our list
+            const snapNames = new Set(snaps.map(s => s.name));
+            for (const s of snaps) {
+                if (s.parent && s.parent !== 'current' && !snapNames.has(s.parent)) {
+                    if (!childMap['__root__']) childMap['__root__'] = [];
+                    if (!roots.includes(s)) roots.push(s);
+                }
+            }
+
+            const renderNode = (snap, depth) => {
+                const date = snap.snaptime ? new Date(snap.snaptime * 1000).toLocaleString() : '';
+                const desc = snap.description || '';
+                const indent = depth * 24;
+                html += `
+                    <div class="snap-node d-flex align-items-center gap-2 py-2 px-2" style="margin-left:${indent}px;border-left:${depth > 0 ? '2px solid var(--border-color)' : 'none'};border-radius:4px">
+                        <i class="bi bi-camera-fill" style="color:var(--accent-blue);opacity:0.7"></i>
+                        <div class="flex-grow-1">
+                            <strong>${esc(snap.name)}</strong>
+                            ${desc ? `<span class="text-muted small ms-2">${esc(desc)}</span>` : ''}
+                            ${date ? `<br><span class="text-muted small"><i class="bi bi-clock me-1"></i>${esc(date)}</span>` : ''}
+                        </div>
+                        <button class="btn btn-outline-danger btn-sm" title="Delete snapshot" onclick="Dashboard._deleteSnapshot('${esc(snap.name)}')">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>`;
+
+                const children = childMap[snap.name] || [];
+                for (const child of children) {
+                    renderNode(child, depth + 1);
+                }
+            };
+
+            for (const root of roots) {
+                renderNode(root, 0);
+            }
+
+            html += `</div>`;
+        }
+
+        body.innerHTML = html;
+    },
+
+    async _createSnapshot() {
+        const ctx = this._snapCtx;
+        if (!ctx) return;
+
+        const nameInput = document.getElementById('snap-name');
+        const descInput = document.getElementById('snap-desc');
+        const snapname = nameInput.value.trim();
+        const description = descInput.value.trim();
+
+        if (!snapname) {
+            Toast.warning('Please enter a snapshot name');
+            nameInput.focus();
+            return;
+        }
+        if (!/^[a-zA-Z0-9_\-]+$/.test(snapname)) {
+            Toast.warning('Snapshot name may only contain letters, numbers, dashes and underscores');
+            nameInput.focus();
+            return;
+        }
+
+        const body = document.getElementById('snapshot-modal-body');
+        body.innerHTML = `<div class="text-center py-4"><div class="spinner-border spinner-border-sm" role="status"></div><span class="ms-2 text-muted">Creating snapshot...</span></div>`;
+
+        try {
+            await API.createSnapshot(ctx.node, ctx.type, ctx.vmid, snapname, description);
+            Toast.success(`Snapshot "${snapname}" created`);
+            await this._loadSnapshots();
+        } catch (err) {
+            await this._loadSnapshots();
+        }
+    },
+
+    async _deleteSnapshot(snapname) {
+        const ctx = this._snapCtx;
+        if (!ctx) return;
+
+        if (!confirm(`Delete snapshot "${snapname}"?`)) return;
+
+        const body = document.getElementById('snapshot-modal-body');
+        body.innerHTML = `<div class="text-center py-4"><div class="spinner-border spinner-border-sm" role="status"></div><span class="ms-2 text-muted">Deleting snapshot...</span></div>`;
+
+        try {
+            await API.deleteSnapshot(ctx.node, ctx.type, ctx.vmid, snapname);
+            Toast.success(`Snapshot "${snapname}" deleted`);
+            await this._loadSnapshots();
+        } catch (err) {
+            await this._loadSnapshots();
+        }
+    },
+
+    async _deleteAllSnapshots() {
+        const ctx = this._snapCtx;
+        if (!ctx) return;
+
+        if (!confirm(`Delete ALL snapshots for ${ctx.name || ctx.vmid}? This cannot be undone.`)) return;
+
+        const body = document.getElementById('snapshot-modal-body');
+        body.innerHTML = `<div class="text-center py-4"><div class="spinner-border spinner-border-sm" role="status"></div><span class="ms-2 text-muted">Deleting all snapshots...</span></div>`;
+
+        try {
+            const result = await API.deleteAllSnapshots(ctx.node, ctx.type, ctx.vmid);
+            if (result.deleted > 0) {
+                Toast.success(`${result.deleted} snapshot(s) deleted`);
+            }
+            if (result.errors?.length) {
+                for (const e of result.errors) {
+                    Toast.error(e);
+                }
+            }
+            await this._loadSnapshots();
+        } catch (err) {
+            await this._loadSnapshots();
         }
     },
 };
