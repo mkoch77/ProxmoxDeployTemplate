@@ -19,8 +19,8 @@ class AppLogger
                 $userId,
             ]);
         } catch (\Exception $e) {
-            // Fallback to stderr if DB logging fails
-            fwrite(STDERR, date('Y-m-d H:i:s') . " [{$level}] [{$category}] {$message}\n");
+            // Fallback to error_log if DB logging fails (works in both CLI and web context)
+            error_log(date('Y-m-d H:i:s') . " [{$level}] [{$category}] {$message}");
         }
     }
 

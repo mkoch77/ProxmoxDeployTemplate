@@ -53,6 +53,10 @@ services:
       SSH_KEY_PATH: /var/www/html/data/.ssh/id_ed25519
       SSH_PASSWORD: ${SSH_PASSWORD:-}
 
+      # Admin account — created on first start, vars are removed from .env afterwards
+      ADMIN_USER: ${ADMIN_USER:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+
       # EntraID / Azure AD (optional)
       ENTRAID_TENANT_ID: ${ENTRAID_TENANT_ID:-}
       ENTRAID_CLIENT_ID: ${ENTRAID_CLIENT_ID:-}

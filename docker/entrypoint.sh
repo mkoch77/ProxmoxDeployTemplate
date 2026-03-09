@@ -1,6 +1,20 @@
 #!/bin/bash
 set -e
 
+# Warn if critical env vars are missing (setup.sh was not run)
+if [[ -z "${PROXMOX_HOST:-}" || -z "${PROXMOX_TOKEN_SECRET:-}" || -z "${APP_SECRET:-}" ]]; then
+    echo "╔══════════════════════════════════════════════════════╗"
+    echo "║  FEHLER: Konfiguration unvollständig!                ║"
+    echo "║                                                      ║"
+    echo "║  Bitte setup.sh auf dem Host ausführen:              ║"
+    echo "║    ./setup.sh                                        ║"
+    echo "║                                                      ║"
+    echo "║  Das Script erzeugt die .env mit allen nötigen       ║"
+    echo "║  Einstellungen und startet den Stack automatisch.    ║"
+    echo "╚══════════════════════════════════════════════════════╝"
+    exit 1
+fi
+
 # Wait for PostgreSQL to be ready
 echo "Waiting for PostgreSQL..."
 until PGPASSWORD="$DB_PASSWORD" pg_isready -h "${DB_HOST:-db}" -p "${DB_PORT:-5432}" -U "${DB_USER:-proxmoxdeploy}" -q 2>/dev/null; do
@@ -23,6 +37,23 @@ if [ ! -f "$KEY_PATH" ]; then
 fi
 
 chown -R www-data:www-data "$KEY_DIR"
+
+# Create initial admin user if ADMIN_USER and ADMIN_PASSWORD are set
+if [[ -n "${ADMIN_USER:-}" && -n "${ADMIN_PASSWORD:-}" ]]; then
+    echo "Creating admin user '${ADMIN_USER}'..."
+    if php /var/www/html/cli/seed-admin.php "${ADMIN_USER}" "${ADMIN_PASSWORD}"; then
+        echo "Admin user created."
+    else
+        echo "Admin user already exists or creation failed — skipping."
+    fi
+    # Remove credentials from .env so they are not stored in plaintext
+    ENV_FILE=/var/www/html/.env
+    if [[ -f "$ENV_FILE" ]]; then
+        sed -i '/^ADMIN_USER=/d' "$ENV_FILE"
+        sed -i '/^ADMIN_PASSWORD=/d' "$ENV_FILE"
+        echo "Admin credentials removed from .env."
+    fi
+fi
 
 # Export Docker env vars so cron jobs can read them
 printenv | grep -v '^_=' | sed "s/'/'\\\\''/g; s/\([^=]*\)=\(.*\)/export \1='\2'/" > /etc/docker-env.sh
