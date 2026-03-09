@@ -135,6 +135,8 @@ $cores = (int)($body['cores'] ?? 2);
 if ($cores < 1 || $cores > 128) {
     Response::error('CPU cores must be between 1 and 128', 400);
 }
+// Check vCPU capacity on target node
+Helpers::checkNodeCpuCapacity(Helpers::createAPI(), $nodeName, $cores);
 
 $memory = (int)($body['memory'] ?? 2048);
 if ($memory < 256 || $memory > 131072) {
@@ -288,6 +290,21 @@ if ($tags)           $lines[] = 'qm set $VMID --tags '         . escapeshellarg(
 $vendorFile = $snippetDir . '/ci_vendor_' . $vmid . '.yaml';
 $lines[] = '';
 $lines[] = "echo '==> [6/8] Configuring QEMU guest agent installation...'";
+// Enable snippets on local storage FIRST (required before Proxmox can see snippet volumes)
+$lines[] = '# Check if snippets content type is enabled on local storage';
+$lines[] = 'if grep -A5 "^dir: local$" /etc/pve/storage.cfg 2>/dev/null | grep -q snippets; then';
+$lines[] = '  echo "    Snippets already enabled on local storage"';
+$lines[] = 'else';
+$lines[] = '  echo "    Enabling snippets content type on local storage..."';
+$lines[] = '  CURRENT_CONTENT=$(grep -A5 "^dir: local$" /etc/pve/storage.cfg 2>/dev/null | grep "content " | sed "s/.*content //" | tr -d " ")';
+$lines[] = '  if [ -n "$CURRENT_CONTENT" ]; then';
+$lines[] = '    pvesm set local --content "${CURRENT_CONTENT},snippets"';
+$lines[] = '  else';
+$lines[] = '    pvesm set local --content "images,rootdir,vztmpl,iso,backup,snippets"';
+$lines[] = '  fi';
+$lines[] = '  sleep 2';
+$lines[] = 'fi';
+// Now create the vendor snippet
 $lines[] = 'cat > ' . escapeshellarg($vendorFile) . " << 'CI_VENDOR_EOF'";
 $lines[] = '#cloud-config';
 $lines[] = 'packages:';
@@ -301,10 +318,16 @@ foreach ($ciRuncmd as $cmd) {
     $lines[] = '  - ' . json_encode($cmd);
 }
 $lines[] = 'CI_VENDOR_EOF';
-// Enable snippets on local storage (required for vendor-data/cicustom)
-$lines[] = 'pvesm set local --content "$(pvesm status --storage local --output-format json 2>/dev/null | python3 -c "import sys,json;d=json.load(sys.stdin);c=d[0].get(\'content\',\'\') if d else \'\';parts=set(c.split(\',\')) if c else set();parts.add(\'snippets\');print(\',\'.join(parts))" 2>/dev/null || echo "images,rootdir,vztmpl,iso,backup,snippets")" 2>/dev/null || true';
-// PVE 8.1+ uses --vendor-data; older PVE uses --cicustom vendor=
-$lines[] = 'qm set $VMID --vendor-data ' . escapeshellarg('local:snippets/ci_vendor_' . $vmid . '.yaml') . ' 2>/dev/null || qm set $VMID --cicustom ' . escapeshellarg('vendor=local:snippets/ci_vendor_' . $vmid . '.yaml') . ' 2>/dev/null || true';
+$lines[] = 'sync';
+// Verify Proxmox can actually resolve the snippet volume before referencing it
+$snippetVol = 'local:snippets/ci_vendor_' . $vmid . '.yaml';
+$lines[] = 'if pvesm path ' . escapeshellarg($snippetVol) . ' >/dev/null 2>&1; then';
+$lines[] = '  echo "    Attaching vendor cloud-init snippet..."';
+$lines[] = '  qm set $VMID --cicustom ' . escapeshellarg('vendor=' . $snippetVol) . ' 2>/dev/null || qm set $VMID --vendor-data ' . escapeshellarg($snippetVol) . ' 2>/dev/null || echo "    Warning: could not attach vendor snippet (qemu-guest-agent will need manual install)"';
+$lines[] = 'else';
+$lines[] = '  echo "    Warning: Proxmox cannot resolve snippet volume — skipping vendor cloud-init"';
+$lines[] = '  echo "    (qemu-guest-agent will need to be installed manually: apt install qemu-guest-agent)"';
+$lines[] = 'fi';
 
 $lines[] = '';
 $lines[] = "echo '==> [7/8] Resizing disk to " . (int)$diskSize . "G...'";
@@ -313,8 +336,8 @@ $lines[] = '';
 $lines[] = "echo '==> [8/8] Starting VM...'";
 $lines[] = 'qm start $VMID';
 $lines[] = 'rm -f "$IMG"';
-// Keep cloud-init vendor snippet for 60s so Proxmox can regenerate the drive if needed
-$lines[] = '(sleep 60 && rm -f ' . escapeshellarg($snippetDir . '/ci_vendor_' . $vmid . '.yaml') . ') &';
+// NOTE: Do NOT delete the vendor snippet — Proxmox needs it for every VM start/reboot.
+// It will be cleaned up when the VM is destroyed.
 
 $lines[] = "echo ''";
 $lines[] = 'echo "==> Done! VM $VMID (' . addslashes($name) . ') is starting."';

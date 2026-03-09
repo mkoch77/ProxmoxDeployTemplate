@@ -51,6 +51,21 @@ try {
     $type = $body['type'];
     $vmid = (int) $body['vmid'];
 
+    // Check that the VM's own vCPU count doesn't exceed the node's physical cores
+    // (overprovisioning across multiple VMs is allowed)
+    if ($body['action'] === 'start') {
+        $resources = $api->getClusterResources('vm');
+        foreach ($resources['data'] ?? [] as $r) {
+            if (($r['vmid'] ?? 0) == $vmid) {
+                $vmCores = (int)($r['maxcpu'] ?? 0);
+                if ($vmCores > 0) {
+                    Helpers::checkNodeCpuCapacity($api, $node, $vmCores);
+                }
+                break;
+            }
+        }
+    }
+
     $result = match ($body['action']) {
         'start'    => $api->startGuest($node, $type, $vmid),
         'stop'     => $api->stopGuest($node, $type, $vmid),

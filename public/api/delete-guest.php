@@ -30,11 +30,33 @@ if (!Helpers::validateVmid($body['vmid'])) {
 
 try {
     $api = Helpers::createAPI();
-    $result = $api->deleteGuest($body['node'], $body['type'], (int) $body['vmid']);
+    $vmid = (int) $body['vmid'];
+    $result = $api->deleteGuest($body['node'], $body['type'], $vmid);
+
+    // Clean up cloud-init vendor snippet on the node (if it exists)
+    try {
+        $node = $body['node'];
+        $envKey = 'SSH_HOST_' . strtoupper(str_replace('-', '_', $node));
+        $sshHost = \App\Config::get($envKey, '');
+        if (!$sshHost) {
+            $sshHost = $node;
+            $status = $api->getClusterStatus();
+            foreach ($status['data'] ?? [] as $entry) {
+                if (($entry['type'] ?? '') === 'node' && strtolower($entry['name'] ?? '') === strtolower($node) && !empty($entry['ip'])) {
+                    $sshHost = $entry['ip'];
+                    break;
+                }
+            }
+        }
+        $snippetFile = '/var/lib/vz/snippets/ci_vendor_' . $vmid . '.yaml';
+        \App\SSH::exec($sshHost, 'rm -f ' . escapeshellarg($snippetFile));
+    } catch (\Exception $e) {
+        // Non-critical — snippet may not exist or node unreachable
+    }
 
     // Clean up monitoring metrics for deleted VM
     $db = Database::connection();
-    $db->prepare('DELETE FROM vm_metrics WHERE vmid = ?')->execute([(int) $body['vmid']]);
+    $db->prepare('DELETE FROM vm_metrics WHERE vmid = ?')->execute([$vmid]);
 
     AppLogger::warning('delete', "Deleted VM {$body['vmid']} on {$body['node']}", ['type' => $body['type']], Auth::check()['id'] ?? null);
     Response::success(['upid' => $result['data'] ?? null]);

@@ -14,18 +14,26 @@ class Migrator
             applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )');
 
-        $applied = $db->query('SELECT version FROM migrations')
-            ->fetchAll(PDO::FETCH_COLUMN);
+        // Advisory lock prevents concurrent migration runs
+        // (entrypoint seed-admin.php + first web request can race)
+        $db->exec('SELECT pg_advisory_lock(1)');
 
-        $migrations = self::getMigrations();
-        foreach ($migrations as $version => $sql) {
-            if (!in_array($version, $applied, true)) {
-                foreach (self::splitStatements($sql) as $statement) {
-                    $db->exec($statement);
+        try {
+            $applied = $db->query('SELECT version FROM migrations')
+                ->fetchAll(PDO::FETCH_COLUMN);
+
+            $migrations = self::getMigrations();
+            foreach ($migrations as $version => $sql) {
+                if (!in_array($version, $applied, true)) {
+                    foreach (self::splitStatements($sql) as $statement) {
+                        $db->exec($statement);
+                    }
+                    $stmt = $db->prepare('INSERT INTO migrations (version) VALUES (?)');
+                    $stmt->execute([$version]);
                 }
-                $stmt = $db->prepare('INSERT INTO migrations (version) VALUES (?)');
-                $stmt->execute([$version]);
             }
+        } finally {
+            $db->exec('SELECT pg_advisory_unlock(1)');
         }
     }
 

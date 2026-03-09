@@ -705,7 +705,7 @@ const Health = {
         if (rec.cpu_cores) changes.push(`CPU: ${rec.cpu_cores} cores`);
         if (rec.mem_bytes) changes.push(`Memory: ${Utils.formatBytes(rec.mem_bytes)}`);
 
-        if (!confirm(`Apply right-sizing to VM ${vmid} and restart?\n\n${changes.join('\n')}\n\nThe VM will be rebooted immediately.`)) return;
+        if (!confirm(`Apply right-sizing to VM ${vmid}?\n\n${changes.join('\n')}\n\nIf the VM is running, it will be rebooted.`)) return;
 
         const origHtml = btn.innerHTML;
         btn.disabled = true;
@@ -722,10 +722,14 @@ const Health = {
             const actualNode = result.node || node;
             const actualType = result.vm_type || vmType;
 
-            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Restarting…';
-            await API.post('api/power.php', { node: actualNode, type: actualType, vmid, action: 'reboot' });
-
-            Toast.success(`VM ${vmid} updated and restarting`);
+            // Only reboot if VM is running
+            if (result.restart_required) {
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Restarting…';
+                await API.post('api/power.php', { node: actualNode, type: actualType, vmid, action: 'reboot' });
+                Toast.success(`VM ${vmid} updated and restarting`);
+            } else {
+                Toast.success(`VM ${vmid} updated — changes apply on next start`);
+            }
             const row = btn.closest('tr');
             if (row) row.remove();
             const tbody = document.querySelector('#health-rightsizing tbody');

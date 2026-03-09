@@ -62,16 +62,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Resolve the current node for this VM (it may have been migrated)
         $resources = $api->getClusterResources();
         $actualNode = null;
+        $vmStatus = 'unknown';
         foreach ($resources['data'] ?? [] as $res) {
             if (($res['vmid'] ?? 0) == $vmid && in_array($res['type'] ?? '', ['qemu', 'lxc'], true)) {
                 $actualNode = $res['node'];
                 $vmType = $res['type'];
+                $vmStatus = $res['status'] ?? 'unknown';
                 break;
             }
         }
 
         if (!$actualNode) {
             Response::error("VM {$vmid} not found in cluster — it may have been deleted or migrated", 404);
+        }
+
+        // Check vCPU capacity if cores are being increased
+        if (isset($config['cores'])) {
+            Helpers::checkNodeCpuCapacity($api, $actualNode, $config['cores']);
         }
 
         $api->setGuestConfig($actualNode, $vmType, $vmid, $config);
@@ -85,13 +92,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'vmid' => $vmid, 'node' => $actualNode, 'changes' => $changes,
         ], $user['id']);
 
+        $isRunning = $vmStatus === 'running';
         Response::success([
             'applied' => true,
             'changes' => $changes,
             'node' => $actualNode,
             'vm_type' => $vmType,
-            'restart_required' => true,
-            'message' => "Configuration updated. Restart VM {$vmid} to apply changes.",
+            'vm_status' => $vmStatus,
+            'restart_required' => $isRunning,
+            'message' => $isRunning
+                ? "Configuration updated. Restart VM {$vmid} to apply changes."
+                : "Configuration updated for VM {$vmid}. Changes take effect on next start.",
         ]);
     } catch (\Exception $e) {
         AppLogger::error('monitoring', "Right-sizing failed for VM {$vmid}", [

@@ -256,7 +256,7 @@ const App = {
                             if (typeof Health !== 'undefined') Health._dismissedVmids.clear();
                         }
                         this._lastRightsizingKey = key;
-                        infos.push({ level: 'info', msg, cat: 'rightsizing', link: '#monitoring' });
+                        infos.push({ level: 'info', msg, cat: 'rightsizing', link: '#health' });
                     } else {
                         this._lastRightsizingKey = null;
                     }

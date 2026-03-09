@@ -47,6 +47,9 @@ $cores = max(1, min(128, (int)($body['cores'] ?? 2)));
 $memory = max(2048, min(131072, (int)($body['memory'] ?? 4096)));
 $diskSize = max(30, min(10000, (int)($body['disk_size'] ?? 64)));
 
+// Check vCPU capacity on target node
+Helpers::checkNodeCpuCapacity(Helpers::createAPI(), $nodeName, $cores);
+
 $isoStorage = 'local';
 $isoFile = $image['iso_filename'];
 $tags = preg_replace('/[^a-z0-9\-_;]/', '', strtolower($body['tags'] ?? ''));

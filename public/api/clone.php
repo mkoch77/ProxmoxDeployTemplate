@@ -49,6 +49,12 @@ if (!empty($body['pool']) && !preg_match('/^[a-zA-Z0-9_\-]+$/', $body['pool'])) 
 try {
     $api = Helpers::createAPI();
 
+    // Check vCPU capacity on target node
+    if (!empty($body['cores'])) {
+        $targetNode = $body['target_node'] ?? $body['node'];
+        Helpers::checkNodeCpuCapacity($api, $targetNode, (int)$body['cores']);
+    }
+
     // Step 1: Clone
     $cloneParams = [
         'newid' => (int) $body['newid'],

@@ -34,6 +34,27 @@ class Helpers
         return in_array($action, ['start', 'stop', 'shutdown', 'reboot', 'reset'], true);
     }
 
+    /**
+     * Check if a node has enough physical CPU cores for the requested vCPU count.
+     * Throws if requested cores exceed the node's maxcpu.
+     */
+    public static function checkNodeCpuCapacity(ProxmoxAPI $api, string $node, int $requestedCores): void
+    {
+        $nodesResult = $api->getNodes();
+        foreach ($nodesResult['data'] ?? [] as $n) {
+            if ($n['node'] === $node) {
+                $maxCpu = (int)($n['maxcpu'] ?? 0);
+                if ($maxCpu > 0 && $requestedCores > $maxCpu) {
+                    Response::error(
+                        "Requested {$requestedCores} vCPUs exceeds node '{$node}' capacity of {$maxCpu} physical cores",
+                        400
+                    );
+                }
+                return;
+            }
+        }
+    }
+
     public static function createAPI(): ProxmoxAPI
     {
         $primary = Config::get('PROXMOX_HOST');
