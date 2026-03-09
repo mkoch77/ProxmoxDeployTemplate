@@ -22,6 +22,9 @@ class RightSizing
         // Get current VM configs from the cluster (cores, memory) to filter stale suggestions
         $liveConfigs = self::getLiveVmConfigs();
 
+        // Get physical core limits per node (to suppress impossible recommendations)
+        $nodeMaxCpus = self::getNodeMaxCpus();
+
         // Get VMs with recent right-sizing applies (cooldown period)
         $recentApplies = self::getRecentApplies();
 
@@ -66,6 +69,28 @@ class RightSizing
 
             $recommendation = self::analyzeVm($vm);
             if ($recommendation) {
+                // Skip CPU recommendation if it exceeds node's physical core count
+                $recCores = $recommendation['recommended']['cpu_cores'] ?? null;
+                if ($recCores !== null) {
+                    $vmNode = $liveConfigs[$vmid]['node'] ?? ($recommendation['node'] ?? '');
+                    $maxCpu = $nodeMaxCpus[$vmNode] ?? 0;
+                    if ($maxCpu > 0 && $recCores > $maxCpu) {
+                        $currentCores = $recommendation['current']['cpu_cores'] ?? 0;
+                        if ($currentCores >= $maxCpu) {
+                            // Already at max — remove CPU suggestion entirely
+                            unset($recommendation['recommended']['cpu_cores']);
+                            $recommendation['issues'] = array_values(array_filter($recommendation['issues'], fn($i) => !str_contains($i, 'CPU')));
+                            $recommendation['suggestions'] = array_values(array_filter($recommendation['suggestions'], fn($s) => !str_contains($s, 'CPU cores')));
+                            if (empty($recommendation['issues'])) continue;
+                        } else {
+                            // Cap at node max
+                            $recommendation['recommended']['cpu_cores'] = $maxCpu;
+                            $recommendation['suggestions'] = array_map(fn($s) => str_contains($s, 'CPU cores')
+                                ? sprintf('Increase CPU cores from %d to %d (node max)', $currentCores, $maxCpu)
+                                : $s, $recommendation['suggestions']);
+                        }
+                    }
+                }
                 $results[] = $recommendation;
             }
         }
@@ -218,12 +243,31 @@ class RightSizing
                     $configs[(int)$r['vmid']] = [
                         'cores' => (int)($r['maxcpu'] ?? 0),
                         'mem_bytes' => (int)($r['maxmem'] ?? 0),
+                        'node' => $r['node'] ?? '',
                     ];
                 }
             }
             return $configs;
         } catch (\Exception $e) {
             return null;
+        }
+    }
+
+    /**
+     * Get physical core count per node.
+     */
+    private static function getNodeMaxCpus(): array
+    {
+        try {
+            $api = Helpers::createAPI();
+            $nodes = $api->getNodes();
+            $map = [];
+            foreach ($nodes['data'] ?? [] as $n) {
+                $map[$n['node']] = (int)($n['maxcpu'] ?? 0);
+            }
+            return $map;
+        } catch (\Exception $e) {
+            return [];
         }
     }
 
