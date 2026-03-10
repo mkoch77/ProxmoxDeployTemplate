@@ -58,6 +58,12 @@ try {
         Response::error('Target node is in maintenance mode', 400);
     }
 
+    // Check affinity/anti-affinity rules
+    $affinityError = \App\AffinityHelper::validateMigration($api, (int)$body['vmid'], $target);
+    if ($affinityError) {
+        Response::error($affinityError, 400);
+    }
+
     $online = !empty($body['online']);
     $result = $api->migrateGuest(
         $body['node'],

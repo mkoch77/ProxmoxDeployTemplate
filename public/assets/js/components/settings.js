@@ -41,6 +41,11 @@ const Settings = {
                         <i class="bi bi-shuffle me-1"></i>Loadbalancing
                     </button>
                 </li>
+                ${Permissions.has('cluster.affinity') ? `<li class="nav-item" role="presentation">
+                    <button class="nav-link" data-tab="affinity" onclick="Settings.switchTab('affinity')">
+                        <i class="bi bi-diagram-2 me-1"></i>Affinity Rules
+                    </button>
+                </li>` : ''}
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" data-tab="tasks" onclick="Settings.switchTab('tasks')">
                         <i class="bi bi-terminal-fill me-1"></i>Tasks
@@ -78,6 +83,9 @@ const Settings = {
         } else if (tab === 'logs') {
             this.renderLogsTab(container);
             this.loadLogs();
+        } else if (tab === 'affinity') {
+            this.renderAffinityTab(container);
+            this.loadAffinityData();
         } else if (tab === 'ssh') {
             this.renderSshTab(container);
             this.loadSshData();
@@ -541,6 +549,460 @@ const Settings = {
         } catch (err) {
             container.innerHTML = `<div class="alert alert-danger">Error: ${escapeHtml(err.message)}</div>`;
         }
+    },
+
+    // ── Affinity Rules Tab ────────────────────────────────────────────────
+
+    _affinityData: null,
+    _allVms: null,
+
+    renderAffinityTab(container) {
+        if (!container) return;
+        container.innerHTML = `
+            <div class="settings-section">
+                <h5 class="settings-section-title"><i class="bi bi-diagram-2 me-2"></i>Affinity &amp; Anti-Affinity Rules</h5>
+                <p class="text-muted small mb-4">
+                    Define hardware placement rules for VMs across datacenter zones.
+                    <strong>Anti-Affinity:</strong> VMs must run in <em>different</em> zones (HA separation).
+                    <strong>Affinity:</strong> VMs must run in the <em>same</em> zone (co-location).
+                </p>
+
+                <div id="affinity-violations"></div>
+
+                <h6 class="mt-4 mb-3"><i class="bi bi-geo-alt me-1"></i>Zone Groups</h6>
+                <p class="text-muted small">
+                    Zone groups let you define multiple independent groupings for nodes (e.g. "location", "rack", "network").
+                    Each rule uses one zone group for enforcement.
+                </p>
+                <div class="d-flex align-items-center gap-2 mb-3" id="affinity-zone-group-bar">
+                    <div class="btn-group btn-group-sm" id="affinity-zone-group-tabs"></div>
+                    <button class="btn btn-sm btn-outline-primary" onclick="Settings._addZoneGroup()">
+                        <i class="bi bi-plus-lg me-1"></i>New Group
+                    </button>
+                </div>
+                <div id="affinity-zones-list">
+                    <div class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></div>
+                </div>
+
+                <h6 class="mt-4 mb-3"><i class="bi bi-link-45deg me-1"></i>Rules</h6>
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <p class="text-muted small mb-0">Define which VMs must be separated or co-located.</p>
+                    <button class="btn btn-sm btn-primary" onclick="Settings._showRuleModal()">
+                        <i class="bi bi-plus-lg me-1"></i>Add Rule
+                    </button>
+                </div>
+                <div id="affinity-rules-list">
+                    <div class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></div>
+                </div>
+            </div>
+
+            <!-- Rule Modal -->
+            <div class="modal fade" id="affinityRuleModal" tabindex="-1">
+                <div class="modal-dialog">
+                    <div class="modal-content bg-dark text-light">
+                        <div class="modal-header border-secondary">
+                            <h5 class="modal-title" id="affinityRuleModalTitle">Add Rule</h5>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body" id="affinityRuleModalBody"></div>
+                        <div class="modal-footer border-secondary">
+                            <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button class="btn btn-primary" onclick="Settings._saveRule()">Save Rule</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    async loadAffinityData() {
+        try {
+            const [overview, nodesRes] = await Promise.all([
+                API.get('api/affinity.php', { action: 'overview' }),
+                API.get('api/nodes.php'),
+            ]);
+            this._affinityData = overview;
+            this._affinityNodes = nodesRes || [];
+
+            // Ensure zone_groups always has 'default'
+            const groups = overview?.zone_groups || [];
+            if (!groups.includes('default')) groups.unshift('default');
+            this._affinityData.zone_groups = groups;
+
+            // Set active group if not yet set
+            if (!this._activeZoneGroup || !groups.includes(this._activeZoneGroup)) {
+                this._activeZoneGroup = 'default';
+            }
+
+            // Load all VMs for rule creation
+            try {
+                const res = await API.getSilent('api/guests.php');
+                this._allVms = res || [];
+            } catch (_) { this._allVms = []; }
+
+            this._renderZoneGroupTabs();
+            this._renderZones(this._affinityNodes);
+            this._renderRules();
+            this._renderViolations();
+        } catch (e) {
+            const el = document.getElementById('affinity-zones-list');
+            if (el) el.innerHTML = `<div class="alert alert-danger">Error: ${Utils.escapeHtml(e.message)}</div>`;
+        }
+    },
+
+    _renderViolations() {
+        const el = document.getElementById('affinity-violations');
+        if (!el) return;
+        const violations = this._affinityData?.violations || [];
+        if (violations.length === 0) {
+            el.innerHTML = '';
+            return;
+        }
+        el.innerHTML = `
+            <div class="alert alert-warning" style="border-radius:var(--radius-md)">
+                <div class="d-flex justify-content-between align-items-start">
+                    <h6 class="alert-heading mb-0"><i class="bi bi-exclamation-triangle-fill me-1"></i>Active Violations</h6>
+                    ${Permissions.has('cluster.affinity') ? `<button class="btn btn-sm btn-warning" id="btn-resolve-violations" onclick="Settings._resolveViolations()">
+                        <i class="bi bi-wrench me-1"></i>Auto-Fix
+                    </button>` : ''}
+                </div>
+                ${violations.map(v => `
+                    <div class="small mb-1 mt-2">
+                        <span class="badge ${v.type === 'anti-affinity' ? 'bg-danger' : 'bg-warning text-dark'} me-1">${Utils.escapeHtml(v.type)}</span>
+                        <span class="badge bg-secondary me-1">${Utils.escapeHtml(v.zone_group || 'default')}</span>
+                        <strong>${Utils.escapeHtml(v.rule)}:</strong> ${Utils.escapeHtml(v.message)}
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    },
+
+    async _resolveViolations() {
+        const btn = document.getElementById('btn-resolve-violations');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Fixing...'; }
+        try {
+            const res = await API.post('api/affinity.php?action=resolve', {});
+            const migrations = res?.migrations || [];
+            if (migrations.length === 0) {
+                Toast.success('No violations found');
+            } else {
+                const ok = migrations.filter(m => m.status === 'running').length;
+                const fail = migrations.filter(m => m.status === 'error').length;
+                const details = migrations.map(m =>
+                    `${m.vm_name} (${m.vmid}): ${m.source} → ${m.target} — ${m.status === 'error' ? m.error : 'migrating'}`
+                ).join('\n');
+                if (fail > 0) {
+                    Toast.warning(`${ok} migrations started, ${fail} failed`);
+                } else {
+                    Toast.success(`${ok} migration${ok !== 1 ? 's' : ''} started`);
+                }
+                console.log('Affinity resolve results:', details);
+            }
+            // Reload after a short delay to show updated state
+            setTimeout(() => this.loadAffinityData(), 3000);
+        } catch (e) {
+            Toast.error(e.message || 'Failed to resolve violations');
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-wrench me-1"></i>Auto-Fix'; }
+        }
+    },
+
+    _renderZoneGroupTabs() {
+        const el = document.getElementById('affinity-zone-group-tabs');
+        if (!el) return;
+        const groups = this._affinityData?.zone_groups || ['default'];
+        el.innerHTML = groups.map(g => `
+            <button class="btn btn-sm ${g === this._activeZoneGroup ? 'btn-primary' : 'btn-outline-secondary'}"
+                onclick="Settings._switchZoneGroup('${Utils.escapeHtml(g)}')">${Utils.escapeHtml(g)}</button>
+        `).join('');
+    },
+
+    _switchZoneGroup(group) {
+        this._activeZoneGroup = group;
+        this._renderZoneGroupTabs();
+        this._renderZones(this._affinityNodes || []);
+    },
+
+    _addZoneGroup() {
+        const name = prompt('Zone group name (e.g. "location", "rack", "network"):');
+        if (!name || !name.trim()) return;
+        const clean = name.trim().toLowerCase().replace(/[^a-z0-9\-_]/g, '');
+        if (!clean) { Toast.error('Invalid name — use alphanumeric, dashes, underscores'); return; }
+        const groups = this._affinityData?.zone_groups || ['default'];
+        if (groups.includes(clean)) {
+            this._activeZoneGroup = clean;
+            this._renderZoneGroupTabs();
+            this._renderZones(this._affinityNodes || []);
+            return;
+        }
+        groups.push(clean);
+        this._affinityData.zone_groups = groups;
+        if (!this._affinityData.zones) this._affinityData.zones = {};
+        if (!this._affinityData.zones[clean]) this._affinityData.zones[clean] = {};
+        this._activeZoneGroup = clean;
+        this._renderZoneGroupTabs();
+        this._renderZones(this._affinityNodes || []);
+    },
+
+    _renderZones(nodes) {
+        const el = document.getElementById('affinity-zones-list');
+        if (!el) return;
+        const group = this._activeZoneGroup || 'default';
+        const allZones = this._affinityData?.zones || {};
+        const zones = allZones[group] || {};
+
+        // Collect all zone names across all groups for suggestions
+        const allZoneNames = new Set();
+        for (const g of Object.values(allZones)) {
+            for (const z of Object.values(g)) allZoneNames.add(z);
+        }
+        const existingZones = [...allZoneNames].sort();
+
+        let html = `<datalist id="zone-suggestions">
+            ${existingZones.map(z => `<option value="${Utils.escapeHtml(z)}">`).join('')}
+        </datalist>`;
+        html += `<div class="guest-table"><table class="table table-dark table-hover mb-0">
+            <thead><tr><th>Node</th><th>Status</th><th>Zone <span class="text-muted small">(${Utils.escapeHtml(group)})</span></th><th style="text-align:right">Action</th></tr></thead>
+            <tbody>`;
+
+        for (const n of nodes) {
+            const name = n.node || n.name || '';
+            const currentZone = zones[name] || '';
+            const statusColor = n.status === 'online' ? 'var(--accent-green)' : 'var(--accent-red)';
+            html += `<tr>
+                <td><strong>${Utils.escapeHtml(name)}</strong></td>
+                <td><span style="color:${statusColor}"><i class="bi bi-circle-fill" style="font-size:0.5rem;vertical-align:middle"></i> ${Utils.escapeHtml(n.status || 'unknown')}</span></td>
+                <td>
+                    <input type="text" class="form-control form-control-sm" style="max-width:200px;display:inline-block"
+                        id="zone-input-${Utils.escapeHtml(name)}" value="${Utils.escapeHtml(currentZone)}"
+                        placeholder="e.g. dc1" list="zone-suggestions">
+                </td>
+                <td style="text-align:right">
+                    <button class="btn btn-sm btn-outline-primary" onclick="Settings._saveZone('${Utils.escapeHtml(name)}')">
+                        <i class="bi bi-check-lg"></i>
+                    </button>
+                    ${currentZone ? `<button class="btn btn-sm btn-outline-danger ms-1" onclick="Settings._removeZone('${Utils.escapeHtml(name)}')">
+                        <i class="bi bi-x-lg"></i>
+                    </button>` : ''}
+                </td>
+            </tr>`;
+        }
+        html += '</tbody></table></div>';
+
+        // Show delete group button for non-default groups
+        if (group !== 'default') {
+            html += `<div class="mt-2">
+                <button class="btn btn-sm btn-outline-danger" onclick="Settings._deleteZoneGroup('${Utils.escapeHtml(group)}')">
+                    <i class="bi bi-trash me-1"></i>Delete Group "${Utils.escapeHtml(group)}"
+                </button>
+            </div>`;
+        }
+
+        el.innerHTML = html;
+    },
+
+    async _saveZone(nodeName) {
+        const input = document.getElementById(`zone-input-${nodeName}`);
+        const zone = input?.value?.trim();
+        if (!zone) { Toast.error('Zone name required'); return; }
+        const group = this._activeZoneGroup || 'default';
+        const btn = input?.closest('tr')?.querySelector('.btn-outline-primary');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+        try {
+            await API.post('api/affinity.php?action=zone', { node: nodeName, zone, zone_group: group });
+            Toast.success(`Node ${nodeName} → Zone ${zone} (${group})`);
+            // Update local state
+            if (!this._affinityData) this._affinityData = { zones: {}, rules: [], violations: [] };
+            if (!this._affinityData.zones[group]) this._affinityData.zones[group] = {};
+            this._affinityData.zones[group][nodeName] = zone;
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check-lg"></i>'; }
+            const td = btn?.closest('td');
+            if (td && !td.querySelector('.btn-outline-danger')) {
+                const rmBtn = document.createElement('button');
+                rmBtn.className = 'btn btn-sm btn-outline-danger ms-1';
+                rmBtn.innerHTML = '<i class="bi bi-x-lg"></i>';
+                rmBtn.onclick = () => Settings._removeZone(nodeName);
+                td.appendChild(rmBtn);
+            }
+        } catch (e) {
+            Toast.error(e.message);
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-check-lg"></i>'; }
+        }
+    },
+
+    async _removeZone(nodeName) {
+        const group = this._activeZoneGroup || 'default';
+        try {
+            await API.post('api/affinity.php?action=zone-remove', { node: nodeName, zone_group: group });
+            Toast.success(`Zone removed from ${nodeName}`);
+            if (this._affinityData?.zones?.[group]) delete this._affinityData.zones[group][nodeName];
+            const input = document.getElementById(`zone-input-${nodeName}`);
+            if (input) input.value = '';
+            const rmBtn = input?.closest('tr')?.querySelector('.btn-outline-danger');
+            if (rmBtn) rmBtn.remove();
+        } catch (e) { Toast.error(e.message); }
+    },
+
+    async _deleteZoneGroup(group) {
+        if (!confirm(`Delete zone group "${group}" and all its node assignments?`)) return;
+        try {
+            await API.post('api/affinity.php?action=zone-group-delete', { zone_group: group });
+            Toast.success(`Zone group "${group}" deleted`);
+            this._activeZoneGroup = 'default';
+            await this.loadAffinityData();
+        } catch (e) { Toast.error(e.message); }
+    },
+
+    _renderRules() {
+        const el = document.getElementById('affinity-rules-list');
+        if (!el) return;
+        const rules = this._affinityData?.rules || [];
+
+        if (rules.length === 0) {
+            el.innerHTML = `<div class="text-center p-4" style="color:var(--text-muted)">
+                <i class="bi bi-diagram-2" style="font-size:2rem;opacity:0.3"></i>
+                <p class="mt-2 mb-0">No affinity rules defined</p>
+            </div>`;
+            return;
+        }
+
+        let html = `<div class="guest-table"><table class="table table-dark table-hover mb-0">
+            <thead><tr><th>Rule</th><th>Type</th><th>Zone Group</th><th>VMs</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead>
+            <tbody>`;
+
+        const allZones = this._affinityData?.zones || {};
+        const violations = this._affinityData?.violations || [];
+
+        for (const rule of rules) {
+            const typeBadge = rule.type === 'anti-affinity'
+                ? '<span class="badge bg-danger">Anti-Affinity</span>'
+                : '<span class="badge bg-info text-dark">Affinity</span>';
+
+            const ruleZoneGroup = rule.zone_group || 'default';
+            const zones = allZones[ruleZoneGroup] || {};
+
+            const vmHtml = (rule.vm_details || []).map(vm => {
+                const zone = vm.zone || zones[vm.node] || '—';
+                return `<span class="badge bg-secondary me-1 mb-1" title="Node: ${Utils.escapeHtml(vm.node || '?')}, Zone: ${Utils.escapeHtml(zone)}">${vm.vmid} (${Utils.escapeHtml(vm.name || '?')})</span>`;
+            }).join('');
+
+            const hasViolation = violations.some(v => v.rule === rule.name);
+            const statusHtml = hasViolation
+                ? '<span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle-fill"></i> Violated</span>'
+                : '<span class="badge bg-success"><i class="bi bi-check-circle-fill"></i> OK</span>';
+
+            html += `<tr>
+                <td><strong>${Utils.escapeHtml(rule.name)}</strong></td>
+                <td>${typeBadge}</td>
+                <td><span class="badge bg-secondary">${Utils.escapeHtml(ruleZoneGroup)}</span></td>
+                <td>${vmHtml}</td>
+                <td>${statusHtml}</td>
+                <td style="text-align:right">
+                    <button class="btn btn-sm btn-outline-light" onclick="Settings._showRuleModal(${rule.id})">
+                        <i class="bi bi-pencil"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger ms-1" onclick="Settings._deleteRule(${rule.id})">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </td>
+            </tr>`;
+        }
+        html += '</tbody></table></div>';
+        el.innerHTML = html;
+    },
+
+    _showRuleModal(editId) {
+        const rules = this._affinityData?.rules || [];
+        const rule = editId ? rules.find(r => r.id === editId) : null;
+        const title = document.getElementById('affinityRuleModalTitle');
+        const body = document.getElementById('affinityRuleModalBody');
+
+        title.textContent = rule ? 'Edit Rule' : 'Add Rule';
+
+        const vms = this._allVms || [];
+        const selectedVmids = rule ? (rule.vmids || []) : [];
+        const groups = this._affinityData?.zone_groups || ['default'];
+        const selectedGroup = rule?.zone_group || 'default';
+
+        body.innerHTML = `
+            <input type="hidden" id="affinity-rule-id" value="${rule?.id || 0}">
+            <div class="mb-3">
+                <label class="form-label">Rule Name</label>
+                <input type="text" class="form-control" id="affinity-rule-name" value="${Utils.escapeHtml(rule?.name || '')}" placeholder="e.g. Web Cluster HA">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Type</label>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm ${(!rule || rule.type === 'anti-affinity') ? 'btn-danger' : 'btn-outline-danger'} affinity-type-btn" data-type="anti-affinity" onclick="Settings._selectRuleType(this)">
+                        <i class="bi bi-arrows-expand me-1"></i>Anti-Affinity (separate)
+                    </button>
+                    <button class="btn btn-sm ${rule?.type === 'affinity' ? 'btn-info' : 'btn-outline-info'} affinity-type-btn" data-type="affinity" onclick="Settings._selectRuleType(this)">
+                        <i class="bi bi-arrows-collapse me-1"></i>Affinity (co-locate)
+                    </button>
+                </div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Zone Group</label>
+                <select class="form-select" id="affinity-rule-zone-group">
+                    ${groups.map(g => `<option value="${Utils.escapeHtml(g)}" ${g === selectedGroup ? 'selected' : ''}>${Utils.escapeHtml(g)}</option>`).join('')}
+                </select>
+                <div class="form-text">Which zone grouping this rule applies to.</div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">VMs (select at least 2)</label>
+                <div style="max-height:250px;overflow-y:auto;border:1px solid var(--border-color);border-radius:var(--radius-sm);padding:0.5rem">
+                    ${vms.length > 0 ? vms.map(vm => `
+                        <div class="form-check">
+                            <input class="form-check-input affinity-vm-check" type="checkbox" value="${vm.vmid}" id="aff-vm-${vm.vmid}"
+                                ${selectedVmids.includes(vm.vmid) ? 'checked' : ''}>
+                            <label class="form-check-label small" for="aff-vm-${vm.vmid}">
+                                <strong>${vm.vmid}</strong> — ${Utils.escapeHtml(vm.name || '?')}
+                                <span class="text-muted">(${Utils.escapeHtml(vm.node || '?')})</span>
+                            </label>
+                        </div>
+                    `).join('') : '<p class="text-muted small mb-0">No VMs found</p>'}
+                </div>
+            </div>
+        `;
+
+        new bootstrap.Modal(document.getElementById('affinityRuleModal')).show();
+    },
+
+    _selectRuleType(btn) {
+        document.querySelectorAll('.affinity-type-btn').forEach(b => {
+            b.classList.remove('btn-danger', 'btn-info');
+            b.classList.add(b.dataset.type === 'anti-affinity' ? 'btn-outline-danger' : 'btn-outline-info');
+        });
+        btn.classList.remove('btn-outline-danger', 'btn-outline-info');
+        btn.classList.add(btn.dataset.type === 'anti-affinity' ? 'btn-danger' : 'btn-info');
+    },
+
+    async _saveRule() {
+        const id = parseInt(document.getElementById('affinity-rule-id')?.value || '0');
+        const name = document.getElementById('affinity-rule-name')?.value?.trim();
+        const activeTypeBtn = document.querySelector('.affinity-type-btn.btn-danger, .affinity-type-btn.btn-info:not(.btn-outline-info)');
+        const type = activeTypeBtn?.dataset?.type || 'anti-affinity';
+        const vmids = [...document.querySelectorAll('.affinity-vm-check:checked')].map(c => parseInt(c.value));
+        const zone_group = document.getElementById('affinity-rule-zone-group')?.value || 'default';
+
+        if (!name) { Toast.error('Rule name required'); return; }
+        if (vmids.length < 2) { Toast.error('Select at least 2 VMs'); return; }
+
+        try {
+            await API.post('api/affinity.php?action=rule', { id, name, type, vmids, zone_group });
+            Toast.success(id ? 'Rule updated' : 'Rule created');
+            bootstrap.Modal.getInstance(document.getElementById('affinityRuleModal'))?.hide();
+            await this.loadAffinityData();
+        } catch (e) { Toast.error(e.message); }
+    },
+
+    async _deleteRule(id) {
+        if (!confirm('Delete this affinity rule?')) return;
+        try {
+            await API.post('api/affinity.php?action=rule-delete', { id });
+            Toast.success('Rule deleted');
+            await this.loadAffinityData();
+        } catch (e) { Toast.error(e.message); }
     },
 
     // ── SSH Keys Tab ─────────────────────────────────────────────────────

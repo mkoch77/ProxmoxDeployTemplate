@@ -15,6 +15,7 @@ class Bootstrap
 
         // Prevent PHP warnings/notices from corrupting JSON API responses
         if (php_sapi_name() !== 'cli') {
+            ob_start(); // Capture any stray output — Response::json() will discard it
             ini_set('display_errors', '0');
             error_reporting(E_ALL);
             ini_set('log_errors', '1');

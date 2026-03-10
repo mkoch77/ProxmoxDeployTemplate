@@ -71,6 +71,8 @@ class Migrator
            21 => self::migration021(),
            22 => self::migration022(),
            23 => self::migration023(),
+           24 => self::migration024(),
+           25 => self::migration025(),
         ];
     }
 
@@ -588,6 +590,53 @@ class Migrator
             SELECT r.id, p.id FROM roles r, permissions p
             WHERE r.name = 'operator' AND p.key = 'vm.snapshot'
             AND NOT EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role_id = r.id AND rp.permission_id = p.id);
+        ";
+    }
+
+    private static function migration024(): string
+    {
+        return "
+            CREATE TABLE IF NOT EXISTS affinity_node_zones (
+                node_name VARCHAR(128) PRIMARY KEY,
+                zone_name VARCHAR(128) NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS affinity_rules (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(128) NOT NULL,
+                type VARCHAR(16) NOT NULL CHECK (type IN ('affinity', 'anti-affinity')),
+                vmids JSONB NOT NULL DEFAULT '[]',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            INSERT INTO permissions (key, description)
+            VALUES ('cluster.affinity', 'Manage affinity and anti-affinity rules')
+            ON CONFLICT (key) DO NOTHING;
+
+            INSERT INTO role_permissions (role_id, permission_id)
+            SELECT r.id, p.id FROM roles r, permissions p
+            WHERE r.name = 'admin' AND p.key = 'cluster.affinity'
+            AND NOT EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role_id = r.id AND rp.permission_id = p.id);
+
+            INSERT INTO role_permissions (role_id, permission_id)
+            SELECT r.id, p.id FROM roles r, permissions p
+            WHERE r.name = 'operator' AND p.key = 'cluster.affinity'
+            AND NOT EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role_id = r.id AND rp.permission_id = p.id);
+        ";
+    }
+
+    private static function migration025(): string
+    {
+        return "
+            -- Convert affinity_node_zones from single-zone to multi-zone-group model
+            -- Drop old PK and add zone_group column
+            ALTER TABLE affinity_node_zones DROP CONSTRAINT IF EXISTS affinity_node_zones_pkey;
+            ALTER TABLE affinity_node_zones ADD COLUMN IF NOT EXISTS zone_group VARCHAR(128) NOT NULL DEFAULT 'default';
+            ALTER TABLE affinity_node_zones ADD PRIMARY KEY (node_name, zone_group);
+
+            -- Add zone_group to rules so each rule knows which grouping it applies to
+            ALTER TABLE affinity_rules ADD COLUMN IF NOT EXISTS zone_group VARCHAR(128) NOT NULL DEFAULT 'default';
         ";
     }
 

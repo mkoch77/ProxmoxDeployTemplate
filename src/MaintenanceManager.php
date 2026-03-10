@@ -6,7 +6,13 @@ use PDO;
 
 class MaintenanceManager
 {
-    public static function selectTargetNode(ProxmoxAPI $api, string $excludeNode): ?string
+    /**
+     * Select best target node for a VM migration.
+     * Considers: online status, maintenance mode, memory capacity, affinity rules.
+     *
+     * @param int|null $vmid If provided, affinity rules are checked for this VM
+     */
+    public static function selectTargetNode(ProxmoxAPI $api, string $excludeNode, ?int $vmid = null): ?string
     {
         $nodes = $api->getNodes()['data'] ?? [];
         $db = Database::connection();
@@ -27,6 +33,22 @@ class MaintenanceManager
         usort($candidates, fn($a, $b) =>
             (($b['maxmem'] ?? 0) - ($b['mem'] ?? 0)) <=> (($a['maxmem'] ?? 0) - ($a['mem'] ?? 0))
         );
+
+        // If VMID provided, filter by affinity rules
+        if ($vmid !== null) {
+            $zones = AffinityHelper::getNodeZones();
+            $rules = AffinityHelper::getRules();
+            if (!empty($zones) && !empty($rules)) {
+                $vmNodeMap = AffinityHelper::getVmNodeMap($api);
+                foreach ($candidates as $c) {
+                    if (AffinityHelper::isTargetAllowed($vmid, $c['node'], $zones, $rules, $vmNodeMap)) {
+                        return $c['node'];
+                    }
+                }
+                // No candidate satisfies affinity rules — fall back to best memory candidate
+                AppLogger::warning('maintenance', "No affinity-compatible target for VM {$vmid}, using best-memory fallback");
+            }
+        }
 
         return $candidates[0]['node'];
     }

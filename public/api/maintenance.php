@@ -72,12 +72,11 @@ switch ($method) {
 
             // Migrate each guest
             foreach ($guests as $guest) {
-                $target = MaintenanceManager::selectTargetNode($api, $nodeName);
+                $vmid = (int) $guest['vmid'];
+                $target = MaintenanceManager::selectTargetNode($api, $nodeName, $vmid);
                 if (!$target) {
                     Response::error('No target node available for migration', 400);
                 }
-
-                $vmid = (int) $guest['vmid'];
                 $type = $guest['type'];
 
                 try {

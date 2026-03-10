@@ -203,6 +203,16 @@ class Loadbalancer
         $cpuWeight = (int)($settings['cpu_weight'] ?? 50);
         $ramWeight = (int)($settings['ram_weight'] ?? 50);
 
+        // Load affinity data once for filtering
+        $affinityZones = AffinityHelper::getNodeZones();
+        $affinityRules = AffinityHelper::getRules();
+        $vmNodeMap = [];
+        foreach ($nodeMetrics as $m) {
+            foreach ($m['guests'] as $g) {
+                $vmNodeMap[(int)($g['vmid'] ?? 0)] = $m['node'];
+            }
+        }
+
         // Work with a mutable copy of metrics that gets updated after each recommendation
         $simMetrics = $nodeMetrics;
         $recommendations = [];
@@ -270,6 +280,20 @@ class Loadbalancer
                         // Track the best available free mem across targets
                         if ($tgtFreeMem > $skippedGuests[$guestKey]['best_target_free']) {
                             $skippedGuests[$guestKey]['best_target_free'] = $tgtFreeMem;
+                        }
+                        continue;
+                    }
+
+                    // Check affinity/anti-affinity rules
+                    if (!AffinityHelper::isTargetAllowed($guestKey, $tgtNode['node'], $affinityZones, $affinityRules, $vmNodeMap)) {
+                        if (!isset($skippedGuests[$guestKey])) {
+                            $skippedGuests[$guestKey] = [
+                                'vmid' => (int)($guest['vmid'] ?? 0),
+                                'vm_name' => $guest['name'] ?? "VM " . ($guest['vmid'] ?? 0),
+                                'vm_type' => $guest['type'] ?? 'qemu',
+                                'source_node' => $srcNode['node'],
+                                'reason' => 'affinity',
+                            ];
                         }
                         continue;
                     }
@@ -358,6 +382,9 @@ class Loadbalancer
             $tgt['score'] = self::calculateScore($tgt['cpu_pct'], $tgt['ram_pct'], $cpuWeight, $ramWeight);
             $tgt['guests'][] = $guest;
             unset($tgt);
+
+            // Update VM-to-node map for subsequent affinity checks
+            $vmNodeMap[$pickedVmid] = $simMetrics[$tgtIdx]['node'];
         }
 
         // Build skip reasons from remaining skipped guests
@@ -477,6 +504,16 @@ class Loadbalancer
             $stmt->execute(['error', 'Target node is in maintenance mode', $recommendationId]);
             $rec['status'] = 'error';
             $rec['error_message'] = 'Target node is in maintenance mode';
+            return $rec;
+        }
+
+        // Re-check affinity rules (state may have changed since recommendation was generated)
+        $affinityError = AffinityHelper::validateMigration($api, (int)$rec['vmid'], $rec['target_node']);
+        if ($affinityError) {
+            $stmt = $db->prepare('UPDATE drs_recommendations SET status = ?, error_message = ? WHERE id = ?');
+            $stmt->execute(['error', $affinityError, $recommendationId]);
+            $rec['status'] = 'error';
+            $rec['error_message'] = $affinityError;
             return $rec;
         }
 

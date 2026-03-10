@@ -415,6 +415,12 @@ const Dashboard = {
         // If the set of VMs and their statuses/nodes hasn't changed, update only
         // the frequently-changing cells in-place to avoid flickering.
         const tableKey = guests.map(g => `${g.vmid}:${g.node}:${g.status}`).join('|') + ':' + this.groupBy + ':' + this._page + ':' + this._perPage;
+
+        // Close any open migrate menus before re-rendering to prevent orphaned popups
+        if (tableKey !== this._lastTableKey) {
+            this._closeMigrateMenus();
+        }
+
         if (tableKey === this._lastTableKey && container.querySelector('tbody')) {
             for (const g of guests) {
                 const id = `${g.vmid}-${g.node}`;
@@ -698,15 +704,16 @@ const Dashboard = {
             const otherNodes = this.nodes.filter(n => n.node !== guest.node && n.status === 'online' && !this.maintenanceNodeNames?.has(n.node));
             if (running && otherNodes.length > 0) {
                 const dropId = `migrate-drop-${guest.vmid}`;
-                html += `<div class="btn-group me-1">
-                    <button class="btn btn-outline-light btn-action dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" title="Migrate to another node">
+                html += `<div class="btn-group me-1" style="position:relative">
+                    <button class="btn btn-outline-light btn-action" title="Migrate to another node"
+                        onclick="event.stopPropagation();Dashboard._toggleMigrateMenu(this, '${dropId}')">
                         <i class="bi bi-shuffle"></i>
                     </button>
-                    <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end" id="${dropId}">
+                    <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end" id="${dropId}" style="min-width:140px">
                         <li><span class="dropdown-item-text" style="font-size:0.75rem;color:var(--text-muted)">Migrate to...</span></li>
                         <li><hr class="dropdown-divider"></li>`;
                 for (const n of otherNodes) {
-                    html += `<li><a class="dropdown-item" href="#" onclick="event.preventDefault();Dashboard.migrateGuest('${guest.node}','${guest.type}',${guest.vmid},'${n.node}',true,'${Utils.escapeHtml(guest.name || '')}')">
+                    html += `<li><a class="dropdown-item" href="#" onclick="event.preventDefault();event.stopPropagation();Dashboard._closeMigrateMenus();Dashboard.migrateGuest('${guest.node}','${guest.type}',${guest.vmid},'${n.node}',true,'${Utils.escapeHtml(guest.name || '')}')">
                         <i class="bi bi-hdd-rack" style="opacity:0.5"></i> ${Utils.escapeHtml(n.node)}
                     </a></li>`;
                 }
@@ -1039,6 +1046,66 @@ const Dashboard = {
         }).catch(() => {
             const el = document.getElementById('vm-detail-config');
             if (el) el.innerHTML = '';
+        });
+    },
+
+    _toggleMigrateMenu(btn, menuId) {
+        const menu = document.getElementById(menuId);
+        if (!menu) return;
+        const isOpen = menu.classList.contains('show');
+        this._closeMigrateMenus();
+        if (!isOpen) {
+            // Move menu to body so it's never clipped by overflow containers
+            menu._originalParent = menu.parentElement;
+            document.body.appendChild(menu);
+            menu.style.position = 'fixed';
+            menu.classList.add('show');
+
+            const btnRect = btn.getBoundingClientRect();
+            const menuHeight = menu.offsetHeight;
+            const menuWidth = menu.offsetWidth;
+            const viewH = window.innerHeight;
+
+            // Horizontal: align right edge to button right edge
+            let left = btnRect.right - menuWidth;
+            if (left < 4) left = 4;
+            menu.style.left = left + 'px';
+
+            // Vertical: open downward, but flip up if not enough space below
+            if (btnRect.bottom + menuHeight + 4 > viewH) {
+                menu.style.top = (btnRect.top - menuHeight) + 'px';
+            } else {
+                menu.style.top = btnRect.bottom + 'px';
+            }
+
+            menu.style.zIndex = '1080';
+
+            const close = (e) => {
+                if (!menu.contains(e.target) && e.target !== btn && !btn.contains(e.target)) {
+                    this._closeMigrateMenus();
+                    document.removeEventListener('click', close, true);
+                    window.removeEventListener('scroll', close, true);
+                }
+            };
+            setTimeout(() => {
+                document.addEventListener('click', close, true);
+                window.addEventListener('scroll', close, true);
+            }, 0);
+        }
+    },
+
+    _closeMigrateMenus() {
+        document.querySelectorAll('body > .dropdown-menu.show').forEach(m => {
+            m.classList.remove('show');
+            m.style.position = '';
+            m.style.left = '';
+            m.style.top = '';
+            m.style.zIndex = '';
+            // Move back to original parent
+            if (m._originalParent) {
+                m._originalParent.appendChild(m);
+                m._originalParent = null;
+            }
         });
     },
 
