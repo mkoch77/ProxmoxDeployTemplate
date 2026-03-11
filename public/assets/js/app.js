@@ -445,6 +445,96 @@ const App = {
         }
     },
 
+    async generateSshKey() {
+        const btn = document.getElementById('btn-generate-sshkey');
+        const infoEl = document.getElementById('sshkey-gen-info');
+        const textarea = document.getElementById('profile-sshkeys');
+
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Generating...';
+        infoEl.classList.add('d-none');
+
+        try {
+            const result = await API.post('api/generate-ssh-key.php', {});
+
+            // Download private key as file
+            const blob = new Blob([result.private_key], { type: 'application/octet-stream' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'id_ed25519';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            // Update textarea with new public key
+            const existing = textarea.value.trim();
+            textarea.value = existing ? existing + '\n' + result.public_key : result.public_key;
+
+            // Update global state
+            window.APP_USER.ssh_public_keys = textarea.value;
+
+            // Show success info
+            infoEl.className = 'alert alert-success mt-2 small';
+            infoEl.innerHTML = `<i class="bi bi-check-circle me-1"></i><strong>Key generated!</strong> The private key (<code>id_ed25519</code>) has been downloaded. ` +
+                `Store it safely — it cannot be retrieved again.<br>` +
+                `<span class="text-muted">Usage: <code>ssh -i ~/Downloads/id_ed25519 &lt;user&gt;@&lt;vm-ip&gt;</code></span>`;
+            infoEl.classList.remove('d-none');
+
+            Toast.success('SSH key generated and saved');
+        } catch (e) {
+            infoEl.className = 'alert alert-danger mt-2 small';
+            infoEl.textContent = e.message || 'Failed to generate SSH key.';
+            infoEl.classList.remove('d-none');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-key me-1"></i>Generate Key';
+        }
+    },
+
+    async changePassword() {
+        const errEl = document.getElementById('profile-pw-error');
+        const okEl = document.getElementById('profile-pw-success');
+        errEl.classList.add('d-none');
+        okEl.classList.add('d-none');
+
+        const current = document.getElementById('profile-pw-current').value;
+        const newPw = document.getElementById('profile-pw-new').value;
+        const confirm = document.getElementById('profile-pw-confirm').value;
+
+        if (!current || !newPw || !confirm) {
+            errEl.textContent = 'All fields are required.';
+            errEl.classList.remove('d-none');
+            return;
+        }
+        if (newPw.length < 8) {
+            errEl.textContent = 'New password must be at least 8 characters.';
+            errEl.classList.remove('d-none');
+            return;
+        }
+        if (newPw !== confirm) {
+            errEl.textContent = 'New passwords do not match.';
+            errEl.classList.remove('d-none');
+            return;
+        }
+
+        try {
+            await API.post('api/change-password.php', {
+                current_password: current,
+                new_password: newPw,
+            });
+            document.getElementById('profile-pw-current').value = '';
+            document.getElementById('profile-pw-new').value = '';
+            document.getElementById('profile-pw-confirm').value = '';
+            okEl.textContent = 'Password changed successfully.';
+            okEl.classList.remove('d-none');
+        } catch (e) {
+            errEl.textContent = e.message || 'Failed to change password.';
+            errEl.classList.remove('d-none');
+        }
+    },
+
     async logout() {
         try {
             await API.post('api/logout.php', {});

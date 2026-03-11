@@ -52,4 +52,16 @@ class Config
         }
         return self::$config[$key] ?? $default;
     }
+
+    public static function sshEnabled(): bool
+    {
+        return filter_var(self::get('SSH_ENABLED', 'true'), FILTER_VALIDATE_BOOLEAN);
+    }
+
+    public static function requireSsh(): void
+    {
+        if (!self::sshEnabled()) {
+            Response::error('This feature requires SSH to be enabled (SSH_ENABLED=true)', 403);
+        }
+    }
 }

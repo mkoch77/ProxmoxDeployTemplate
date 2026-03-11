@@ -12,6 +12,7 @@ use App\AppLogger;
 
 Bootstrap::init();
 Auth::requireAuth();
+\App\Config::requireSsh();
 
 $keyPath  = Config::get('SSH_KEY_PATH', '');
 $pubKeyPath = $keyPath . '.pub';

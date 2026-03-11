@@ -68,6 +68,14 @@ const Utils = {
         return (cpu * 100).toFixed(1) + '%';
     },
 
+    sshEnabled() {
+        return !!(window.APP_USER && window.APP_USER.ssh_enabled);
+    },
+
+    sshDisabledHint() {
+        return '<div class="alert alert-secondary d-flex align-items-center gap-2 mb-0"><i class="bi bi-info-circle"></i>This feature requires SSH. Enable <code>SSH_ENABLED=true</code> in your <code>.env</code> configuration.</div>';
+    },
+
     /**
      * Paginate an array and return the current page slice + metadata.
      * @param {Array} items - Full data array

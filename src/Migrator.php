@@ -73,6 +73,7 @@ class Migrator
            23 => self::migration023(),
            24 => self::migration024(),
            25 => self::migration025(),
+           26 => self::migration026(),
         ];
     }
 
@@ -637,6 +638,19 @@ class Migrator
 
             -- Add zone_group to rules so each rule knows which grouping it applies to
             ALTER TABLE affinity_rules ADD COLUMN IF NOT EXISTS zone_group VARCHAR(128) NOT NULL DEFAULT 'default';
+        ";
+    }
+
+    private static function migration026(): string
+    {
+        return "
+            CREATE TABLE IF NOT EXISTS login_attempts (
+                id SERIAL PRIMARY KEY,
+                ip_address VARCHAR(45) NOT NULL,
+                username VARCHAR(255) NOT NULL DEFAULT '',
+                attempted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts (ip_address, attempted_at);
         ";
     }
 

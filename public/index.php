@@ -4,6 +4,7 @@ use App\Bootstrap;
 use App\Auth;
 use App\Session;
 use App\Database;
+use App\Config;
 
 Bootstrap::init();
 
@@ -49,6 +50,7 @@ $perms = $user['permissions'];
             'theme' => $theme,
             'ssh_public_keys' => $user['ssh_public_keys'] ?? '',
             'default_storage' => $user['default_storage'] ?? '',
+            'ssh_enabled' => filter_var(Config::get('SSH_ENABLED', 'true'), FILTER_VALIDATE_BOOLEAN),
         ], JSON_HEX_TAG | JSON_HEX_AMP) ?>;
 
         // Apply theme immediately to prevent flash
@@ -264,9 +266,36 @@ $perms = $user['permissions'];
                         </select>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label fw-semibold">SSH Public Keys <small class="text-muted">(one per line — pre-filled in all forms)</small></label>
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <label class="form-label fw-semibold mb-0">SSH Public Keys <small class="text-muted">(one per line — pre-filled in all forms)</small></label>
+                            <button type="button" class="btn btn-outline-success btn-sm" onclick="App.generateSshKey()" id="btn-generate-sshkey">
+                                <i class="bi bi-key me-1"></i>Generate Key
+                            </button>
+                        </div>
                         <textarea class="form-control font-monospace" id="profile-sshkeys" rows="4" placeholder="ssh-ed25519 AAAA...&#10;ssh-rsa AAAA..." style="font-size:0.8rem"></textarea>
+                        <div id="sshkey-gen-info" class="d-none mt-2"></div>
                     </div>
+                    <?php if (($user['auth_provider'] ?? 'local') === 'local'): ?>
+                    <hr>
+                    <h6 class="fw-semibold mb-3"><i class="bi bi-shield-lock me-1"></i>Change Password</h6>
+                    <div id="profile-pw-error" class="alert alert-danger d-none mb-3" style="font-size:0.85rem"></div>
+                    <div id="profile-pw-success" class="alert alert-success d-none mb-3" style="font-size:0.85rem"></div>
+                    <div class="mb-2">
+                        <label class="form-label small">Current Password</label>
+                        <input type="password" class="form-control" id="profile-pw-current" autocomplete="current-password">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small">New Password</label>
+                        <input type="password" class="form-control" id="profile-pw-new" autocomplete="new-password">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small">Confirm New Password</label>
+                        <input type="password" class="form-control" id="profile-pw-confirm" autocomplete="new-password">
+                    </div>
+                    <button type="button" class="btn btn-outline-warning btn-sm" onclick="App.changePassword()">
+                        <i class="bi bi-key me-1"></i>Change Password
+                    </button>
+                    <?php endif; ?>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -508,21 +537,6 @@ $perms = $user['permissions'];
                     <button type="button" class="btn btn-primary" onclick="Health.submitAddHA()">
                         <i class="bi bi-shield-plus me-1"></i>Add to HA
                     </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Task Log Modal -->
-    <div class="modal fade" id="taskLogModal" tabindex="-1">
-        <div class="modal-dialog modal-lg modal-dialog-centered">
-            <div class="modal-content glass-modal">
-                <div class="modal-header">
-                    <h5 class="modal-title"><i class="bi bi-terminal-fill me-2"></i>Task Log</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <pre id="task-log-content" class="log-viewer">Loading...</pre>
                 </div>
             </div>
         </div>

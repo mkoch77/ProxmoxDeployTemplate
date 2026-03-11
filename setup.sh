@@ -145,16 +145,31 @@ echo -e "${GREEN}  → App-Secret generiert.${RESET}"
 
 # ── 4. SSH ────────────────────────────────────────────────────────────────────
 header "4 / 5 · SSH (für Maintenance, Rolling-Updates, Community-Scripts)"
-echo -e "  ${YELLOW}Hinweis:${RESET} SSH-Schlüsselpaar wird beim ersten Container-Start automatisch generiert"
-echo -e "  und unter ${YELLOW}data/.ssh/id_ed25519${RESET} gespeichert.\n"
+echo -e "  SSH ermöglicht: Terminal, Community-Scripts, Rolling-Updates,"
+echo -e "  Cloud-Init Deploy, Custom-Image-Verteilung, Maintenance-Modus."
+echo -e "  ${YELLOW}Ohne SSH funktioniert die Proxmox REST API weiterhin vollständig.${RESET}\n"
 
-ask_optional SSH_USER "  SSH-Nutzername auf Proxmox-Nodes" "root"
-ask_optional SSH_PORT "  SSH-Port"                         "22"
+SSH_ENABLED="true"
+SSH_USER="root"
+SSH_PORT="22"
+SSH_PASSWORD=""
 
-echo -e "\n  SSH-Passwort nur nötig, wenn kein SSH-Key-Deployment gewünscht (leer lassen empfohlen)."
-printf "${CYAN}  SSH_PASSWORD${RESET} ${YELLOW}[leer]${RESET}: "
-read -rs SSH_PASSWORD
-echo
+if ask_yn "SSH-Zugang zu Proxmox-Nodes aktivieren?" "j"; then
+    SSH_ENABLED="true"
+    echo -e "\n  ${YELLOW}Hinweis:${RESET} SSH-Schlüsselpaar wird beim ersten Container-Start automatisch generiert"
+    echo -e "  und unter ${YELLOW}data/.ssh/id_ed25519${RESET} gespeichert.\n"
+
+    ask_optional SSH_USER "  SSH-Nutzername auf Proxmox-Nodes" "root"
+    ask_optional SSH_PORT "  SSH-Port"                         "22"
+
+    echo -e "\n  SSH-Passwort nur nötig, wenn kein SSH-Key-Deployment gewünscht (leer lassen empfohlen)."
+    printf "${CYAN}  SSH_PASSWORD${RESET} ${YELLOW}[leer]${RESET}: "
+    read -rs SSH_PASSWORD
+    echo
+else
+    SSH_ENABLED="false"
+    echo -e "${GREEN}  → SSH deaktiviert. SSH-abhängige Features werden ausgeblendet.${RESET}"
+fi
 
 # ── 5. Optionale Features ─────────────────────────────────────────────────────
 header "5 / 6 · Admin-Account"
@@ -179,6 +194,29 @@ while true; do
     echo -e "${RED}  Passwörter stimmen nicht überein. Bitte erneut eingeben.${RESET}\n"
 done
 echo -e "${GREEN}  → Admin-Account wird beim ersten Start erstellt.${RESET}"
+
+# Generate SSH keypair for admin user (for VM access via cloud-init)
+ADMIN_SSH_PUBKEY=""
+echo
+if ask_yn "SSH-Keypair für Admin generieren? (wird für VM-Zugang via Cloud-Init benötigt)" "j"; then
+    ADMIN_KEY_DIR="$SCRIPT_DIR/data/.ssh"
+    ADMIN_KEY_FILE="$ADMIN_KEY_DIR/admin_ed25519"
+    mkdir -p "$ADMIN_KEY_DIR"
+    if [[ -f "$ADMIN_KEY_FILE" ]]; then
+        echo -e "${YELLOW}  SSH-Key existiert bereits: ${ADMIN_KEY_FILE}${RESET}"
+        ADMIN_SSH_PUBKEY="$(cat "${ADMIN_KEY_FILE}.pub")"
+    else
+        ssh-keygen -t ed25519 -f "$ADMIN_KEY_FILE" -N "" -C "${ADMIN_USER}@proxmox-deploy" -q
+        chmod 600 "$ADMIN_KEY_FILE"
+        chmod 644 "${ADMIN_KEY_FILE}.pub"
+        ADMIN_SSH_PUBKEY="$(cat "${ADMIN_KEY_FILE}.pub")"
+        echo -e "${GREEN}  → SSH-Keypair generiert:${RESET}"
+        echo -e "    Private Key: ${YELLOW}${ADMIN_KEY_FILE}${RESET}"
+        echo -e "    Public Key:  ${YELLOW}${ADMIN_KEY_FILE}.pub${RESET}"
+    fi
+    echo -e "  ${YELLOW}Hinweis:${RESET} Der Private Key wird automatisch im Profil hinterlegt."
+    echo -e "  Für SSH-Zugang zu VMs: ${CYAN}ssh -i ${ADMIN_KEY_FILE} <user>@<vm-ip>${RESET}"
+fi
 
 # ── 6. Optionale Features ─────────────────────────────────────────────────────
 header "6 / 6 · Optionale Features"
@@ -243,6 +281,7 @@ HTTP_PORT=${HTTP_PORT}
 HTTPS_PORT=${HTTPS_PORT}
 
 # ── SSH ───────────────────────────────────────────────────────────────────────
+SSH_ENABLED=${SSH_ENABLED}
 SSH_PORT=${SSH_PORT}
 SSH_USER=${SSH_USER}
 SSH_KEY_PATH=/var/www/html/data/.ssh/id_ed25519
@@ -255,6 +294,7 @@ LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
 # ── Admin-Account (einmalig beim ersten Start angelegt, danach ignoriert) ─────
 ADMIN_USER=${ADMIN_USER}
 ADMIN_PASSWORD=${ADMIN_PASSWORD}
+ADMIN_SSH_PUBKEY=${ADMIN_SSH_PUBKEY}
 
 # ── Entra ID / Azure AD (leer = deaktiviert) ─────────────────────────────────
 ENTRAID_TENANT_ID=${ENTRAID_TENANT_ID}

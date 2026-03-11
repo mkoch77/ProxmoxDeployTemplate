@@ -15,6 +15,7 @@ Bootstrap::init();
 Request::requireMethod('POST');
 Request::validateCsrf();
 Auth::requirePermission('template.deploy');
+\App\Config::requireSsh();
 
 $body = Request::jsonBody();
 $imageId = (int)($body['id'] ?? 0);

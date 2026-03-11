@@ -12,6 +12,7 @@ use App\SSH;
 use phpseclib3\Exception\ConnectionClosedException;
 
 Bootstrap::init();
+\App\Config::requireSsh();
 
 $user = Auth::check();
 if (!$user) { http_response_code(401); exit; }

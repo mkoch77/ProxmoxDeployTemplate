@@ -26,6 +26,11 @@ const API = {
                 throw new Error(`Server error (HTTP ${response.status}) — invalid response`);
             }
 
+            if (response.status === 401) {
+                window.location.href = 'login.php';
+                return;
+            }
+
             if (!response.ok || data.error) {
                 throw new Error(data.message || `HTTP ${response.status}`);
             }
@@ -145,6 +150,10 @@ const API = {
 
     getClusterHealth() {
         return this.get('api/cluster-health.php');
+    },
+
+    getClusterStats() {
+        return this.get('api/cluster-stats.php');
     },
 
     getMaintenanceNodeStatus(node) {

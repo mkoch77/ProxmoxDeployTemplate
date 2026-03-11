@@ -554,35 +554,57 @@ const Dashboard = {
         this._ipLoading = true;
         const payload = running.map(g => ({ node: g.node, type: g.type, vmid: g.vmid }));
         API.postSilent('api/guest-ips-bulk.php', { guests: payload }).then(data => {
-            for (const [key, ips] of Object.entries(data || {})) {
-                this._renderIpCell(key, ips);
+            for (const [key, entry] of Object.entries(data || {})) {
+                // Support both new format {ips, agent, source} and legacy array
+                const ips = Array.isArray(entry) ? entry : (entry.ips || []);
+                const agent = Array.isArray(entry) ? true : (entry.agent ?? true);
+                const source = Array.isArray(entry) ? 'agent' : (entry.source || 'agent');
+                // Find guest type for this key
+                const guest = running.find(g => `${g.vmid}-${g.node}` === key);
+                const isQemu = guest && guest.type === 'qemu';
+                this._renderIpCell(key, ips, isQemu && !agent, source);
             }
         }).catch(() => {}).finally(() => {
             this._ipLoading = false;
         });
     },
 
-    _ipBadgeHtml(ips, id) {
-        if (ips.length === 0) return '-';
+    _ipBadgeHtml(ips, id, noAgent = false, source = '') {
+        let html = '';
+        if (ips.length === 0) {
+            html = noAgent
+                ? `<span class="text-warning small" title="QEMU Guest Agent is not running — IP cannot be detected reliably"><i class="bi bi-exclamation-triangle me-1"></i>No agent</span>`
+                : '-';
+            return html;
+        }
         const primary = ips[0];
         const copyBadge = (ip) => `<span class="badge ip-badge" title="Click to copy"
             onclick="event.stopPropagation();navigator.clipboard.writeText('${escapeHtml(ip)}').then(()=>Toast.success('${escapeHtml(ip)} copied'))"
         >${escapeHtml(ip)}</span>`;
-        if (ips.length === 1) return copyBadge(primary);
-        return `<div class="dropdown d-inline-block" onclick="event.stopPropagation()">
-            <span class="badge ip-badge dropdown-toggle" data-bs-toggle="dropdown" role="button">${escapeHtml(primary)} <span class="text-muted" style="font-size:0.7em">+${ips.length - 1}</span></span>
-            <ul class="dropdown-menu dropdown-menu-dark" style="min-width:auto">
-                ${ips.map(ip => `<li><a class="dropdown-item small font-monospace" href="#" onclick="event.preventDefault();navigator.clipboard.writeText('${escapeHtml(ip)}').then(()=>Toast.success('${escapeHtml(ip)} copied'))">
-                    <i class="bi bi-clipboard me-2" style="opacity:0.5"></i>${escapeHtml(ip)}
-                </a></li>`).join('')}
-            </ul>
-        </div>`;
+        if (ips.length === 1) {
+            html = copyBadge(primary);
+        } else {
+            html = `<div class="dropdown d-inline-block" onclick="event.stopPropagation()">
+                <span class="badge ip-badge dropdown-toggle" data-bs-toggle="dropdown" role="button">${escapeHtml(primary)} <span class="text-muted" style="font-size:0.7em">+${ips.length - 1}</span></span>
+                <ul class="dropdown-menu dropdown-menu-dark" style="min-width:auto">
+                    ${ips.map(ip => `<li><a class="dropdown-item small font-monospace" href="#" onclick="event.preventDefault();navigator.clipboard.writeText('${escapeHtml(ip)}').then(()=>Toast.success('${escapeHtml(ip)} copied'))">
+                        <i class="bi bi-clipboard me-2" style="opacity:0.5"></i>${escapeHtml(ip)}
+                    </a></li>`).join('')}
+                </ul>
+            </div>`;
+        }
+        // Show warning indicator if agent is not running (IP found via ARP/cloud-init fallback)
+        if (noAgent) {
+            const sourceLabel = source === 'arp' ? 'ARP lookup' : source === 'cloudinit' ? 'Cloud-Init config' : 'fallback';
+            html += ` <span class="text-warning" style="cursor:help;font-size:0.75rem" title="QEMU Guest Agent not running — IP detected via ${sourceLabel}"><i class="bi bi-exclamation-triangle"></i></span>`;
+        }
+        return html;
     },
 
-    _renderIpCell(id, ips) {
+    _renderIpCell(id, ips, noAgent = false, source = '') {
         const el = document.getElementById(`guest-ip-${id}`);
         if (!el) return;
-        el.innerHTML = this._ipBadgeHtml(ips, id);
+        el.innerHTML = this._ipBadgeHtml(ips, id, noAgent, source);
     },
 
     async showInstallAgent(vmid, node, ostype) {
@@ -605,7 +627,7 @@ const Dashboard = {
                     <input type="text" id="agent-ip-input" class="form-control" placeholder="e.g. 192.168.1.100"
                         value="${Utils.escapeHtml(detectedIp || '')}"
                         style="background:var(--bg-secondary);border-color:var(--border-color);color:var(--text-primary)">
-                    <button id="agent-auto-btn" class="btn btn-success">
+                    <button id="agent-auto-btn" class="btn btn-success" ${!Utils.sshEnabled() ? 'disabled title="Agent auto-install requires SSH to be enabled"' : ''}>
                         <i class="bi bi-lightning-fill me-1"></i>Install
                     </button>
                 </div>
@@ -634,6 +656,7 @@ const Dashboard = {
     },
 
     async _runAgentInstall(node, vmIp, body) {
+        if (!Utils.sshEnabled()) { Toast.error('Agent auto-install requires SSH.'); return; }
         body.innerHTML = `
             <div class="mb-2 small text-muted"><i class="bi bi-terminal me-1"></i>Connecting to <strong>${Utils.escapeHtml(vmIp)}</strong> via ${Utils.escapeHtml(node)}...</div>
             <pre id="agent-log" class="log-viewer p-3" style="font-size:0.8rem;max-height:300px;overflow-y:auto;border-radius:var(--radius-sm)"></pre>
@@ -1005,7 +1028,20 @@ const Dashboard = {
                 const el = document.getElementById('vm-detail-ip');
                 if (!el) return;
                 const ips = (result.ips || []).filter(ip => ip);
-                el.textContent = ips.length > 0 ? ips.join(', ') : '-';
+                const agentRunning = result.agent ?? true;
+                const source = result.source || 'agent';
+                if (ips.length > 0) {
+                    let html = ips.join(', ');
+                    if (type === 'qemu' && !agentRunning) {
+                        const sourceLabel = source === 'arp' ? 'ARP lookup' : source === 'cloudinit' ? 'Cloud-Init config' : 'fallback';
+                        html += ` <span class="text-warning" title="Guest Agent not running — IP via ${sourceLabel}"><i class="bi bi-exclamation-triangle"></i></span>`;
+                    }
+                    el.innerHTML = html;
+                } else if (type === 'qemu' && !agentRunning) {
+                    el.innerHTML = '<span class="text-warning"><i class="bi bi-exclamation-triangle me-1"></i>No Guest Agent</span>';
+                } else {
+                    el.textContent = '-';
+                }
                 el.classList.remove('text-muted');
             }).catch(() => {
                 const el = document.getElementById('vm-detail-ip');
@@ -1025,7 +1061,7 @@ const Dashboard = {
             const rows = [
                 { key: 'Cores',       val: cfg.cores ?? cfg.cpulimit ?? null,                           wide: false },
                 { key: 'Memory',      val: cfg.memory ? Utils.formatBytes(cfg.memory * 1024 * 1024) : null, wide: false },
-                { key: 'Network',     val: cfg.net0 ? Utils.escapeHtml(cfg.net0.split(',')[0]) : null,  wide: false },
+                { key: 'Network',     val: cfg.net0 ? Utils.escapeHtml((() => { const parts = cfg.net0.split(','); const bridge = parts.find(p => p.startsWith('bridge=')); const model = parts[0]?.split('=')[0] || ''; return bridge ? `${bridge.split('=')[1]} (${model})` : parts[0]; })()) : null, wide: false },
                 { key: 'Tags',        val: tagsHtml,                                                     wide: false },
                 { key: 'Boot disk',   val: cfg.scsi0 || cfg.virtio0 || cfg.ide2 || cfg.rootfs ? Utils.escapeHtml(cfg.scsi0 || cfg.virtio0 || cfg.ide2 || cfg.rootfs) : null, wide: true },
                 { key: 'Description', val: cfg.description ? Utils.escapeHtml(cfg.description.substring(0, 200)) : null, wide: true },

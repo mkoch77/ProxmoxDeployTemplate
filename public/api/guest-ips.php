@@ -7,6 +7,8 @@ use App\Auth;
 use App\Request;
 use App\Response;
 use App\Helpers;
+use App\Config;
+use App\SSH;
 use App\AppLogger;
 
 Bootstrap::init();
@@ -30,12 +32,13 @@ if (!in_array($type, ['qemu', 'lxc'], true)) {
 try {
     $api = Helpers::createAPI();
     $ips = [];
+    $agentRunning = false;
+    $ipSource = 'none';
 
     if ($type === 'lxc') {
         $result = $api->getLxcInterfaces($node, $vmid);
         $ifaces = $result['data'] ?? $result;
         foreach ($ifaces as $iface) {
-            // Proxmox returns inet/inet6 as a plain string "a.b.c.d/prefix", not an array
             foreach (['inet', 'inet6'] as $family) {
                 $raw = $iface[$family] ?? null;
                 if (!$raw) continue;
@@ -45,8 +48,11 @@ try {
                 $ips[] = $ip;
             }
         }
+        $agentRunning = true;
+        $ipSource = 'lxc';
     } else {
         // Try QEMU guest agent first
+        $cfg = null;
         try {
             $result = $api->getQemuAgentNetworks($node, $vmid);
             $ifaces = $result['data']['result'] ?? $result['result'] ?? [];
@@ -60,11 +66,15 @@ try {
                     $ips[] = $ip;
                 }
             }
+            if (!empty($ips)) {
+                $agentRunning = true;
+                $ipSource = 'agent';
+            }
         } catch (\Exception $e) {
-            // Agent not running — fall through to cloud-init fallback
+            // Agent not running — fall through to fallbacks
         }
 
-        // Fallback: read static IP from cloud-init config (ipconfig0=ip=x.x.x.x/24,gw=...)
+        // Fallback 1: static IP from cloud-init config
         if (empty($ips)) {
             try {
                 $config = $api->getGuestConfig($node, 'qemu', $vmid);
@@ -75,16 +85,71 @@ try {
                         $ip = $m[1];
                         if ($ip && $ip !== '127.0.0.1' && strtolower($ip) !== 'dhcp') {
                             $ips[] = $ip;
+                            $ipSource = 'cloudinit';
                         }
                     }
                 }
-            } catch (\Exception $e) {
-                // Config not available
-            }
+            } catch (\Exception $e) { /* config not available */ }
+        }
+
+        // Fallback 2: ARP lookup on Proxmox node
+        if (empty($ips) && Config::get('SSH_ENABLED', 'true') !== 'false') {
+            try {
+                if (!$cfg) {
+                    $config = $api->getGuestConfig($node, 'qemu', $vmid);
+                    $cfg = $config['data'] ?? $config;
+                }
+                $mac = null;
+                foreach ($cfg as $key => $value) {
+                    if (preg_match('/^net\d+$/', $key) && $value) {
+                        if (preg_match('/([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})/', $value, $m)) {
+                            $mac = strtolower($m[1]);
+                            break;
+                        }
+                    }
+                }
+
+                if ($mac) {
+                    // Resolve node SSH host
+                    $envKey = 'SSH_HOST_' . strtoupper(str_replace('-', '_', $node));
+                    $sshHost = Config::get($envKey, '');
+                    if (!$sshHost) {
+                        $sshHost = $node;
+                        try {
+                            $status = $api->getClusterStatus();
+                            foreach ($status['data'] ?? [] as $entry) {
+                                if (($entry['type'] ?? '') === 'node' &&
+                                    strtolower($entry['name'] ?? '') === strtolower($node) &&
+                                    !empty($entry['ip'])) {
+                                    $sshHost = $entry['ip'];
+                                    break;
+                                }
+                            }
+                        } catch (\Exception $e) { /* use node name */ }
+                    }
+
+                    $arpOutput = SSH::exec($sshHost, 'cat /proc/net/arp 2>/dev/null || arp -an 2>/dev/null');
+                    foreach (explode("\n", $arpOutput) as $line) {
+                        if (stripos($line, $mac) !== false) {
+                            if (preg_match('/^(\d+\.\d+\.\d+\.\d+)\s/', trim($line), $m)) {
+                                $ips[] = $m[1];
+                                $ipSource = 'arp';
+                            } elseif (preg_match('/\((\d+\.\d+\.\d+\.\d+)\)/', $line, $m)) {
+                                $ips[] = $m[1];
+                                $ipSource = 'arp';
+                            }
+                        }
+                    }
+                }
+            } catch (\Exception $e) { /* ARP fallback failed */ }
         }
     }
 
-    Response::success(['ips' => array_values(array_unique($ips))]);
+    Response::success([
+        'ips' => array_values(array_unique($ips)),
+        'agent' => $agentRunning,
+        'source' => $ipSource,
+    ]);
 } catch (\Exception $e) {
-    Response::success(['ips' => []]);
+    Response::success(['ips' => [], 'agent' => false, 'source' => 'none']);
 }

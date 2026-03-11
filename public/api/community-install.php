@@ -16,6 +16,7 @@ set_time_limit(360); // community script installs can take several minutes
 Request::requireMethod('POST');
 Request::validateCsrf();
 Auth::requirePermission('template.deploy');
+\App\Config::requireSsh();
 
 $body = Request::jsonBody();
 

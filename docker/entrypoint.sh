@@ -46,11 +46,25 @@ if [[ -n "${ADMIN_USER:-}" && -n "${ADMIN_PASSWORD:-}" ]]; then
     else
         echo "Admin user already exists or creation failed — skipping."
     fi
+    # Save admin SSH public key to profile if provided
+    if [[ -n "${ADMIN_SSH_PUBKEY:-}" ]]; then
+        echo "Saving admin SSH public key to profile..."
+        php -r "
+            require_once '/var/www/html/vendor/autoload.php';
+            \$db = App\Database::connection();
+            \$stmt = \$db->prepare('UPDATE users SET ssh_public_keys = ? WHERE username = ?');
+            \$stmt->execute([trim(\$argv[1]), \$argv[2]]);
+            echo (\$stmt->rowCount() > 0) ? 'SSH key saved.' : 'User not found — skipping.';
+            echo PHP_EOL;
+        " "${ADMIN_SSH_PUBKEY}" "${ADMIN_USER}"
+    fi
+
     # Remove credentials from .env so they are not stored in plaintext
     ENV_FILE=/var/www/html/.env
     if [[ -f "$ENV_FILE" ]]; then
         sed -i '/^ADMIN_USER=/d' "$ENV_FILE"
         sed -i '/^ADMIN_PASSWORD=/d' "$ENV_FILE"
+        sed -i '/^ADMIN_SSH_PUBKEY=/d' "$ENV_FILE"
         echo "Admin credentials removed from .env."
     fi
 fi

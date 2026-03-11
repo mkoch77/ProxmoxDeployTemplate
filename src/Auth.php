@@ -7,7 +7,7 @@ use PDO;
 class Auth
 {
     private const COOKIE_NAME = 'app_session';
-    private const SESSION_LIFETIME = 86400; // 24 hours
+    private const SESSION_LIFETIME = 3600; // 1 hour
 
     public static function login(string $username, string $password): ?array
     {
@@ -235,6 +235,60 @@ class Auth
             'httponly' => true,
             'samesite' => 'Lax',
         ]);
+    }
+
+    // ── Bruteforce Protection ──────────────────────────────────────────
+
+    /**
+     * Check if IP is rate-limited. Returns seconds to wait, or 0 if allowed.
+     * Progressive delay: 1s after 3 fails, 5s after 5, 15s after 8, 60s after 10.
+     */
+    public static function checkBruteforce(string $ip): int
+    {
+        $db = Database::connection();
+
+        // Count failed attempts in last 15 minutes
+        $stmt = $db->prepare("SELECT COUNT(*) FROM login_attempts WHERE ip_address = ? AND attempted_at > NOW() - INTERVAL '15 minutes'");
+        $stmt->execute([$ip]);
+        $count = (int) $stmt->fetchColumn();
+
+        if ($count < 3) return 0;
+
+        // Progressive delay
+        $delay = match (true) {
+            $count >= 10 => 60,
+            $count >= 8  => 15,
+            $count >= 5  => 5,
+            default      => 1,
+        };
+
+        // Check if enough time passed since last attempt
+        $stmt = $db->prepare("SELECT EXTRACT(EPOCH FROM (NOW() - MAX(attempted_at))) FROM login_attempts WHERE ip_address = ? AND attempted_at > NOW() - INTERVAL '15 minutes'");
+        $stmt->execute([$ip]);
+        $elapsed = (float) $stmt->fetchColumn();
+
+        if ($elapsed < $delay) {
+            return (int) ceil($delay - $elapsed);
+        }
+
+        return 0;
+    }
+
+    public static function recordFailedLogin(string $ip, string $username = ''): void
+    {
+        $db = Database::connection();
+        $stmt = $db->prepare('INSERT INTO login_attempts (ip_address, username) VALUES (?, ?)');
+        $stmt->execute([$ip, $username]);
+
+        // Cleanup attempts older than 1 hour
+        $db->exec("DELETE FROM login_attempts WHERE attempted_at < NOW() - INTERVAL '1 hour'");
+    }
+
+    public static function clearLoginAttempts(string $ip): void
+    {
+        $db = Database::connection();
+        $stmt = $db->prepare('DELETE FROM login_attempts WHERE ip_address = ?');
+        $stmt->execute([$ip]);
     }
 
     private static function getRoleId(string $name): int

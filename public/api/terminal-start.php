@@ -14,6 +14,7 @@ Bootstrap::init();
 Request::requireMethod('POST');
 Request::validateCsrf();
 $user = Auth::requirePermission('template.deploy');
+\App\Config::requireSsh();
 
 $body = Request::jsonBody();
 

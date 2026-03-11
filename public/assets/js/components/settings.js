@@ -1,14 +1,11 @@
 const Settings = {
-    _activeTab: 'logs',
+    _activeTab: 'stats',
     _monitoringData: null,
     _lbData: null,
-    _tasksInterval: null,
-    _tasksNode: '',
-    _tasksNodes: [],
-    _tasksPage: 1,
-    _tasksPerPage: 50,
+    _statsData: null,
     _logsPage: 1,
     _logsPerPage: 50,
+    _logsSource: 'all',
 
     init() {
         this.render();
@@ -16,7 +13,6 @@ const Settings = {
     },
 
     destroy() {
-        this._stopTasksRefresh();
     },
 
     render() {
@@ -26,6 +22,11 @@ const Settings = {
             </div>
 
             <ul class="nav nav-tabs settings-tabs mb-4" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" data-tab="stats" onclick="Settings.switchTab('stats')">
+                        <i class="bi bi-bar-chart-fill me-1"></i>Statistics
+                    </button>
+                </li>
                 ${Permissions.has('logs.view') ? `<li class="nav-item" role="presentation">
                     <button class="nav-link" data-tab="logs" onclick="Settings.switchTab('logs')">
                         <i class="bi bi-journal-text me-1"></i>Logs
@@ -46,16 +47,11 @@ const Settings = {
                         <i class="bi bi-diagram-2 me-1"></i>Affinity Rules
                     </button>
                 </li>` : ''}
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link" data-tab="tasks" onclick="Settings.switchTab('tasks')">
-                        <i class="bi bi-terminal-fill me-1"></i>Tasks
-                    </button>
-                </li>
-                <li class="nav-item" role="presentation">
+                ${Utils.sshEnabled() ? `<li class="nav-item" role="presentation">
                     <button class="nav-link" data-tab="ssh" onclick="Settings.switchTab('ssh')">
                         <i class="bi bi-key-fill me-1"></i>SSH Keys
                     </button>
-                </li>
+                </li>` : ''}
             </ul>
 
             <div id="settings-tab-content"></div>
@@ -64,22 +60,18 @@ const Settings = {
     },
 
     switchTab(tab) {
-        // Stop tasks refresh when leaving tasks tab
-        if (this._activeTab === 'tasks' && tab !== 'tasks') {
-            this._stopTasksRefresh();
-        }
         this._activeTab = tab;
         document.querySelectorAll('.settings-tabs .nav-link').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.tab === tab);
         });
         const container = document.getElementById('settings-tab-content');
-        if (tab === 'monitoring') {
+        if (tab === 'stats') {
+            this.renderStatsTab(container);
+            this.loadStatsData();
+        } else if (tab === 'monitoring') {
             this.renderMonitoringTab(container);
         } else if (tab === 'loadbalancer') {
             this.renderLoadbalancerTab(container);
-        } else if (tab === 'tasks') {
-            this.renderTasksTab(container);
-            this._loadTasksNodes();
         } else if (tab === 'logs') {
             this.renderLogsTab(container);
             this.loadLogs();
@@ -97,6 +89,167 @@ const Settings = {
             this.loadMonitoringData(),
             this.loadLoadbalancerData(),
         ]);
+    },
+
+    // ── Statistics Tab ─────────────────────────────────────────────────────
+
+    async loadStatsData() {
+        try {
+            this._statsData = await API.getClusterStats();
+            if (this._activeTab === 'stats') {
+                this.renderStatsTab(document.getElementById('settings-tab-content'));
+            }
+        } catch (_) {}
+    },
+
+    renderStatsTab(container) {
+        if (!container) return;
+        const d = this._statsData;
+        if (!d) {
+            container.innerHTML = '<div class="loading-spinner"><div class="spinner-border text-primary"></div></div>';
+            return;
+        }
+
+        const fmtBytes = (bytes) => {
+            if (bytes >= 1099511627776) return (bytes / 1099511627776).toFixed(1) + ' TB';
+            if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(1) + ' GB';
+            if (bytes >= 1048576) return (bytes / 1048576).toFixed(0) + ' MB';
+            return (bytes / 1024).toFixed(0) + ' KB';
+        };
+
+        const fmtUptime = (seconds) => {
+            const days = Math.floor(seconds / 86400);
+            const hours = Math.floor((seconds % 86400) / 3600);
+            if (days > 0) return `${days}d ${hours}h`;
+            const mins = Math.floor((seconds % 3600) / 60);
+            return `${hours}h ${mins}m`;
+        };
+
+        const pctBar = (pct, color = 'var(--accent-green)') => {
+            const c = pct > 85 ? 'var(--accent-red)' : pct > 65 ? 'var(--accent-amber)' : color;
+            return `<div class="stats-pct-bar"><div class="stats-pct-fill" style="width:${Math.min(pct, 100)}%;background:${c}"></div></div>`;
+        };
+
+        const statCard = (icon, label, value, sub = '') =>
+            `<div class="stats-card">
+                <div class="stats-card-icon"><i class="bi bi-${icon}"></i></div>
+                <div class="stats-card-body">
+                    <div class="stats-card-value">${value}</div>
+                    <div class="stats-card-label">${label}</div>
+                    ${sub ? `<div class="stats-card-sub">${sub}</div>` : ''}
+                </div>
+            </div>`;
+
+        // Task activity breakdown
+        const taskTypes = d.tasks.types_24h || {};
+        const topTypes = Object.entries(taskTypes)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 8);
+
+        const maxCount = topTypes.length > 0 ? topTypes[0][1] : 1;
+
+        container.innerHTML = `
+            <div class="stats-section">
+                <h5 class="stats-section-title"><i class="bi bi-speedometer2 me-2"></i>Cluster Resources</h5>
+                <div class="stats-grid">
+                    ${statCard('cpu', 'CPU Usage', d.cluster.cpu_pct + '%', d.cluster.total_cores + ' Cores' )}
+                    ${statCard('memory', 'RAM Usage', d.cluster.mem_pct + '%', fmtBytes(d.cluster.mem_used) + ' / ' + fmtBytes(d.cluster.mem_total))}
+                    ${statCard('device-hdd', 'Storage', d.cluster.storage_pct + '%', fmtBytes(d.cluster.storage_used) + ' / ' + fmtBytes(d.cluster.storage_total))}
+                    ${statCard('hdd-rack', 'Nodes', d.nodes.online + ' / ' + d.nodes.total, d.nodes.max_uptime > 0 ? 'Max uptime: ' + fmtUptime(d.nodes.max_uptime) : '')}
+                </div>
+                <div class="stats-bars mt-3">
+                    <div class="stats-bar-row">
+                        <span class="stats-bar-label">CPU</span>
+                        ${pctBar(d.cluster.cpu_pct)}
+                        <span class="stats-bar-value">${d.cluster.cpu_pct}%</span>
+                    </div>
+                    <div class="stats-bar-row">
+                        <span class="stats-bar-label">RAM</span>
+                        ${pctBar(d.cluster.mem_pct)}
+                        <span class="stats-bar-value">${d.cluster.mem_pct}%</span>
+                    </div>
+                    <div class="stats-bar-row">
+                        <span class="stats-bar-label">Storage</span>
+                        ${pctBar(d.cluster.storage_pct, 'var(--accent-blue)')}
+                        <span class="stats-bar-value">${d.cluster.storage_pct}%</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="stats-section">
+                <h5 class="stats-section-title"><i class="bi bi-pc-display me-2"></i>Guests</h5>
+                <div class="stats-grid">
+                    ${statCard('play-circle', 'Running', d.guests.running, d.guests.total + ' total')}
+                    ${statCard('stop-circle', 'Stopped', d.guests.stopped, '')}
+                    ${statCard('hdd', 'VMs (QEMU)', d.guests.qemu, '')}
+                    ${statCard('box', 'Containers (LXC)', d.guests.lxc, '')}
+                    ${d.guests.ha_managed > 0 ? statCard('shield-check', 'HA Managed', d.guests.ha_managed, '') : ''}
+                </div>
+            </div>
+
+            <div class="stats-section">
+                <h5 class="stats-section-title"><i class="bi bi-activity me-2"></i>Activity (Last 24h)</h5>
+                <div class="stats-grid">
+                    ${statCard('arrow-left-right', 'Migrations', d.tasks.migrations_24h, d.tasks.migrations_failed > 0 ? '<span style="color:var(--accent-red)">' + d.tasks.migrations_failed + ' failed</span>' : d.tasks.migrations_7d + ' in 7d')}
+                    ${statCard('list-task', 'Total Tasks', d.tasks.total_24h, d.tasks.failed_24h > 0 ? '<span style="color:var(--accent-red)">' + d.tasks.failed_24h + ' failed</span>' : d.tasks.total_7d + ' in 7d')}
+                    ${statCard('camera', 'Snapshots', d.tasks.snapshots_24h, '')}
+                    ${statCard('archive', 'Backups', d.tasks.backups_24h, '')}
+                    ${statCard('power', 'VM Starts', d.tasks.vm_starts_24h, d.tasks.vm_stops_24h + ' stops')}
+                    ${statCard('copy', 'Clones', d.tasks.clones_24h, '')}
+                    ${statCard('rocket-takeoff', 'Deploys (App)', d.deploys.count_24h, d.deploys.count_7d + ' in 7d')}
+                </div>
+            </div>
+
+            ${topTypes.length > 0 ? `
+            <div class="stats-section">
+                <h5 class="stats-section-title"><i class="bi bi-bar-chart me-2"></i>Task Breakdown (24h)</h5>
+                <div class="stats-task-breakdown">
+                    ${topTypes.map(([type, count]) => `
+                        <div class="stats-breakdown-row">
+                            <span class="stats-breakdown-label">${escapeHtml(type)}</span>
+                            <div class="stats-breakdown-bar">
+                                <div class="stats-breakdown-fill" style="width:${Math.round(count / maxCount * 100)}%"></div>
+                            </div>
+                            <span class="stats-breakdown-count">${count}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+            ` : ''}
+
+            <div class="stats-section">
+                <h5 class="stats-section-title"><i class="bi bi-hdd-rack me-2"></i>Node Performance</h5>
+                <div class="stats-node-grid">
+                    ${d.nodes.stats.map(n => `
+                        <div class="stats-node-card">
+                            <div class="stats-node-header">
+                                <strong>${escapeHtml(n.node)}</strong>
+                                <span class="text-muted small">${fmtUptime(n.uptime)}</span>
+                            </div>
+                            <div class="stats-bar-row">
+                                <span class="stats-bar-label">CPU</span>
+                                ${pctBar(n.cpu_pct)}
+                                <span class="stats-bar-value">${n.cpu_pct}%</span>
+                            </div>
+                            <div class="stats-bar-row">
+                                <span class="stats-bar-label">RAM</span>
+                                ${pctBar(n.mem_pct)}
+                                <span class="stats-bar-value">${n.mem_pct}%</span>
+                            </div>
+                            <div class="stats-node-footer text-muted small">
+                                ${n.maxcpu} Cores · ${fmtBytes(n.maxmem)} RAM
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+
+            <div class="text-muted small mt-3 text-end">
+                <button class="btn btn-sm btn-outline-secondary" onclick="Settings._statsData=null;Settings.loadStatsData()">
+                    <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+                </button>
+            </div>
+        `;
     },
 
     // ── Monitoring Tab ──────────────────────────────────────────────────────
@@ -309,147 +462,6 @@ const Settings = {
         }
     },
 
-    // ── Tasks Tab ────────────────────────────────────────────────────────
-
-    renderTasksTab(container) {
-        if (!container) return;
-        container.innerHTML = `
-            <div class="settings-section">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <div class="d-flex align-items-center gap-2">
-                        <h5 class="settings-section-title mb-0"><i class="bi bi-terminal-fill me-2"></i>Proxmox Tasks</h5>
-                        <select id="tasks-node-select" class="form-select form-select-sm" style="width:auto;" onchange="Settings._selectTasksNode(this.value)">
-                            <option value="">Select node...</option>
-                        </select>
-                    </div>
-                    <button class="btn btn-sm btn-outline-light" onclick="Settings._loadTasks()">
-                        <i class="bi bi-arrow-clockwise"></i> Refresh
-                    </button>
-                </div>
-                <div id="tasks-table-container">
-                    <div class="text-center p-5" style="color:var(--text-muted)">
-                        <i class="bi bi-terminal" style="font-size:2.5rem;opacity:0.3"></i>
-                        <p class="mt-2 mb-0">Select a node to view tasks</p>
-                    </div>
-                </div>
-            </div>
-        `;
-    },
-
-    async _loadTasksNodes() {
-        try {
-            this._tasksNodes = await API.getNodes();
-            const select = document.getElementById('tasks-node-select');
-            if (!select) return;
-            select.innerHTML = '<option value="">Select node...</option>';
-            for (const n of this._tasksNodes) {
-                select.innerHTML += `<option value="${n.node}">${n.node}</option>`;
-            }
-            if (this._tasksNode) {
-                select.value = this._tasksNode;
-                this._loadTasks();
-                this._startTasksRefresh();
-            } else if (this._tasksNodes.length > 0) {
-                select.value = this._tasksNodes[0].node;
-                this._selectTasksNode(this._tasksNodes[0].node);
-            }
-        } catch (_) {}
-    },
-
-    _selectTasksNode(node) {
-        this._tasksNode = node;
-        this._tasksPage = 1;
-        if (node) {
-            this._loadTasks();
-            this._startTasksRefresh();
-        }
-    },
-
-    _startTasksRefresh() {
-        this._stopTasksRefresh();
-        this._tasksInterval = setInterval(() => this._loadTasks(), 10000);
-    },
-
-    _stopTasksRefresh() {
-        if (this._tasksInterval) {
-            clearInterval(this._tasksInterval);
-            this._tasksInterval = null;
-        }
-    },
-
-    setTasksPage(page) {
-        this._tasksPage = page;
-        this._loadTasks();
-    },
-
-    setTasksPerPage(perPage) {
-        this._tasksPerPage = perPage;
-        this._tasksPage = 1;
-        this._loadTasks();
-    },
-
-    async _loadTasks() {
-        if (!this._tasksNode) return;
-        const container = document.getElementById('tasks-table-container');
-        if (!container) return;
-        try {
-            const tasks = await API.getTasks(this._tasksNode);
-            if (tasks.length === 0) {
-                container.innerHTML = `<div class="text-center p-5" style="color:var(--text-muted)">
-                    <i class="bi bi-check-circle" style="font-size:2.5rem;opacity:0.3"></i>
-                    <p class="mt-2 mb-0">No tasks found</p>
-                </div>`;
-                return;
-            }
-            const pag = Utils.paginate(tasks, this._tasksPage, this._tasksPerPage);
-            this._tasksPage = pag.page;
-            let html = `<div class="guest-table"><table class="table table-dark table-hover mb-0">
-                <thead><tr>
-                    <th>Time</th><th>Type</th><th>VMID</th><th>User</th><th>Status</th><th style="text-align:right">Action</th>
-                </tr></thead><tbody>`;
-            for (const t of pag.items) {
-                const statusColor = t.status === 'OK' ? 'var(--accent-green)' :
-                    (t.status && t.status !== 'running') ? 'var(--accent-red)' : 'var(--accent-amber)';
-                const statusIcon = t.status === 'OK' ? 'bi-check-circle-fill' :
-                    (t.status && t.status !== 'running') ? 'bi-x-circle-fill' : 'bi-hourglass-split';
-                html += `<tr>
-                    <td>${Utils.formatDate(t.starttime)}</td>
-                    <td>${Utils.escapeHtml(t.type || '-')}</td>
-                    <td><strong style="color:var(--accent-blue)">${t.id || '-'}</strong></td>
-                    <td style="color:var(--text-secondary)">${Utils.escapeHtml(t.user || '-')}</td>
-                    <td style="color:${statusColor}"><i class="bi ${statusIcon}"></i> ${Utils.escapeHtml(t.status || 'running')}</td>
-                    <td style="text-align:right">
-                        <button class="btn btn-outline-light btn-action" onclick="Settings._showTaskLog('${this._tasksNode}', '${Utils.escapeHtml(t.upid)}')">
-                            <i class="bi bi-terminal-fill"></i> Log
-                        </button>
-                    </td>
-                </tr>`;
-            }
-            html += '</tbody></table></div>';
-            html += Utils.paginationHtml(pag, 'Settings.setTasksPage', 'Settings.setTasksPerPage');
-            container.innerHTML = html;
-        } catch (err) {
-            container.innerHTML = `<div class="alert alert-danger" style="border-radius:var(--radius-md)">Error: ${Utils.escapeHtml(err.message)}</div>`;
-        }
-    },
-
-    async _showTaskLog(node, upid) {
-        const logContent = document.getElementById('task-log-content');
-        logContent.textContent = 'Loading...';
-        const modal = new bootstrap.Modal(document.getElementById('taskLogModal'));
-        modal.show();
-        try {
-            const logLines = await API.getTaskLog(node, upid);
-            if (Array.isArray(logLines) && logLines.length > 0) {
-                logContent.textContent = logLines.map(l => l.t || l.d || '').join('\n');
-            } else {
-                logContent.textContent = '(No log entries)';
-            }
-        } catch (err) {
-            logContent.textContent = 'Error: ' + err.message;
-        }
-    },
-
     // ── Logs Tab ─────────────────────────────────────────────────────────
 
     renderLogsTab(container) {
@@ -457,12 +469,16 @@ const Settings = {
         container.innerHTML = `
             <div class="settings-section">
                 <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h5 class="settings-section-title mb-0"><i class="bi bi-journal-text me-2"></i>Application Logs</h5>
-                    <div class="d-flex gap-2 align-items-center">
+                    <h5 class="settings-section-title mb-0"><i class="bi bi-journal-text me-2"></i>Logs</h5>
+                    <div class="d-flex gap-2 align-items-center flex-wrap">
+                        <div class="btn-group btn-group-sm" role="group">
+                            <button class="btn btn-outline-light ${this._logsSource === 'all' ? 'active' : ''}" onclick="Settings._logsSource='all';Settings._logsPage=1;Settings.loadLogs()">All</button>
+                            <button class="btn btn-outline-light ${this._logsSource === 'app' ? 'active' : ''}" onclick="Settings._logsSource='app';Settings._logsPage=1;Settings.loadLogs()">App</button>
+                            <button class="btn btn-outline-light ${this._logsSource === 'proxmox' ? 'active' : ''}" onclick="Settings._logsSource='proxmox';Settings._logsPage=1;Settings.loadLogs()">Proxmox</button>
+                        </div>
                         <select id="logs-level-filter" class="form-select form-select-sm" style="width:auto;" onchange="Settings._logsPage=1;Settings.loadLogs()">
                             <option value="no-debug" selected>All (excl. Debug)</option>
                             <option value="">All Levels</option>
-                            <option value="debug">Debug</option>
                             <option value="info">Info</option>
                             <option value="warning">Warning</option>
                             <option value="error">Error</option>
@@ -498,8 +514,9 @@ const Settings = {
         if (!container) return;
         const level = document.getElementById('logs-level-filter')?.value || '';
         const category = document.getElementById('logs-category-filter')?.value || '';
+        const source = this._logsSource || 'all';
         try {
-            const res = await API.get('api/logs.php', { limit: 500, level, category });
+            const res = await API.get('api/logs.php', { limit: 500, level, category, source });
             const logs = res.logs || [];
             const categories = res.categories || [];
 
@@ -529,17 +546,39 @@ const Settings = {
                 return `<span class="badge ${cls}">${escapeHtml(lvl)}</span>`;
             };
 
+            const sourceBadge = (src) => {
+                if (src === 'proxmox') return '<span class="badge" style="background:#e65100;font-size:0.65rem">PVE</span>';
+                return '<span class="badge" style="background:var(--accent-green);color:#000;font-size:0.65rem">App</span>';
+            };
+
+            const fmtContext = (ctx) => {
+                if (!ctx) return '';
+                try {
+                    const obj = typeof ctx === 'string' ? JSON.parse(ctx) : ctx;
+                    if (typeof obj === 'object' && obj !== null) {
+                        const parts = [];
+                        for (const [k, v] of Object.entries(obj)) {
+                            if (v !== '' && v !== null && v !== undefined) parts.push(`${k}=${v}`);
+                        }
+                        return parts.length ? parts.join(' · ') : '';
+                    }
+                } catch (_) {}
+                return String(ctx);
+            };
+
             let html = `<div class="guest-table"><table class="table table-dark table-hover mb-0">
                 <thead><tr>
-                    <th>Time</th><th>Level</th><th>Category</th><th>Message</th><th>User</th>
+                    <th>Time</th><th>Source</th><th>Level</th><th>Category</th><th>Message</th><th>User</th>
                 </tr></thead><tbody>`;
             for (const l of pag.items) {
                 const time = new Date(l.created_at).toLocaleString();
-                html += `<tr>
+                const ctxStr = fmtContext(l.context);
+                html += `<tr${l.source === 'proxmox' ? ' style="opacity:0.85"' : ''}>
                     <td class="text-nowrap small">${escapeHtml(time)}</td>
+                    <td>${sourceBadge(l.source || 'app')}</td>
                     <td>${levelBadge(l.level)}</td>
                     <td><span class="badge bg-secondary">${escapeHtml(l.category)}</span></td>
-                    <td class="small">${escapeHtml(l.message)}${l.context ? `<br><code class="small text-muted">${escapeHtml(l.context)}</code>` : ''}</td>
+                    <td class="small">${escapeHtml(l.message)}${ctxStr ? `<br><code class="small text-muted">${escapeHtml(ctxStr)}</code>` : ''}</td>
                     <td class="small text-muted">${escapeHtml(l.username || '-')}</td>
                 </tr>`;
             }
@@ -1009,6 +1048,10 @@ const Settings = {
 
     renderSshTab(container) {
         if (!container) return;
+        if (!Utils.sshEnabled()) {
+            container.innerHTML = Utils.sshDisabledHint();
+            return;
+        }
         container.innerHTML = `
             <div class="settings-section">
                 <h5 class="settings-section-title"><i class="bi bi-key-fill me-2"></i>SSH Key Setup</h5>

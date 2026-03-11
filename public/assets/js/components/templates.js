@@ -74,12 +74,14 @@ const Templates = {
             </div>
 
             <div id="tab-services" style="${this.activeTab === 'services' ? '' : 'display:none'}">
+                ${!Utils.sshEnabled() ? Utils.sshDisabledHint() : `
                 <p style="color:var(--text-muted)" class="mb-3">
                     Pre-configured service templates based on cloud images. Deploy a ready-to-use server with packages and setup commands included.
                 </p>
                 <div id="service-templates-grid" class="ci-images-grid">
                     <div class="loading-spinner"><div class="spinner-border text-primary"></div></div>
                 </div>
+                `}
             </div>
 
             <div id="tab-local" style="${this.activeTab === 'local' ? '' : 'display:none'}">
@@ -101,6 +103,7 @@ const Templates = {
             </div>
 
             <div id="tab-community" style="${this.activeTab === 'community' ? '' : 'display:none'}">
+                ${!Utils.sshEnabled() ? Utils.sshDisabledHint() : `
                 <p style="color:var(--text-muted)" class="mb-3">
                     Browse and install community-maintained scripts from
                     <a href="https://community-scripts.github.io/ProxmoxVE/scripts" target="_blank" rel="noopener" style="color:var(--accent-green)">community-scripts/ProxmoxVE</a>.
@@ -109,14 +112,18 @@ const Templates = {
                 <div id="community-content">
                     <div class="loading-spinner"><div class="spinner-border text-primary"></div></div>
                 </div>
+                `}
             </div>
 
             <div id="tab-cloudinit" style="${this.activeTab === 'cloudinit' ? '' : 'display:none'}">
+                ${!Utils.sshEnabled() ? Utils.sshDisabledHint() : `
                 <p style="color:var(--text-muted)" class="mb-3">Deploy a fresh virtual machine from a cloud image with automated cloud-init configuration.</p>
                 <div id="ci-grid" class="ci-images-grid"></div>
+                `}
             </div>
 
             <div id="tab-custom" style="${this.activeTab === 'custom' ? '' : 'display:none'}">
+                ${!Utils.sshEnabled() ? Utils.sshDisabledHint() : `
                 <p style="color:var(--text-muted)" class="mb-3">
                     Upload custom OS images (Windows with Sysprep/cloudbase-init, custom Linux, etc.)
                     and deploy them to your cluster.
@@ -128,9 +135,11 @@ const Templates = {
                 </div>
                 <div id="custom-images-grid" class="ci-images-grid"></div>
                 <div id="custom-unregistered"></div>
+                `}
             </div>
 
             <div id="tab-windows" style="${this.activeTab === 'windows' ? '' : 'display:none'}">
+                ${!Utils.sshEnabled() ? Utils.sshDisabledHint() : `
                 <p style="color:var(--text-muted)" class="mb-3">
                     Deploy Windows VMs from ISO with optional unattended install (autounattend.xml).
                     Upload the Windows ISO in the Custom Images tab first, then register an Unattend.xml here.
@@ -141,6 +150,7 @@ const Templates = {
                     </button>
                 </div>
                 <div id="windows-images-grid" class="ci-images-grid"></div>
+                `}
             </div>
         `;
 
@@ -453,7 +463,7 @@ const Templates = {
                 <select id="cs-ssh-node" class="form-select form-select-sm" style="width:auto;min-width:140px">
                     ${(this.nodes || []).filter(n => n.status === 'online').map(n => `<option value="${escapeHtml(n.node)}">${escapeHtml(n.node)}</option>`).join('')}
                 </select>
-                <button class="btn btn-sm btn-success" onclick="Templates.openTerminal()">
+                <button class="btn btn-sm btn-success" onclick="Templates.openTerminal()" title="${Utils.sshEnabled() ? 'Open Terminal & Install' : 'Requires SSH'}" ${Utils.sshEnabled() ? '' : 'disabled'}>
                     <i class="bi bi-terminal-fill me-1"></i>Open Terminal &amp; Install
                 </button>
             </div>
@@ -488,6 +498,7 @@ const Templates = {
     },
 
     async openTerminal() {
+        if (!Utils.sshEnabled()) { Toast.error('Terminal requires SSH.'); return; }
         const nodeSelect = document.getElementById('cs-ssh-node');
         const node = nodeSelect?.value;
         if (!node || !this._currentScriptPath) return;
@@ -773,6 +784,7 @@ const Templates = {
 
     async submitCloudImage(event) {
         event.preventDefault();
+        if (!Utils.sshEnabled()) { Toast.error('Cloud-Init deployment requires SSH.'); return; }
 
         const ipType = document.querySelector('input[name="ci-ip-type"]:checked')?.value || 'dhcp';
 
@@ -1161,8 +1173,8 @@ const Templates = {
                     </div>
                 </div>
                 <div class="ci-card-footer">
-                    <button class="btn btn-sm btn-outline-info me-1" title="Distribute to all nodes"
-                        onclick="event.stopPropagation();Templates.distributeCustomImage(${img.id},this)">
+                    <button class="btn btn-sm btn-outline-info me-1" title="${Utils.sshEnabled() ? 'Distribute to all nodes' : 'Requires SSH'}"
+                        onclick="event.stopPropagation();Templates.distributeCustomImage(${img.id},this)" ${Utils.sshEnabled() ? '' : 'disabled'}>
                         <i class="bi bi-send"></i>
                     </button>
                     <button class="btn btn-sm btn-outline-danger" title="Delete"
@@ -1346,6 +1358,7 @@ const Templates = {
     },
 
     async distributeCustomImage(id, btn) {
+        if (!Utils.sshEnabled()) { Toast.error('Image distribution requires SSH.'); return; }
         if (!confirm('Copy this image to all online Proxmox nodes via SCP?\nThis may take a while for large files.')) return;
 
         const origHtml = btn.innerHTML;
@@ -1886,6 +1899,7 @@ const Templates = {
 
     async submitWindowsDeploy(event) {
         event.preventDefault();
+        if (!Utils.sshEnabled()) { Toast.error('Windows deployment requires SSH.'); return; }
 
         const params = {
             image_id:    this._winDeployImage.id,

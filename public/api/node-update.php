@@ -12,6 +12,7 @@ use App\AppLogger;
 
 Bootstrap::init();
 Auth::requirePermission('cluster.update');
+\App\Config::requireSsh();
 
 $method = $_SERVER['REQUEST_METHOD'];
 

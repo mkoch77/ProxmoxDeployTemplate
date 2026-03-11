@@ -9,6 +9,7 @@ const Maintenance = {
     async init() {
         this.activeTab = 'nodes';
         this.render();
+        if (!Utils.sshEnabled()) return;
         await this.loadData();
         this.startAutoRefresh();
     },
@@ -34,6 +35,15 @@ const Maintenance = {
     render() {
         const hasUpdates = typeof Updater !== 'undefined' && Permissions.has('cluster.update');
         const main = document.getElementById('page-content');
+        if (!Utils.sshEnabled()) {
+            main.innerHTML = `
+                <div class="section-header">
+                    <h2><i class="bi bi-wrench-adjustable"></i> Maintenance</h2>
+                </div>
+                ${Utils.sshDisabledHint()}
+            `;
+            return;
+        }
         main.innerHTML = `
             <div class="section-header">
                 <h2><i class="bi bi-wrench-adjustable"></i> Maintenance</h2>
@@ -284,6 +294,7 @@ const Maintenance = {
     },
 
     async enterMaintenance(nodeName) {
+        if (!Utils.sshEnabled()) { Toast.error('This feature requires SSH.'); return; }
         const guests = this.nodeGuests[nodeName] || [];
         const hasLxc = guests.some(g => g.type === 'lxc');
         const lxcNote = hasLxc
@@ -305,6 +316,7 @@ const Maintenance = {
     },
 
     async leaveMaintenance(nodeName) {
+        if (!Utils.sshEnabled()) { Toast.error('This feature requires SSH.'); return; }
         if (!confirm(`Exit maintenance mode for "${nodeName}"?\n\nPreviously migrated VMs/CTs will be automatically migrated back.`)) return;
 
         try {

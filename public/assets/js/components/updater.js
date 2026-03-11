@@ -22,6 +22,14 @@ const Updater = {
     },
 
     render() {
+        const content = document.getElementById('page-content');
+        if (!Utils.sshEnabled()) {
+            content.innerHTML = `
+                <div class="content-header"><h1><i class="bi bi-arrow-repeat me-2"></i>Update Manager</h1></div>
+                ${Utils.sshDisabledHint()}
+            `;
+            return;
+        }
         document.getElementById('updater-wrapper').innerHTML = `
             <div class="section-header">
                 <h2><i class="bi bi-arrow-repeat"></i> Update Manager</h2>

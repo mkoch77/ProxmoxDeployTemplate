@@ -57,7 +57,7 @@ foreach ($nodes['data'] ?? [] as $nodeInfo) {
             continue;
         }
 
-        // VM has a stale cicustom reference — remove it
+        // VM has a stale cicustom reference — remove it via API
         printf("VM %d on %s: removing cicustom '%s'\n", $vmid, $nodeName, $cicustom);
 
         try {
@@ -66,7 +66,20 @@ foreach ($nodes['data'] ?? [] as $nodeInfo) {
 
             // Also clean up the snippet file via SSH
             try {
-                $sshHost = Helpers::resolveNodeSshHost($api, $nodeName);
+                $envKey  = 'SSH_HOST_' . strtoupper(str_replace('-', '_', $nodeName));
+                $sshHost = Config::get($envKey, '');
+                if (!$sshHost) {
+                    $sshHost = $nodeName;
+                    $status = $api->getClusterStatus();
+                    foreach ($status['data'] ?? [] as $entry) {
+                        if (($entry['type'] ?? '') === 'node' &&
+                            strtolower($entry['name'] ?? '') === strtolower($nodeName) &&
+                            !empty($entry['ip'])) {
+                            $sshHost = $entry['ip'];
+                            break;
+                        }
+                    }
+                }
                 $snippetFile = '/var/lib/vz/snippets/ci_vendor_' . $vmid . '.yaml';
                 \App\SSH::exec($sshHost, 'rm -f ' . escapeshellarg($snippetFile));
             } catch (\Exception $e) {

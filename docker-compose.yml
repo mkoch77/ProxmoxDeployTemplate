@@ -48,6 +48,7 @@ services:
       APP_SECRET: ${APP_SECRET}
 
       # SSH — key is auto-generated in /var/www/html/data/.ssh/id_ed25519
+      SSH_ENABLED: ${SSH_ENABLED:-true}
       SSH_PORT: ${SSH_PORT:-22}
       SSH_USER: ${SSH_USER:-root}
       SSH_KEY_PATH: /var/www/html/data/.ssh/id_ed25519
@@ -56,6 +57,7 @@ services:
       # Admin account — created on first start, vars are removed from .env afterwards
       ADMIN_USER: ${ADMIN_USER:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_SSH_PUBKEY: ${ADMIN_SSH_PUBKEY:-}
 
       # EntraID / Azure AD (optional)
       ENTRAID_TENANT_ID: ${ENTRAID_TENANT_ID:-}

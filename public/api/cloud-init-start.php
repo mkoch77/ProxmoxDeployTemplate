@@ -15,6 +15,7 @@ Request::requireMethod('POST');
 Request::validateCsrf();
 
 $user = Auth::requirePermission('template.deploy');
+\App\Config::requireSsh();
 $body = Request::jsonBody();
 
 // ── Allowed image catalog ────────────────────────────────────────────────────
@@ -231,7 +232,10 @@ $lines[] = "echo ''";
 $customFile = $image['custom_file'] ?? '';
 if ($customFile) {
     // Custom image: use local copy on the node
-    $remoteSrc = '/var/lib/vz/template/custom/' . $customFile;
+    $isIso = (bool)preg_match('/\.iso$/i', $customFile);
+    $remoteSrc = $isIso
+        ? '/var/lib/vz/template/iso/' . $customFile
+        : '/var/lib/vz/template/custom/' . $customFile;
     $lines[] = "echo '==> [1/8] Using custom image " . addslashes($image['name']) . "...'";
     $lines[] = 'if [ ! -f ' . escapeshellarg($remoteSrc) . ' ]; then echo "ERROR: Custom image not found at ' . addslashes($remoteSrc) . ' — distribute it first."; exit 1; fi';
     $lines[] = 'cp ' . escapeshellarg($remoteSrc) . ' "$IMG"';
