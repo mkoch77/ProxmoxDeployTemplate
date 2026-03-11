@@ -136,10 +136,15 @@ try {
                                 $nodeHosts[$node] = $sshHost;
                             }
 
-                            // Get ARP table (cached per node)
+                            // Get ARP + bridge neighbour table (cached per node)
                             if (!isset($arpCaches[$node])) {
                                 try {
-                                    $arpCaches[$node] = SSH::exec($nodeHosts[$node], 'cat /proc/net/arp 2>/dev/null || arp -an 2>/dev/null');
+                                    // Combine: /proc/net/arp + bridge FDB + ip neigh for comprehensive lookup
+                                    $arpCaches[$node] = SSH::exec($nodeHosts[$node],
+                                        'cat /proc/net/arp 2>/dev/null; echo "---"; '
+                                        . 'ip neigh show 2>/dev/null; echo "---"; '
+                                        . 'arp-scan --localnet --interface=vmbr0 -q 2>/dev/null || true'
+                                    );
                                 } catch (\Exception $e) {
                                     $arpCaches[$node] = '';
                                 }

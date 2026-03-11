@@ -128,7 +128,11 @@ try {
                         } catch (\Exception $e) { /* use node name */ }
                     }
 
-                    $arpOutput = SSH::exec($sshHost, 'cat /proc/net/arp 2>/dev/null || arp -an 2>/dev/null');
+                    $arpOutput = SSH::exec($sshHost,
+                        'cat /proc/net/arp 2>/dev/null; echo "---"; '
+                        . 'ip neigh show 2>/dev/null; echo "---"; '
+                        . 'arp-scan --localnet --interface=vmbr0 -q 2>/dev/null || true'
+                    );
                     foreach (explode("\n", $arpOutput) as $line) {
                         if (stripos($line, $mac) !== false) {
                             if (preg_match('/^(\d+\.\d+\.\d+\.\d+)\s/', trim($line), $m)) {
