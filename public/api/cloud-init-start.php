@@ -336,8 +336,13 @@ $lines[] = '';
 $lines[] = "echo '==> [8/8] Starting VM...'";
 $lines[] = 'qm start $VMID';
 $lines[] = 'rm -f "$IMG"';
-// NOTE: Do NOT delete the vendor snippet — Proxmox needs it for every VM start/reboot.
-// It will be cleaned up when the VM is destroyed.
+// Remove cicustom reference after start — Proxmox has already generated the cloud-init ISO.
+// Cloud-init only processes vendor-data once (marks itself done), so this reference is no longer
+// needed and would cause "volume does not exist" errors after migration to another node
+// (local:snippets/ is per-node storage).
+$lines[] = "echo '    Removing cloud-init snippet reference (no longer needed after first boot)...'";
+$lines[] = 'qm set $VMID --delete cicustom 2>/dev/null || true';
+$lines[] = 'rm -f ' . escapeshellarg($vendorFile);
 
 $lines[] = "echo ''";
 $lines[] = 'echo "==> Done! VM $VMID (' . addslashes($name) . ') is starting."';

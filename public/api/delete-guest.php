@@ -35,19 +35,7 @@ try {
 
     // Clean up cloud-init vendor snippet on the node (if it exists)
     try {
-        $node = $body['node'];
-        $envKey = 'SSH_HOST_' . strtoupper(str_replace('-', '_', $node));
-        $sshHost = \App\Config::get($envKey, '');
-        if (!$sshHost) {
-            $sshHost = $node;
-            $status = $api->getClusterStatus();
-            foreach ($status['data'] ?? [] as $entry) {
-                if (($entry['type'] ?? '') === 'node' && strtolower($entry['name'] ?? '') === strtolower($node) && !empty($entry['ip'])) {
-                    $sshHost = $entry['ip'];
-                    break;
-                }
-            }
-        }
+        $sshHost = Helpers::resolveNodeSshHost($api, $body['node']);
         $snippetFile = '/var/lib/vz/snippets/ci_vendor_' . $vmid . '.yaml';
         \App\SSH::exec($sshHost, 'rm -f ' . escapeshellarg($snippetFile));
     } catch (\Exception $e) {

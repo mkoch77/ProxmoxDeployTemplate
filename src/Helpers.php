@@ -55,6 +55,29 @@ class Helpers
         }
     }
 
+    /**
+     * Resolve the SSH host for a Proxmox node: env override → cluster status IP → node name fallback.
+     */
+    public static function resolveNodeSshHost(ProxmoxAPI $api, string $nodeName): string
+    {
+        $envKey  = 'SSH_HOST_' . strtoupper(str_replace('-', '_', $nodeName));
+        $sshHost = Config::get($envKey, '');
+        if ($sshHost) {
+            return $sshHost;
+        }
+        try {
+            $status = $api->getClusterStatus();
+            foreach ($status['data'] ?? [] as $entry) {
+                if (($entry['type'] ?? '') === 'node' &&
+                    strtolower($entry['name'] ?? '') === strtolower($nodeName) &&
+                    !empty($entry['ip'])) {
+                    return $entry['ip'];
+                }
+            }
+        } catch (\Exception $e) { /* fall back to node name */ }
+        return $nodeName;
+    }
+
     public static function createAPI(): ProxmoxAPI
     {
         $primary = Config::get('PROXMOX_HOST');
