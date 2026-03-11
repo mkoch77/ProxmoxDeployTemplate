@@ -100,7 +100,7 @@ echo -e "\n${BOLD}ProxmoxDeploy — Ersteinrichtung${RESET}"
 echo -e "Alle Pflichtfelder sind ${RED}*${RESET} markiert. Leere Eingabe übernimmt den Standardwert.\n"
 
 # ── 1. Proxmox ────────────────────────────────────────────────────────────────
-header "1 / 5 · Proxmox Verbindung"
+header "1 / 7 · Proxmox Verbindung"
 
 ask        PROXMOX_HOST          "* Proxmox primäre IP / Hostname (z.B. 192.168.1.100)"
 ask_optional PROXMOX_PORT        "  Port"                        "8006"
@@ -118,7 +118,7 @@ ask        PROXMOX_TOKEN_ID      "* Token-ID"
 ask_secret PROXMOX_TOKEN_SECRET  "* Token-Secret (UUID)"
 
 # ── 2. Datenbank ──────────────────────────────────────────────────────────────
-header "2 / 5 · Datenbank (PostgreSQL)"
+header "2 / 7 · Datenbank (PostgreSQL)"
 
 ask_optional DB_NAME     "  Datenbankname"  "proxmoxdcm"
 ask_optional DB_USER     "  Datenbanknutzer" "proxmoxdcm"
@@ -134,7 +134,7 @@ else
 fi
 
 # ── 3. Ports & App ────────────────────────────────────────────────────────────
-header "3 / 5 · Ports & App-Secret"
+header "3 / 7 · Ports & App-Secret"
 
 ask_optional HTTP_PORT  "  HTTP-Port"   "80"
 ask_optional HTTPS_PORT "  HTTPS-Port"  "443"
@@ -144,7 +144,7 @@ APP_SECRET="$(gen_secret)"
 echo -e "${GREEN}  → App-Secret generiert.${RESET}"
 
 # ── 4. SSH ────────────────────────────────────────────────────────────────────
-header "4 / 5 · SSH (für Maintenance, Rolling-Updates, Community-Scripts)"
+header "4 / 7 · SSH (für Maintenance, Rolling-Updates, Community-Scripts)"
 echo -e "  SSH ermöglicht: Terminal, Community-Scripts, Rolling-Updates,"
 echo -e "  Cloud-Init Deploy, Custom-Image-Verteilung, Maintenance-Modus."
 echo -e "  ${YELLOW}Ohne SSH funktioniert die Proxmox REST API weiterhin vollständig.${RESET}\n"
@@ -162,7 +162,8 @@ if ask_yn "SSH-Zugang zu Proxmox-Nodes aktivieren?" "j"; then
     ask_optional SSH_USER "  SSH-Nutzername auf Proxmox-Nodes" "root"
     ask_optional SSH_PORT "  SSH-Port"                         "22"
 
-    echo -e "\n  SSH-Passwort nur nötig, wenn kein SSH-Key-Deployment gewünscht (leer lassen empfohlen)."
+    echo -e "\n  SSH-Passwort wird ${YELLOW}einmalig${RESET} für das erste Key-Deployment benötigt."
+    echo -e "  Nach erfolgreichem Deploy wird es automatisch aus der .env gelöscht."
     printf "${CYAN}  SSH_PASSWORD${RESET} ${YELLOW}[leer]${RESET}: "
     read -rs SSH_PASSWORD
     echo
@@ -171,8 +172,47 @@ else
     echo -e "${GREEN}  → SSH deaktiviert. SSH-abhängige Features werden ausgeblendet.${RESET}"
 fi
 
-# ── 5. Optionale Features ─────────────────────────────────────────────────────
-header "5 / 6 · Admin-Account"
+# ── 5. Cloud Images ──────────────────────────────────────────────────────────
+header "5 / 7 · Cloud-Init Images"
+echo -e "  Welche Linux-Distributionen sollen für Cloud-Init Deploy verfügbar sein?"
+echo -e "  Verfügbar: ${YELLOW}ubuntu, debian, rocky, alma, centos, fedora, opensuse, arch${RESET}"
+echo -e "  Mehrere kommagetrennt, z.B.: ${CYAN}ubuntu,debian,rocky${RESET}\n"
+
+ALL_DISTROS="ubuntu,debian,rocky,alma,centos,fedora,opensuse,arch"
+CLOUD_DISTROS=""
+
+if ask_yn "Alle Distributionen aktivieren?" "j"; then
+    CLOUD_DISTROS="$ALL_DISTROS"
+    echo -e "${GREEN}  → Alle Distributionen aktiviert.${RESET}"
+else
+    echo
+    for distro in ubuntu debian rocky alma centos fedora opensuse arch; do
+        label="$distro"
+        case $distro in
+            ubuntu)   label="Ubuntu (24.04, 22.04, 20.04)" ;;
+            debian)   label="Debian (12, 11)" ;;
+            rocky)    label="Rocky Linux 9" ;;
+            alma)     label="AlmaLinux 9" ;;
+            centos)   label="CentOS Stream 9" ;;
+            fedora)   label="Fedora 41" ;;
+            opensuse) label="openSUSE Leap 15.6" ;;
+            arch)     label="Arch Linux" ;;
+        esac
+        if ask_yn "  ${label} aktivieren?" "j"; then
+            [[ -n "$CLOUD_DISTROS" ]] && CLOUD_DISTROS="${CLOUD_DISTROS},"
+            CLOUD_DISTROS="${CLOUD_DISTROS}${distro}"
+        fi
+    done
+    if [[ -z "$CLOUD_DISTROS" ]]; then
+        echo -e "${YELLOW}  Keine Distro ausgewählt — Cloud-Init Deploy ist deaktiviert.${RESET}"
+        CLOUD_DISTROS="none"
+    else
+        echo -e "\n${GREEN}  → Aktiviert: ${CLOUD_DISTROS}${RESET}"
+    fi
+fi
+
+# ── 6. Admin-Account ─────────────────────────────────────────────────────────
+header "6 / 7 · Admin-Account"
 echo -e "  Dieser Account wird beim ersten Container-Start automatisch angelegt.\n"
 
 ask_optional ADMIN_USER "  Admin-Benutzername" "admin"
@@ -218,8 +258,8 @@ if ask_yn "SSH-Keypair für Admin generieren? (wird für VM-Zugang via Cloud-Ini
     echo -e "  Für SSH-Zugang zu VMs: ${CYAN}ssh -i ${ADMIN_KEY_FILE} <user>@<vm-ip>${RESET}"
 fi
 
-# ── 6. Optionale Features ─────────────────────────────────────────────────────
-header "6 / 6 · Optionale Features"
+# ── 7. Optionale Features ─────────────────────────────────────────────────────
+header "7 / 7 · Optionale Features"
 
 # EntraID
 ENTRAID_TENANT_ID="" ENTRAID_CLIENT_ID="" ENTRAID_CLIENT_SECRET="" ENTRAID_REDIRECT_URI=""
@@ -248,6 +288,7 @@ echo -e "  Token-ID      : ${GREEN}${PROXMOX_TOKEN_ID}${RESET}"
 echo -e "  Datenbank     : ${GREEN}${DB_USER}@${DB_NAME}${RESET}"
 echo -e "  Admin-Account : ${GREEN}${ADMIN_USER}${RESET}"
 echo -e "  Ports         : ${GREEN}HTTP=${HTTP_PORT}  HTTPS=${HTTPS_PORT}${RESET}"
+echo -e "  Cloud-Distros : ${GREEN}${CLOUD_DISTROS}${RESET}"
 [[ -n "$DOMAIN" ]] && echo -e "  Domain        : ${GREEN}${DOMAIN}${RESET}"
 [[ -n "$ENTRAID_TENANT_ID" ]] && echo -e "  Entra ID      : ${GREEN}aktiviert${RESET}"
 echo
@@ -286,6 +327,9 @@ SSH_PORT=${SSH_PORT}
 SSH_USER=${SSH_USER}
 SSH_KEY_PATH=/var/www/html/data/.ssh/id_ed25519
 SSH_PASSWORD=${SSH_PASSWORD}
+
+# ── Cloud Images ─────────────────────────────────────────────────────────────
+CLOUD_DISTROS=${CLOUD_DISTROS}
 
 # ── Let's Encrypt (leer = deaktiviert) ───────────────────────────────────────
 DOMAIN=${DOMAIN}

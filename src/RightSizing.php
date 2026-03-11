@@ -28,6 +28,10 @@ class RightSizing
         // Get VMs with recent right-sizing applies (cooldown period)
         $recentApplies = self::getRecentApplies();
 
+        // Get node-level context: vCPU:pCPU ratios and I/O wait
+        $nodeVcpuRatios = self::getNodeVcpuRatios($liveConfigs, $nodeMaxCpus);
+        $nodeIowait = self::getNodeIowait($timerange);
+
         $results = [];
 
         foreach ($summaries as $vm) {
@@ -67,7 +71,13 @@ class RightSizing
                 $vm['mem_total'] = $liveConfigs[$vmid]['mem_bytes'];
             }
 
-            $recommendation = self::analyzeVm($vm);
+            $vmNode = $liveConfigs[$vmid]['node'] ?? ($vm['node'] ?? '');
+            $nodeContext = [
+                'vcpu_ratio' => $nodeVcpuRatios[$vmNode] ?? 0,
+                'iowait' => $nodeIowait[$vmNode] ?? 0,
+                'node_max_cpus' => $nodeMaxCpus[$vmNode] ?? 0,
+            ];
+            $recommendation = self::analyzeVm($vm, $nodeContext);
             if ($recommendation) {
                 // Skip CPU recommendation if it exceeds node's physical core count
                 $recCores = $recommendation['recommended']['cpu_cores'] ?? null;
@@ -108,7 +118,7 @@ class RightSizing
         return $results;
     }
 
-    public static function analyzeVm(array $vm): ?array
+    public static function analyzeVm(array $vm, array $nodeContext = []): ?array
     {
         $vmid = (int)$vm['vmid'];
         $name = $vm['name'] ?? "VM $vmid";
@@ -129,22 +139,36 @@ class RightSizing
         $memPctAvg = $memTotal > 0 ? $avgMem / $memTotal : 0;
         $memPctP95 = $memTotal > 0 ? $p95Mem / $memTotal : 0;
 
+        $vcpuRatio = (float)($nodeContext['vcpu_ratio'] ?? 0);
+        $nodeIowait = (float)($nodeContext['iowait'] ?? 0);
+
         $issues = [];
         $suggestions = [];
         $severity = 'optimal';
 
         // CPU analysis
         if ($p95Cpu > self::CPU_UNDER_THRESHOLD) {
-            $severity = 'undersized';
-            $recCores = self::recommendCpuCores($p95Cpu, $cpuCount);
-            $issues[] = sprintf('CPU p95 at %.0f%% — consistently high load', $p95Cpu * 100);
-            $suggestions[] = sprintf('Increase CPU cores from %d to %d', $cpuCount, $recCores);
+            // If node is already heavily overcommitted (>4:1), warn instead of recommending more cores
+            if ($vcpuRatio > 4) {
+                $severity = 'undersized';
+                $issues[] = sprintf('CPU p95 at %.0f%% — high load, but node vCPU:pCPU is %.1f:1 (overcommitted)', $p95Cpu * 100, $vcpuRatio);
+                $suggestions[] = sprintf('Consider migrating to a less loaded node (vCPU:pCPU %.1f:1)', $vcpuRatio);
+            } else {
+                $severity = 'undersized';
+                $recCores = self::recommendCpuCores($p95Cpu, $cpuCount);
+                $issues[] = sprintf('CPU p95 at %.0f%% — consistently high load', $p95Cpu * 100);
+                $suggestions[] = sprintf('Increase CPU cores from %d to %d', $cpuCount, $recCores);
+            }
         } elseif ($avgCpu < self::CPU_OVER_THRESHOLD && $maxCpu < 0.30) {
             $recCores = self::recommendCpuCoresDown($avgCpu, $p95Cpu, $cpuCount);
             if ($recCores < $cpuCount) {
                 $severity = 'oversized';
                 $issues[] = sprintf('CPU avg %.1f%%, max %.1f%% — very low utilization', $avgCpu * 100, $maxCpu * 100);
                 $suggestions[] = sprintf('Reduce CPU cores from %d to %d', $cpuCount, $recCores);
+                // Emphasize reduction if node is overcommitted
+                if ($vcpuRatio > 2) {
+                    $suggestions[] = sprintf('Node vCPU:pCPU is %.1f:1 — reducing cores improves cluster balance', $vcpuRatio);
+                }
             }
         }
 
@@ -163,11 +187,21 @@ class RightSizing
             }
         }
 
+        // I/O Wait analysis — flag if node has sustained high I/O wait
+        if ($nodeIowait > 15) {
+            if ($severity === 'optimal') $severity = 'undersized';
+            $issues[] = sprintf('Node I/O wait avg %.1f%% — storage bottleneck', $nodeIowait);
+            $suggestions[] = 'Check storage performance or migrate to a node with lower I/O wait';
+        } elseif ($nodeIowait > 5 && !empty($issues)) {
+            // Only mention moderate I/O wait if there are already other issues
+            $issues[] = sprintf('Node I/O wait avg %.1f%% — may affect performance', $nodeIowait);
+        }
+
         if (empty($issues)) return null;
 
         // Build recommended values (only include changed fields)
         $recommended = [];
-        if ($p95Cpu > self::CPU_UNDER_THRESHOLD) {
+        if ($p95Cpu > self::CPU_UNDER_THRESHOLD && $vcpuRatio <= 4) {
             $recommended['cpu_cores'] = self::recommendCpuCores($p95Cpu, $cpuCount);
         } elseif ($avgCpu < self::CPU_OVER_THRESHOLD && $maxCpu < 0.30) {
             $recCores = self::recommendCpuCoresDown($avgCpu, $p95Cpu, $cpuCount);
@@ -199,6 +233,10 @@ class RightSizing
                 'p95_mem_pct' => round($memPctP95 * 100, 1),
                 'avg_mem_bytes' => (int)$avgMem,
                 'p95_mem_bytes' => (int)$p95Mem,
+            ],
+            'node_context' => [
+                'vcpu_ratio' => round($vcpuRatio, 1),
+                'iowait' => round($nodeIowait, 1),
             ],
             'issues' => $issues,
             'suggestions' => $suggestions,
@@ -264,6 +302,55 @@ class RightSizing
             $map = [];
             foreach ($nodes['data'] ?? [] as $n) {
                 $map[$n['node']] = (int)($n['maxcpu'] ?? 0);
+            }
+            return $map;
+        } catch (\Exception $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Compute vCPU:pCPU ratio per node from live VM configs.
+     */
+    private static function getNodeVcpuRatios(?array $liveConfigs, array $nodeMaxCpus): array
+    {
+        if ($liveConfigs === null) return [];
+        $vcpuPerNode = [];
+        foreach ($liveConfigs as $vmid => $cfg) {
+            $n = $cfg['node'] ?? '';
+            if ($n) {
+                $vcpuPerNode[$n] = ($vcpuPerNode[$n] ?? 0) + ($cfg['cores'] ?? 0);
+            }
+        }
+        $ratios = [];
+        foreach ($vcpuPerNode as $node => $vcpus) {
+            $pCpus = $nodeMaxCpus[$node] ?? 0;
+            $ratios[$node] = $pCpus > 0 ? $vcpus / $pCpus : 0;
+        }
+        return $ratios;
+    }
+
+    /**
+     * Get average I/O wait per node from monitoring data.
+     */
+    private static function getNodeIowait(string $timerange): array
+    {
+        try {
+            $db = Database::connection();
+            $intervalMap = [
+                '1h' => '1 hour', '3h' => '3 hours', '6h' => '6 hours',
+                '12h' => '12 hours', '24h' => '24 hours', '48h' => '48 hours',
+                '7d' => '7 days', '30d' => '30 days',
+            ];
+            $interval = $intervalMap[$timerange] ?? '24 hours';
+            // disk_read_iops stores iowait (0-1 float) from Proxmox RRD
+            $stmt = $db->prepare("SELECT node, AVG(disk_read_iops) * 100 as avg_iowait
+                FROM node_metrics WHERE ts >= NOW() - ?::interval
+                GROUP BY node");
+            $stmt->execute([$interval]);
+            $map = [];
+            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+                $map[$row['node']] = (float)$row['avg_iowait'];
             }
             return $map;
         } catch (\Exception $e) {

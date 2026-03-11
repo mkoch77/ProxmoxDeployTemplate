@@ -75,6 +75,32 @@ printenv | grep -v '^_=' | sed "s/'/'\\\\''/g; s/\([^=]*\)=\(.*\)/export \1='\2'
 # Start cron daemon in background
 cron
 
+# Initial SSH key deployment + rotate on startup (in background — needs running services)
+if [[ "${SSH_ENABLED:-true}" != "false" && -f "$KEY_PATH" ]]; then
+    (
+        # Wait briefly for services to be ready
+        sleep 10
+        . /etc/docker-env.sh
+        ENV_FILE=/var/www/html/.env
+
+        # If needs_deploy flag exists, do initial deployment first (uses password auth)
+        if [[ -f "$KEY_DIR/needs_deploy" ]]; then
+            echo "$(date '+%Y-%m-%d %H:%M:%S') Initial SSH key deployment..."
+            /usr/local/bin/php /var/www/html/cli/ssh-deploy-key.php
+
+            # If deployment succeeded (flag removed), password is no longer needed
+            if [[ ! -f "$KEY_DIR/needs_deploy" && -f "$ENV_FILE" ]]; then
+                sed -i 's/^SSH_PASSWORD=.*/SSH_PASSWORD=/' "$ENV_FILE"
+                echo "$(date '+%Y-%m-%d %H:%M:%S') SSH_PASSWORD removed from .env (key-based auth active)."
+            fi
+        fi
+
+        # Rotate key (generate new, deploy, remove old)
+        echo "$(date '+%Y-%m-%d %H:%M:%S') Container start — rotating SSH key..."
+        /usr/local/bin/php /var/www/html/cli/ssh-rotate-key.php
+    ) >> /var/www/html/data/ssh-rotate.log 2>&1 &
+fi
+
 # Start monitoring collector loop in background (10s interval)
 (
     while true; do

@@ -31,6 +31,17 @@ try {
         $maintNodes[$row['node_name']] = $row;
     }
 
+    // Get node IPs from cluster status
+    $nodeIps = [];
+    try {
+        $clusterStatus = $api->getClusterStatus();
+        foreach ($clusterStatus['data'] ?? [] as $entry) {
+            if (($entry['type'] ?? '') === 'node' && !empty($entry['ip'])) {
+                $nodeIps[$entry['name']] = $entry['ip'];
+            }
+        }
+    } catch (\Exception $e) {}
+
     $totalCpu = 0;
     $totalMaxCpu = 0;
     $totalMem = 0;
@@ -41,6 +52,7 @@ try {
 
     foreach ($nodes as &$node) {
         $node['maintenance'] = $maintNodes[$node['node']] ?? false;
+        $node['ip'] = $nodeIps[$node['node']] ?? '';
 
         if (($node['status'] ?? '') === 'online') {
             $nodesOnline++;
@@ -54,7 +66,7 @@ try {
     }
     unset($node);
 
-    // Get guest counts
+    // Get guest counts + vCPU allocation per node
     $resources = $api->getClusterResources('vm');
     $totalVms = 0;
     $totalRunning = 0;
@@ -62,6 +74,8 @@ try {
     $totalQemuRunning = 0;
     $totalLxc = 0;
     $totalLxcRunning = 0;
+    $vcpuPerNode = [];   // node => total allocated vCPUs
+    $vramPerNode = [];   // node => total allocated RAM (bytes)
     foreach ($resources['data'] ?? [] as $item) {
         if (empty($item['template'])) {
             $totalVms++;
@@ -73,6 +87,18 @@ try {
             } elseif (($item['type'] ?? '') === 'lxc') {
                 $totalLxc++;
                 if ($isRunning) $totalLxcRunning++;
+            }
+            // Count allocated vCPUs and RAM per node (all guests, not just running)
+            $guestNode = $item['node'] ?? '';
+            $guestCpus = $item['maxcpu'] ?? 0;
+            $guestMem  = $item['maxmem'] ?? 0;
+            if ($guestNode) {
+                if ($guestCpus > 0) {
+                    $vcpuPerNode[$guestNode] = ($vcpuPerNode[$guestNode] ?? 0) + $guestCpus;
+                }
+                if ($guestMem > 0) {
+                    $vramPerNode[$guestNode] = ($vramPerNode[$guestNode] ?? 0) + $guestMem;
+                }
             }
         }
     }
@@ -148,6 +174,62 @@ try {
         // HA not available or not configured
     }
 
+    // Fetch CPU topology per online node (sockets, cores, threads → NUMA info)
+    // Also fetch I/O wait from RRD data
+    $totalVcpu = 0;
+    $totalPhysicalCores = 0;
+    $totalMemAllocated = 0;
+    foreach ($nodes as &$node) {
+        $nodeName = $node['node'] ?? '';
+        $node['vcpus_allocated'] = $vcpuPerNode[$nodeName] ?? 0;
+        $node['mem_allocated'] = $vramPerNode[$nodeName] ?? 0;
+        $totalVcpu += $node['vcpus_allocated'];
+        $totalMemAllocated += $node['mem_allocated'];
+
+        if (($node['status'] ?? '') === 'online') {
+            try {
+                $nodeStatus = $api->getNodeStatus($nodeName);
+                $cpuInfo = $nodeStatus['data']['cpuinfo'] ?? [];
+                $node['cpu_topology'] = [
+                    'sockets' => (int)($cpuInfo['sockets'] ?? 1),
+                    'cores'   => (int)($cpuInfo['cores'] ?? ($node['maxcpu'] ?? 1)),
+                    'threads' => (int)($cpuInfo['cpus'] ?? ($node['maxcpu'] ?? 1)),
+                    'model'   => $cpuInfo['model'] ?? '',
+                ];
+                // NUMA nodes = sockets (each socket is a NUMA domain)
+                $node['numa_nodes'] = (int)($cpuInfo['sockets'] ?? 1);
+                $physCores = $node['cpu_topology']['sockets'] * $node['cpu_topology']['cores'];
+                $node['physical_cores'] = $physCores;
+                $totalPhysicalCores += $physCores;
+            } catch (\Exception $e) {
+                $node['cpu_topology'] = null;
+                $node['numa_nodes'] = null;
+                $node['physical_cores'] = $node['maxcpu'] ?? 0;
+                $totalPhysicalCores += $node['maxcpu'] ?? 0;
+            }
+
+            // Fetch I/O wait from RRD data
+            try {
+                $rrd = $api->getNodeRRDData($nodeName, 'hour');
+                $rrdData = $rrd['data'] ?? [];
+                if (!empty($rrdData)) {
+                    $last = end($rrdData);
+                    $node['iowait'] = round((float)($last['iowait'] ?? 0) * 100, 1);
+                } else {
+                    $node['iowait'] = 0;
+                }
+            } catch (\Exception $e) {
+                $node['iowait'] = 0;
+            }
+        } else {
+            $node['cpu_topology'] = null;
+            $node['numa_nodes'] = null;
+            $node['physical_cores'] = 0;
+            $node['iowait'] = 0;
+        }
+    }
+    unset($node);
+
     // Sort nodes alphabetically
     usort($nodes, fn($a, $b) => strcasecmp($a['node'] ?? '', $b['node'] ?? ''));
 
@@ -156,8 +238,11 @@ try {
         'cluster' => [
             'total_cpu' => $totalMaxCpu > 0 ? round($totalCpu / $totalMaxCpu, 4) : 0,
             'total_maxcpu' => $totalMaxCpu,
+            'total_physical_cores' => $totalPhysicalCores,
+            'total_vcpus' => $totalVcpu,
             'total_mem' => $totalMem,
             'total_maxmem' => $totalMaxMem,
+            'total_mem_allocated' => $totalMemAllocated,
             'total_disk' => $totalDisk,
             'total_maxdisk' => $totalMaxDisk,
             'total_vms' => $totalVms,

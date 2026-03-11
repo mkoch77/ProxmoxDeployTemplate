@@ -74,6 +74,9 @@ class Migrator
            24 => self::migration024(),
            25 => self::migration025(),
            26 => self::migration026(),
+           27 => self::migration027(),
+           28 => self::migration028(),
+           29 => self::migration029(),
         ];
     }
 
@@ -654,9 +657,47 @@ class Migrator
         ";
     }
 
+    private static function migration027(): string
+    {
+        return "
+            INSERT INTO permissions (key, description)
+            VALUES ('settings.manage', 'Manage application settings and SSH keys')
+            ON CONFLICT (key) DO NOTHING;
+
+            INSERT INTO role_permissions (role_id, permission_id)
+            SELECT r.id, p.id FROM roles r, permissions p
+            WHERE r.name = 'admin' AND p.key = 'settings.manage'
+            AND NOT EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role_id = r.id AND rp.permission_id = p.id);
+        ";
+    }
+
+    private static function migration028(): string
+    {
+        return "
+            CREATE TABLE IF NOT EXISTS deleted_builtins (
+                name VARCHAR(255) PRIMARY KEY,
+                deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ";
+    }
+
+    private static function migration029(): string
+    {
+        return "
+            ALTER TABLE node_metrics ADD COLUMN IF NOT EXISTS load_avg REAL NOT NULL DEFAULT 0;
+            ALTER TABLE node_metrics ADD COLUMN IF NOT EXISTS swap_used BIGINT NOT NULL DEFAULT 0;
+            ALTER TABLE node_metrics ADD COLUMN IF NOT EXISTS swap_total BIGINT NOT NULL DEFAULT 0;
+
+            ALTER TABLE vm_metrics ADD COLUMN IF NOT EXISTS uptime BIGINT NOT NULL DEFAULT 0;
+            ALTER TABLE vm_metrics ADD COLUMN IF NOT EXISTS disk_used BIGINT NOT NULL DEFAULT 0;
+            ALTER TABLE vm_metrics ADD COLUMN IF NOT EXISTS disk_total BIGINT NOT NULL DEFAULT 0;
+        ";
+    }
+
     /**
      * Seed default service templates after migrations.
-     * Uses name-based check so new built-in templates are added automatically.
+     * Checks both existing templates AND deleted_builtins to avoid re-inserting
+     * templates the user has intentionally deleted.
      */
     public static function seed(): void
     {
@@ -669,13 +710,24 @@ class Migrator
             return; // table doesn't exist yet
         }
 
+        // Also check which builtins were explicitly deleted by the user
+        $deleted = [];
+        try {
+            $deleted = $db->query('SELECT name FROM deleted_builtins')
+                ->fetchAll(\PDO::FETCH_COLUMN);
+        } catch (\Exception $e) {
+            // table doesn't exist yet (pre-migration028)
+        }
+
+        $skip = array_merge($existing, $deleted);
+
         $builtins = self::getBuiltinServiceTemplates();
         $stmt = $db->prepare('INSERT INTO service_templates
             (name, description, base_image, icon, color, cores, memory, disk_size, packages, runcmd, tags)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
 
         foreach ($builtins as $tpl) {
-            if (in_array($tpl['name'], $existing, true)) continue;
+            if (in_array($tpl['name'], $skip, true)) continue;
             $stmt->execute([
                 $tpl['name'], $tpl['description'], $tpl['base_image'],
                 $tpl['icon'], $tpl['color'],

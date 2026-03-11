@@ -54,6 +54,9 @@ services:
       SSH_KEY_PATH: /var/www/html/data/.ssh/id_ed25519
       SSH_PASSWORD: ${SSH_PASSWORD:-}
 
+      # Cloud image distros (comma-separated: ubuntu,debian,rocky,alma,centos,fedora,opensuse,arch)
+      CLOUD_DISTROS: ${CLOUD_DISTROS:-ubuntu,debian,rocky,alma,centos,fedora,opensuse,arch}
+
       # Admin account — created on first start, vars are removed from .env afterwards
       ADMIN_USER: ${ADMIN_USER:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}

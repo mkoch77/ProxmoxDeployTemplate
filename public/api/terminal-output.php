@@ -84,6 +84,7 @@ if ($directCommand) {
 } else {
     $tmpScript = '/tmp/cs_' . bin2hex(random_bytes(6)) . '.sh';
     $scriptUrl = 'https://github.com/community-scripts/ProxmoxVE/raw/main/' . $scriptPath;
+    \App\AppLogger::debug('http', 'External request: terminal script download', ['url' => $scriptUrl, 'host' => $sshHost]);
     $remoteCmd = 'export TERM=xterm COLUMNS=200 LINES=50 DEBIAN_FRONTEND=noninteractive; '
         . 'wget -qLO ' . $tmpScript . ' ' . escapeshellarg($scriptUrl)
         . ' && bash ' . $tmpScript

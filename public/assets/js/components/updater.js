@@ -2,6 +2,7 @@ const Updater = {
     nodes: [],
     updateCounts: {},     // node → count of available updates
     updatePackages: {},   // node → array of pending packages
+    updateErrors: {},     // node → error message string (if check failed)
     session: null,
     running: false,
     cancelled: false,
@@ -75,14 +76,15 @@ const Updater = {
         }
         const startBtn = document.getElementById('updater-start-btn');
         if (startBtn) {
-            const hasFailures = this.nodes.some(n => (this.updateCounts[n.node] ?? 0) < 0);
-            startBtn.disabled = hasFailures;
-            startBtn.title = hasFailures ? 'Resolve failed update checks before starting' : '';
+            // Don't disable — user can still update nodes that passed the check
+            startBtn.disabled = false;
+            startBtn.title = '';
         }
 
         container.innerHTML = this.nodes.map(n => {
             const count    = this.updateCounts[n.node];
             const packages = this.updatePackages[n.node] || [];
+            const error    = this.updateErrors[n.node] || '';
             const nodeId   = escapeHtml(n.node);
 
             let countBadge;
@@ -91,11 +93,14 @@ const Updater = {
             } else if (count === 0) {
                 countBadge = '<span class="badge bg-success ms-2">up to date</span>';
             } else if (count < 0) {
-                countBadge = '<span class="badge bg-danger ms-2" title="Could not reach node or check failed">check failed</span>';
+                countBadge = `<span class="badge bg-danger ms-2" style="cursor:pointer"
+                    title="${escapeHtml(error || 'Check failed')}"
+                    onclick="event.preventDefault();event.stopPropagation();document.getElementById('err-${nodeId}').classList.toggle('d-none')"
+                >check failed</span>`;
             } else {
                 countBadge = `<span class="badge bg-warning text-dark ms-2" style="cursor:pointer"
                     title="Click to show packages"
-                    onclick="document.getElementById('pkgs-${nodeId}').classList.toggle('d-none')"
+                    onclick="event.preventDefault();event.stopPropagation();document.getElementById('pkgs-${nodeId}').classList.toggle('d-none')"
                 >${count} update${count !== 1 ? 's' : ''}</span>`;
             }
 
@@ -108,6 +113,13 @@ const Updater = {
                         </div>`).join('')}
                 </div>` : '';
 
+            const errorDetail = (count < 0 && error) ? `
+                <div id="err-${nodeId}" class="d-none mt-2">
+                    <div class="small text-danger" style="font-size:0.78rem">
+                        <i class="bi bi-exclamation-triangle me-1"></i>${escapeHtml(this._friendlyUpdateError(error))}
+                    </div>
+                </div>` : '';
+
             return `
                 <div class="col-md-6 col-xl-4">
                     <div class="node-card" style="cursor:default">
@@ -116,7 +128,7 @@ const Updater = {
                                 id="check-${nodeId}"
                                 value="${nodeId}"
                                 style="width:1.1rem;height:1.1rem;cursor:pointer"
-                                ${count === 0 ? '' : 'checked'}>
+                                ${count === 0 || (count !== undefined && count < 0) ? '' : 'checked'}>
                             <label class="flex-grow-1 mb-0" for="check-${nodeId}" style="cursor:pointer">
                                 <i class="bi bi-hdd-rack me-2 text-muted"></i>
                                 <strong>${escapeHtml(n.node)}</strong>
@@ -124,6 +136,7 @@ const Updater = {
                             </label>
                         </div>
                         ${pkgList}
+                        ${errorDetail}
                     </div>
                 </div>
             `;
@@ -144,9 +157,10 @@ const Updater = {
                 const r = await API.checkNodeUpdates(n.node);
                 this.updateCounts[n.node]   = r.count ?? 0;
                 this.updatePackages[n.node] = r.packages ?? [];
-            } catch (_) {
+            } catch (e) {
                 this.updateCounts[n.node]   = -1;
                 this.updatePackages[n.node] = [];
+                this.updateErrors[n.node]   = e.message || 'Unknown error';
             }
         }));
 
@@ -387,6 +401,20 @@ const Updater = {
         if (!confirm('Cancel the rolling update? The current node operation will still complete.')) return;
         this.cancelled = true;
         Toast.info('Rolling update will stop after the current node finishes.');
+    },
+
+    _friendlyUpdateError(msg) {
+        if (!msg) return 'Update check failed';
+        const m = msg.toLowerCase();
+        if (m.includes('501') || m.includes('not implemented'))
+            return 'Package index not available — the apt database on this node needs to be refreshed first. This usually resolves on retry.';
+        if (m.includes('no valid subscription') || m.includes('401') || m.includes('not authorized'))
+            return 'No valid Proxmox subscription — the enterprise repository requires a license. Switch to the no-subscription repository or add a valid subscription key.';
+        if (m.includes('553') || m.includes('unreachable') || m.includes('timeout') || m.includes('timed out') || m.includes('connection'))
+            return 'Node unreachable — check network connectivity or verify the Proxmox API is running.';
+        if (m.includes('596') || m.includes('failed to fetch') || m.includes('dns') || m.includes('resolve'))
+            return 'Could not reach update servers — check internet connection and DNS settings on the node.';
+        return msg;
     },
 
     sleep(ms) {

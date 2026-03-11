@@ -89,6 +89,7 @@ switch ($method) {
                         'target' => $target,
                         'upid' => $result['data'] ?? '',
                         'status' => 'running',
+                        'started_at' => date('c'),
                     ];
                 } catch (\Exception $e) {
                     $migrations[] = [
@@ -180,6 +181,7 @@ switch ($method) {
                         'target' => $originalNode,
                         'upid' => $result['data'] ?? '',
                         'status' => 'running',
+                        'started_at' => date('c'),
                     ];
                 } catch (\Exception $e) {
                     $backMigrations[] = [
@@ -220,6 +222,108 @@ switch ($method) {
             AppLogger::error('maintenance', 'Failed to exit maintenance mode', ['node' => $nodeName, 'error' => $e->getMessage()], Auth::check()['id'] ?? null);
             Response::error($e->getMessage(), 500);
         }
+        break;
+
+    case 'PATCH':
+        Request::validateCsrf();
+        Auth::requirePermission('cluster.maintenance');
+        $body = Request::jsonBody();
+        $nodeName = $body['node'] ?? '';
+        $action = $body['action'] ?? '';
+
+        if (!$nodeName || !Helpers::validateNodeName($nodeName)) {
+            Response::error('Invalid node name', 400);
+        }
+
+        $db = Database::connection();
+        $stmt = $db->prepare('SELECT * FROM maintenance_nodes WHERE node_name = ?');
+        $stmt->execute([$nodeName]);
+        $maintNode = $stmt->fetch();
+
+        if (!$maintNode) {
+            Response::error('Node is not in maintenance mode', 404);
+        }
+
+        if (!in_array($maintNode['status'], ['entering', 'leaving'])) {
+            Response::error('Node is not in a transitional state', 400);
+        }
+
+        $migrations = json_decode($maintNode['migration_tasks'] ?? '[]', true);
+
+        if ($action === 'skip-vm') {
+            $vmid = (int)($body['vmid'] ?? 0);
+            if (!$vmid) Response::error('Missing vmid', 400);
+
+            $found = false;
+            foreach ($migrations as &$mig) {
+                if ((int)$mig['vmid'] === $vmid && $mig['status'] === 'running') {
+                    $mig['status'] = 'skipped';
+                    $found = true;
+
+                    // Try to stop the Proxmox task
+                    if (!empty($mig['upid'])) {
+                        try {
+                            $api = Helpers::createAPI();
+                            $taskNode = $mig['source'] ?? $nodeName;
+                            $api->stopTask($taskNode, $mig['upid']);
+                        } catch (\Exception $e) {}
+                    }
+                    break;
+                }
+            }
+            unset($mig);
+
+            if (!$found) Response::error('Migration not found or not running', 404);
+
+            AppLogger::info('maintenance', 'Migration skipped', [
+                'node' => $nodeName, 'vmid' => $vmid,
+            ], Auth::check()['id'] ?? null);
+        } elseif ($action === 'force-complete') {
+            // Mark all running migrations as skipped
+            foreach ($migrations as &$mig) {
+                if ($mig['status'] === 'running') {
+                    $mig['status'] = 'skipped';
+                    // Try to stop the Proxmox task
+                    if (!empty($mig['upid'])) {
+                        try {
+                            $api = $api ?? Helpers::createAPI();
+                            $taskNode = $mig['source'] ?? $nodeName;
+                            $api->stopTask($taskNode, $mig['upid']);
+                        } catch (\Exception $e) {}
+                    }
+                }
+            }
+            unset($mig);
+
+            AppLogger::info('maintenance', 'Maintenance force-completed', [
+                'node' => $nodeName,
+            ], Auth::check()['id'] ?? null);
+        } else {
+            Response::error('Unknown action', 400);
+        }
+
+        // Check if all migrations are now done
+        $hasRunning = false;
+        foreach ($migrations as $m) {
+            if ($m['status'] === 'running') { $hasRunning = true; break; }
+        }
+
+        if (!$hasRunning || $action === 'force-complete') {
+            if ($maintNode['status'] === 'entering') {
+                $stmt = $db->prepare('UPDATE maintenance_nodes SET status = ?, migration_tasks = ? WHERE node_name = ?');
+                $stmt->execute(['maintenance', json_encode($migrations), $nodeName]);
+                Response::success(['status' => 'maintenance', 'migrations' => $migrations]);
+            } elseif ($maintNode['status'] === 'leaving') {
+                $stmt = $db->prepare('DELETE FROM maintenance_nodes WHERE node_name = ?');
+                $stmt->execute([$nodeName]);
+                Response::success(['status' => 'done', 'migrations' => $migrations]);
+            }
+        }
+
+        // Still has running migrations
+        $stmt = $db->prepare('UPDATE maintenance_nodes SET migration_tasks = ? WHERE node_name = ?');
+        $stmt->execute([json_encode($migrations), $nodeName]);
+        Response::success(['status' => $maintNode['status'], 'migrations' => $migrations]);
         break;
 
     default:

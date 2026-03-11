@@ -19,67 +19,45 @@ $user = Auth::requirePermission('template.deploy');
 $body = Request::jsonBody();
 
 // ── Allowed image catalog ────────────────────────────────────────────────────
-const CLOUD_IMAGES = [
-    // ── Ubuntu ──────────────────────────────────────────────────────────────
-    'ubuntu-24.04' => [
-        'name'         => 'Ubuntu 24.04 LTS (Noble)',
-        'url'          => 'https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img',
-        'default_user' => 'ubuntu',
+// ── All available cloud images, grouped by distro family ─────────────────────
+$ALL_CLOUD_IMAGES = [
+    'ubuntu' => [
+        'ubuntu-24.04' => ['name' => 'Ubuntu 24.04 LTS (Noble)',  'url' => 'https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img', 'default_user' => 'ubuntu'],
+        'ubuntu-22.04' => ['name' => 'Ubuntu 22.04 LTS (Jammy)',  'url' => 'https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img', 'default_user' => 'ubuntu'],
+        'ubuntu-20.04' => ['name' => 'Ubuntu 20.04 LTS (Focal)',  'url' => 'https://cloud-images.ubuntu.com/focal/current/focal-server-cloudimg-amd64.img', 'default_user' => 'ubuntu'],
     ],
-    'ubuntu-22.04' => [
-        'name'         => 'Ubuntu 22.04 LTS (Jammy)',
-        'url'          => 'https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img',
-        'default_user' => 'ubuntu',
+    'debian' => [
+        'debian-12' => ['name' => 'Debian 12 (Bookworm)', 'url' => 'https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2', 'default_user' => 'debian'],
+        'debian-11' => ['name' => 'Debian 11 (Bullseye)', 'url' => 'https://cloud.debian.org/images/cloud/bullseye/latest/debian-11-genericcloud-amd64.qcow2', 'default_user' => 'debian'],
     ],
-    'ubuntu-20.04' => [
-        'name'         => 'Ubuntu 20.04 LTS (Focal)',
-        'url'          => 'https://cloud-images.ubuntu.com/focal/current/focal-server-cloudimg-amd64.img',
-        'default_user' => 'ubuntu',
+    'rocky' => [
+        'rocky-9' => ['name' => 'Rocky Linux 9', 'url' => 'https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud.latest.x86_64.qcow2', 'default_user' => 'rocky'],
     ],
-    // ── Debian ──────────────────────────────────────────────────────────────
-    'debian-12' => [
-        'name'         => 'Debian 12 (Bookworm)',
-        'url'          => 'https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2',
-        'default_user' => 'debian',
+    'alma' => [
+        'almalinux-9' => ['name' => 'AlmaLinux 9', 'url' => 'https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2', 'default_user' => 'almalinux'],
     ],
-    'debian-11' => [
-        'name'         => 'Debian 11 (Bullseye)',
-        'url'          => 'https://cloud.debian.org/images/cloud/bullseye/latest/debian-11-genericcloud-amd64.qcow2',
-        'default_user' => 'debian',
+    'centos' => [
+        'centos-stream-9' => ['name' => 'CentOS Stream 9', 'url' => 'https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2', 'default_user' => 'cloud-user'],
     ],
-    // ── RHEL-family ─────────────────────────────────────────────────────────
-    'rocky-9' => [
-        'name'         => 'Rocky Linux 9',
-        'url'          => 'https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud.latest.x86_64.qcow2',
-        'default_user' => 'rocky',
+    'fedora' => [
+        'fedora-41' => ['name' => 'Fedora 41 Cloud', 'url' => 'https://download.fedoraproject.org/pub/fedora/linux/releases/41/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-41-1.4.x86_64.qcow2', 'default_user' => 'fedora'],
     ],
-    'almalinux-9' => [
-        'name'         => 'AlmaLinux 9',
-        'url'          => 'https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2',
-        'default_user' => 'almalinux',
+    'opensuse' => [
+        'opensuse-leap-15.6' => ['name' => 'openSUSE Leap 15.6', 'url' => 'https://download.opensuse.org/distribution/leap/15.6/appliances/openSUSE-Leap-15.6-Minimal-VM.x86_64-Cloud.qcow2', 'default_user' => 'opensuse'],
     ],
-    'centos-stream-9' => [
-        'name'         => 'CentOS Stream 9',
-        'url'          => 'https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2',
-        'default_user' => 'cloud-user',
-    ],
-    // ── Other Linux ─────────────────────────────────────────────────────────
-    'fedora-41' => [
-        'name'         => 'Fedora 41 Cloud',
-        'url'          => 'https://download.fedoraproject.org/pub/fedora/linux/releases/41/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-41-1.4.x86_64.qcow2',
-        'default_user' => 'fedora',
-    ],
-    'opensuse-leap-15.6' => [
-        'name'         => 'openSUSE Leap 15.6',
-        'url'          => 'https://download.opensuse.org/distribution/leap/15.6/appliances/openSUSE-Leap-15.6-Minimal-VM.x86_64-Cloud.qcow2',
-        'default_user' => 'opensuse',
-    ],
-    'arch-linux' => [
-        'name'         => 'Arch Linux (latest)',
-        'url'          => 'https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2',
-        'default_user' => 'arch',
+    'arch' => [
+        'arch-linux' => ['name' => 'Arch Linux (latest)', 'url' => 'https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2', 'default_user' => 'arch'],
     ],
 ];
+
+// Filter by enabled distro families (CLOUD_DISTROS env, comma-separated, default: all)
+$enabledDistros = array_filter(array_map('trim', explode(',', Config::get('CLOUD_DISTROS', 'ubuntu,debian,rocky,alma,centos,fedora,opensuse,arch'))));
+$CLOUD_IMAGES = [];
+foreach ($enabledDistros as $distro) {
+    if (isset($ALL_CLOUD_IMAGES[$distro])) {
+        $CLOUD_IMAGES = array_merge($CLOUD_IMAGES, $ALL_CLOUD_IMAGES[$distro]);
+    }
+}
 
 // ── Validate inputs ──────────────────────────────────────────────────────────
 $imageId = $body['image_id'] ?? '';
@@ -101,10 +79,10 @@ if ($isCustom) {
         'custom_file'  => $customImg['filename'],
     ];
 } else {
-    if (!isset(CLOUD_IMAGES[$imageId])) {
+    if (!isset($CLOUD_IMAGES[$imageId])) {
         Response::error('Invalid image ID', 400);
     }
-    $image = CLOUD_IMAGES[$imageId];
+    $image = $CLOUD_IMAGES[$imageId];
 }
 
 $vmid = (int)($body['vmid'] ?? 0);
@@ -241,6 +219,7 @@ if ($customFile) {
     $lines[] = 'cp ' . escapeshellarg($remoteSrc) . ' "$IMG"';
 } else {
     // Built-in image: download
+    AppLogger::debug('http', 'External request: cloud image download', ['url' => $image['url'], 'image' => $imageId, 'node' => $nodeName]);
     $lines[] = "echo '==> [1/8] Downloading " . addslashes($image['name']) . "...'";
     $compressed = $image['compressed'] ?? '';
     if ($compressed === 'xz') {

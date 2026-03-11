@@ -62,6 +62,7 @@ if ($customHost) {
 // `script` allocates a real PTY so whiptail works, and we pipe printf newlines
 // through it so every dialog auto-accepts its default selection.
 $scriptUrl = 'https://github.com/community-scripts/ProxmoxVE/raw/main/' . $scriptPath;
+AppLogger::debug('http', 'External request: community script download', ['url' => $scriptUrl, 'node' => $nodeName]);
 $tmpFile   = '/tmp/cs_' . bin2hex(random_bytes(6)) . '.sh';
 
 $installCmd =

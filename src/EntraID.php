@@ -44,6 +44,8 @@ class EntraID
             'scope' => 'openid profile email',
         ];
 
+        AppLogger::debug('http', 'External request: EntraID token exchange', ['url' => $tokenUrl]);
+
         $ch = curl_init($tokenUrl);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
@@ -53,11 +55,17 @@ class EntraID
             CURLOPT_TIMEOUT => 30,
         ]);
         $response = curl_exec($ch);
+        $curlError = curl_error($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
 
+        if ($response === false) {
+            AppLogger::error('http', 'External request failed: EntraID token exchange', ['url' => $tokenUrl, 'error' => $curlError]);
+            throw new \RuntimeException('Token exchange failed: ' . $curlError);
+        }
+
         if ($httpCode !== 200) {
-            AppLogger::error('auth', 'EntraID token exchange failed', ['http_code' => $httpCode]);
+            AppLogger::error('http', 'External request failed: EntraID token exchange', ['url' => $tokenUrl, 'http_code' => $httpCode]);
             throw new \RuntimeException('Token exchange failed (HTTP ' . $httpCode . ')');
         }
 

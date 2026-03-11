@@ -1130,6 +1130,15 @@ body {
     margin-bottom: 0.25rem;
 }
 
+.ci-rotate-vm-list {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 0.75rem;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
 .settings-stats-card {
     background: var(--bg-elevated);
     border: 1px solid var(--border-color);

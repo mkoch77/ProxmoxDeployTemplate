@@ -7,6 +7,7 @@ use App\Auth;
 use App\Request;
 use App\Response;
 use App\Database;
+use App\AppLogger;
 
 Bootstrap::init();
 $user = Auth::requirePermission('template.deploy');
@@ -19,10 +20,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     Response::success($rows);
 }
 
-// ── POST: create or update ───────────────────────────────────────────────────
+// ── POST: create, update, or delete ──────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    Request::validateCsrf();
     $data = Request::jsonBody();
+    $action = $data['action'] ?? 'save';
 
+    // ── Delete ───────────────────────────────────────────────────────────────
+    if ($action === 'delete') {
+        $id = (int) ($data['id'] ?? 0);
+        if ($id <= 0) {
+            Response::error('Invalid template ID', 400);
+        }
+
+        // Look up name before deleting (needed to prevent re-seeding of builtins)
+        $check = $db->prepare('SELECT name FROM service_templates WHERE id = ?');
+        $check->execute([$id]);
+        $name = $check->fetchColumn();
+
+        $stmt = $db->prepare('DELETE FROM service_templates WHERE id = ?');
+        $stmt->execute([$id]);
+
+        if ($stmt->rowCount() === 0) {
+            Response::error('Template not found', 404);
+        }
+
+        // Record deletion so Migrator::seed() won't re-insert this builtin
+        if ($name) {
+            try {
+                $db->prepare('INSERT INTO deleted_builtins (name) VALUES (?) ON CONFLICT (name) DO NOTHING')
+                    ->execute([$name]);
+            } catch (\Exception $e) {
+                // table might not exist yet — not critical
+            }
+        }
+
+        Response::success(['deleted' => $id]);
+    }
+
+    // ── Create / Update ──────────────────────────────────────────────────────
     $name       = trim($data['name'] ?? '');
     $description = trim($data['description'] ?? '');
     $baseImage  = trim($data['base_image'] ?? '');
@@ -76,17 +112,4 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ]);
         Response::success(['id' => $db->lastInsertId()]);
     }
-}
-
-// ── DELETE: remove template ──────────────────────────────────────────────────
-if ($_SERVER['REQUEST_METHOD'] === 'DELETE') {
-    $id = (int) ($_GET['id'] ?? 0);
-    if ($id <= 0) {
-        Response::error('Invalid template ID', 400);
-    }
-
-    $stmt = $db->prepare('DELETE FROM service_templates WHERE id = ?');
-    $stmt->execute([$id]);
-
-    Response::success(['deleted' => $id]);
 }

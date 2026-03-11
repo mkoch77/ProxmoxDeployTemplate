@@ -84,10 +84,59 @@ const Health = {
         this.renderHA();
     },
 
+    vcpuRatioLevel(ratio) {
+        if (ratio <= 2) return 'level-ok';
+        if (ratio <= 4) return 'level-warn';
+        return 'level-danger';
+    },
+
+    vcpuRatioLabel(ratio) {
+        if (ratio <= 2) return 'Good';
+        if (ratio <= 3) return 'Moderate';
+        if (ratio <= 4) return 'High';
+        return 'Overcommitted';
+    },
+
+    memAllocLevel(ratio) {
+        if (ratio <= 0.8) return 'level-ok';
+        if (ratio <= 1.0) return 'level-warn';
+        return 'level-danger';
+    },
+
+    memAllocLabel(ratio) {
+        if (ratio <= 0.8) return 'Good';
+        if (ratio <= 1.0) return 'Near Limit';
+        return 'Overcommitted';
+    },
+
+    iowaitLevel(pct) {
+        if (pct <= 5) return 'level-ok';
+        if (pct <= 15) return 'level-warn';
+        return 'level-danger';
+    },
+
+    iowaitLabel(pct) {
+        if (pct <= 5) return 'Good';
+        if (pct <= 15) return 'Moderate';
+        return 'High';
+    },
+
     renderClusterStats() {
         const c = this.data.cluster;
         const cpuPct = Math.round(c.total_cpu * 100);
         const memPct = c.total_maxmem > 0 ? Math.round((c.total_mem / c.total_maxmem) * 100) : 0;
+        const vcpuRatio = c.total_physical_cores > 0 ? (c.total_vcpus / c.total_physical_cores) : 0;
+        const vcpuRatioStr = vcpuRatio.toFixed(1);
+        const vcpuRatioPct = Math.min(Math.round((vcpuRatio / 6) * 100), 100); // 6:1 = 100%
+        const memAllocRatio = c.total_maxmem > 0 ? (c.total_mem_allocated / c.total_maxmem) : 0;
+        const memAllocPct = Math.min(Math.round(memAllocRatio * 100), 100);
+
+        // Average I/O wait across online nodes
+        const onlineNodes = (this.data.nodes || []).filter(n => n.status === 'online');
+        const avgIowait = onlineNodes.length > 0
+            ? onlineNodes.reduce((sum, n) => sum + (n.iowait || 0), 0) / onlineNodes.length
+            : 0;
+        const iowaitDisplay = avgIowait.toFixed(1);
 
         const nodesColor = c.nodes_online < c.total_nodes ? 'color:var(--bs-danger)' : '';
 
@@ -99,12 +148,23 @@ const Health = {
             nodesEl.textContent = `${c.nodes_online}/${c.total_nodes}`;
             nodesEl.style.cssText = nodesColor;
             document.getElementById('hcs-cpu-val').textContent   = `${cpuPct}%`;
+            document.getElementById('hcs-vcpu-val').textContent  = `${vcpuRatioStr}:1`;
+            document.getElementById('hcs-vcpu-label').textContent = `vCPU:pCPU (${c.total_vcpus} / ${c.total_physical_cores})`;
+            const vcpuBar = document.getElementById('hcs-vcpu-bar');
+            vcpuBar.className = `progress-bar ${this.vcpuRatioLevel(vcpuRatio)}`; vcpuBar.style.width = `${vcpuRatioPct}%`;
             document.getElementById('hcs-mem-val').textContent   = Utils.formatBytes(c.total_mem);
-            document.getElementById('hcs-mem-label').textContent = `RAM (${Utils.formatBytes(c.total_maxmem)} total)`;
+            document.getElementById('hcs-mem-label').textContent = `RAM Usage (${Utils.formatBytes(c.total_maxmem)} total)`;
             const cpuBar = document.getElementById('hcs-cpu-bar');
             cpuBar.className = `progress-bar ${this.levelClass(cpuPct)}`; cpuBar.style.width = `${cpuPct}%`;
             const memBar = document.getElementById('hcs-mem-bar');
             memBar.className = `progress-bar ${this.levelClass(memPct)}`; memBar.style.width = `${memPct}%`;
+            document.getElementById('hcs-memalloc-val').textContent  = `${memAllocPct}%`;
+            document.getElementById('hcs-memalloc-label').textContent = `RAM Allocated (${Utils.formatBytes(c.total_mem_allocated)} / ${Utils.formatBytes(c.total_maxmem)})`;
+            const memAllocBar = document.getElementById('hcs-memalloc-bar');
+            memAllocBar.className = `progress-bar ${this.memAllocLevel(memAllocRatio)}`; memAllocBar.style.width = `${memAllocPct}%`;
+            document.getElementById('hcs-iowait-val').textContent = `${iowaitDisplay}%`;
+            const iowaitBar = document.getElementById('hcs-iowait-bar');
+            iowaitBar.className = `progress-bar ${this.iowaitLevel(avgIowait)}`; iowaitBar.style.width = `${Math.min(avgIowait * 2, 100)}%`;
             return;
         }
 
@@ -140,10 +200,34 @@ const Health = {
             </div>
             <div class="col-6 col-lg">
                 <div class="stat-card">
+                    <div class="stat-icon" style="color:var(--text-secondary)"><i class="bi bi-cpu-fill"></i></div>
+                    <div class="stat-value" id="hcs-vcpu-val">${vcpuRatioStr}:1</div>
+                    <div class="stat-label" id="hcs-vcpu-label">vCPU:pCPU (${c.total_vcpus} / ${c.total_physical_cores})</div>
+                    <div class="resource-bar mt-2"><div class="progress"><div id="hcs-vcpu-bar" class="progress-bar ${this.vcpuRatioLevel(vcpuRatio)}" style="width:${vcpuRatioPct}%"></div></div></div>
+                </div>
+            </div>
+            <div class="col-6 col-lg">
+                <div class="stat-card">
                     <div class="stat-icon" style="color:var(--text-secondary)"><i class="bi bi-memory"></i></div>
                     <div class="stat-value" id="hcs-mem-val">${Utils.formatBytes(c.total_mem)}</div>
-                    <div class="stat-label" id="hcs-mem-label">RAM (${Utils.formatBytes(c.total_maxmem)} total)</div>
+                    <div class="stat-label" id="hcs-mem-label">RAM Usage (${Utils.formatBytes(c.total_maxmem)} total)</div>
                     <div class="resource-bar mt-2"><div class="progress"><div id="hcs-mem-bar" class="progress-bar ${this.levelClass(memPct)}" style="width:${memPct}%"></div></div></div>
+                </div>
+            </div>
+            <div class="col-6 col-lg">
+                <div class="stat-card">
+                    <div class="stat-icon" style="color:var(--text-secondary)"><i class="bi bi-memory"></i></div>
+                    <div class="stat-value" id="hcs-memalloc-val">${memAllocPct}%</div>
+                    <div class="stat-label" id="hcs-memalloc-label">RAM Allocated (${Utils.formatBytes(c.total_mem_allocated)} / ${Utils.formatBytes(c.total_maxmem)})</div>
+                    <div class="resource-bar mt-2"><div class="progress"><div id="hcs-memalloc-bar" class="progress-bar ${this.memAllocLevel(memAllocRatio)}" style="width:${memAllocPct}%"></div></div></div>
+                </div>
+            </div>
+            <div class="col-6 col-lg">
+                <div class="stat-card">
+                    <div class="stat-icon" style="color:var(--text-secondary)"><i class="bi bi-hdd"></i></div>
+                    <div class="stat-value" id="hcs-iowait-val">${iowaitDisplay}%</div>
+                    <div class="stat-label">I/O Wait (avg)</div>
+                    <div class="resource-bar mt-2"><div class="progress"><div id="hcs-iowait-bar" class="progress-bar ${this.iowaitLevel(avgIowait)}" style="width:${Math.min(avgIowait * 2, 100)}%"></div></div></div>
                 </div>
             </div>
         `;
@@ -168,12 +252,31 @@ const Health = {
                     if (el) { el.style.width = `${pct}%`; el.className = `progress-bar ${this.levelClass(pct)}`; }
                 };
                 const setText = (elId, text) => { const el = document.getElementById(elId); if (el) el.textContent = text; };
-                setText(`hn-cpu-val-${id}`, `${cpuPct}% (${node.maxcpu || 0} cores)`);
+                const setHtml = (elId, html) => { const el = document.getElementById(elId); if (el) el.innerHTML = html; };
+                setText(`hn-cpu-val-${id}`, `${cpuPct}% (${node.maxcpu || 0} threads)`);
                 setBar(`hn-cpu-bar-${id}`, cpuPct);
+                // vCPU ratio
+                const nRatio = node.physical_cores > 0 ? (node.vcpus_allocated / node.physical_cores) : 0;
+                const nRatioPct = Math.min(Math.round((nRatio / 6) * 100), 100);
+                setText(`hn-vcpu-val-${id}`, this._nodeVcpuText(node));
+                setBar(`hn-vcpu-bar-${id}`, nRatioPct);
+                const vcpuBarEl = document.getElementById(`hn-vcpu-bar-${id}`);
+                if (vcpuBarEl) vcpuBarEl.className = `progress-bar ${this.vcpuRatioLevel(nRatio)}`;
                 setText(`hn-ram-val-${id}`, `${Utils.formatBytes(node.mem || 0)} / ${Utils.formatBytes(node.maxmem || 0)}`);
                 setBar(`hn-ram-bar-${id}`, memPct);
+                // RAM allocation
+                const nMemAllocRatio = node.maxmem > 0 ? ((node.mem_allocated || 0) / node.maxmem) : 0;
+                const nMemAllocPct = Math.min(Math.round(nMemAllocRatio * 100), 100);
+                setText(`hn-memalloc-val-${id}`, this._nodeMemAllocText(node));
+                const memAllocBarEl = document.getElementById(`hn-memalloc-bar-${id}`);
+                if (memAllocBarEl) { memAllocBarEl.style.width = `${nMemAllocPct}%`; memAllocBarEl.className = `progress-bar ${this.memAllocLevel(nMemAllocRatio)}`; }
                 setText(`hn-disk-val-${id}`, `${Utils.formatBytes(node.disk || 0)} / ${Utils.formatBytes(node.maxdisk || 0)}`);
                 setBar(`hn-disk-bar-${id}`, diskPct);
+                // I/O wait
+                const nIowait = node.iowait || 0;
+                setText(`hn-iowait-val-${id}`, `${nIowait.toFixed(1)}%`);
+                const iowaitBarEl = document.getElementById(`hn-iowait-bar-${id}`);
+                if (iowaitBarEl) { iowaitBarEl.style.width = `${Math.min(nIowait * 2, 100)}%`; iowaitBarEl.className = `progress-bar ${this.iowaitLevel(nIowait)}`; }
                 setText(`hn-uptime-${id}`, `Uptime: ${Utils.formatUptime(node.uptime || 0)}`);
             }
             return;
@@ -201,25 +304,50 @@ const Health = {
                         ${isOnline ? `onmouseenter="ResourceTooltip.showNode(this,'${escapeHtml(id)}')" onmouseleave="ResourceTooltip.hide()"` : ''}>
                         <div class="d-flex justify-content-between align-items-center mb-3">
                             <div>
-                                <h5 class="mb-0"><i class="bi bi-hdd-rack me-2"></i>${escapeHtml(id)}</h5>
-                                ${isOnline ? `<small class="text-muted" id="node-ip-${escapeHtml(id)}"></small>` : ''}
+                                <h5 class="mb-0"><i class="bi bi-hdd-rack me-2"></i>${node.ip
+                                    ? `<a href="https://${escapeHtml(node.ip)}:8006" target="_blank" rel="noopener" onclick="event.stopPropagation()" class="text-decoration-none" style="color:inherit" title="Open Proxmox UI">${escapeHtml(id)}<i class="bi bi-box-arrow-up-right ms-1" style="font-size:0.7em;opacity:0.5"></i></a>`
+                                    : escapeHtml(id)}</h5>
+                                ${isOnline ? `<small class="text-muted" id="node-ip-${escapeHtml(id)}">${node.ip ? escapeHtml(node.ip) : ''}</small>` : ''}
                             </div>
                             <div>${statusBadge}</div>
                         </div>
-                        ${isOnline ? `
+                        ${isOnline ? (() => {
+                            const vcpus = node.vcpus_allocated || 0;
+                            const pCores = node.physical_cores || 0;
+                            const nRatio = pCores > 0 ? vcpus / pCores : 0;
+                            const nRatioPct = Math.min(Math.round((nRatio / 6) * 100), 100);
+                            const numaInfo = this._nodeNumaTooltip(node);
+                            const nMemAlloc = node.mem_allocated || 0;
+                            const nMemAllocRatio = node.maxmem > 0 ? nMemAlloc / node.maxmem : 0;
+                            const nMemAllocPct = Math.min(Math.round(nMemAllocRatio * 100), 100);
+                            return `
                             <div class="resource-item">
                                 <div class="d-flex justify-content-between mb-1">
                                     <small class="text-muted">CPU</small>
-                                    <small id="hn-cpu-val-${id}">${cpuPct}% (${node.maxcpu || 0} cores)</small>
+                                    <small id="hn-cpu-val-${id}">${cpuPct}% (${node.maxcpu || 0} threads)</small>
                                 </div>
                                 <div class="resource-bar"><div class="progress"><div id="hn-cpu-bar-${id}" class="progress-bar ${this.levelClass(cpuPct)}" style="width:${cpuPct}%"></div></div></div>
                             </div>
                             <div class="resource-item mt-2">
                                 <div class="d-flex justify-content-between mb-1">
-                                    <small class="text-muted">RAM</small>
+                                    <small class="text-muted" ${numaInfo ? `title="${numaInfo}" style="cursor:help;border-bottom:1px dotted var(--text-muted)"` : ''}>vCPU:pCPU</small>
+                                    <small id="hn-vcpu-val-${id}">${this._nodeVcpuText(node)}</small>
+                                </div>
+                                <div class="resource-bar"><div class="progress"><div id="hn-vcpu-bar-${id}" class="progress-bar ${this.vcpuRatioLevel(nRatio)}" style="width:${nRatioPct}%"></div></div></div>
+                            </div>
+                            <div class="resource-item mt-2">
+                                <div class="d-flex justify-content-between mb-1">
+                                    <small class="text-muted">RAM Usage</small>
                                     <small id="hn-ram-val-${id}">${Utils.formatBytes(node.mem || 0)} / ${Utils.formatBytes(node.maxmem || 0)}</small>
                                 </div>
                                 <div class="resource-bar"><div class="progress"><div id="hn-ram-bar-${id}" class="progress-bar ${this.levelClass(memPct)}" style="width:${memPct}%"></div></div></div>
+                            </div>
+                            <div class="resource-item mt-2">
+                                <div class="d-flex justify-content-between mb-1">
+                                    <small class="text-muted">RAM Allocated</small>
+                                    <small id="hn-memalloc-val-${id}">${this._nodeMemAllocText(node)}</small>
+                                </div>
+                                <div class="resource-bar"><div class="progress"><div id="hn-memalloc-bar-${id}" class="progress-bar ${this.memAllocLevel(nMemAllocRatio)}" style="width:${nMemAllocPct}%"></div></div></div>
                             </div>
                             <div class="resource-item mt-2">
                                 <div class="d-flex justify-content-between mb-1">
@@ -228,11 +356,21 @@ const Health = {
                                 </div>
                                 <div class="resource-bar"><div class="progress"><div id="hn-disk-bar-${id}" class="progress-bar ${this.levelClass(diskPct)}" style="width:${diskPct}%"></div></div></div>
                             </div>
+                            ${(() => {
+                                const nIow = node.iowait || 0;
+                                return `<div class="resource-item mt-2">
+                                    <div class="d-flex justify-content-between mb-1">
+                                        <small class="text-muted">I/O Wait</small>
+                                        <small id="hn-iowait-val-${id}">${nIow.toFixed(1)}%</small>
+                                    </div>
+                                    <div class="resource-bar"><div class="progress"><div id="hn-iowait-bar-${id}" class="progress-bar ${this.iowaitLevel(nIow)}" style="width:${Math.min(nIow * 2, 100)}%"></div></div></div>
+                                </div>`;
+                            })()}
                             <div class="mt-3 d-flex justify-content-between align-items-center">
                                 <span class="text-muted small"><i class="bi bi-clock me-1"></i><span id="hn-uptime-${id}">Uptime: ${Utils.formatUptime(node.uptime || 0)}</span></span>
                                 <span class="text-muted small"><i class="bi bi-box me-1"></i><span id="node-pve-version-${escapeHtml(id)}">PVE ...</span></span>
-                            </div>
-                        ` : `
+                            </div>`;
+                        })() : `
                             <div class="text-muted text-center py-3">Node unreachable</div>
                         `}
                     </div>
@@ -249,6 +387,15 @@ const Health = {
 
         try {
             const info = await API.getNodeInfo(nodeName);
+            // Enrich with vCPU/RAM allocation data from cluster health
+            const nodeData = this.data?.nodes?.find(n => n.node === nodeName);
+            if (nodeData) {
+                info._vcpus_allocated = nodeData.vcpus_allocated || 0;
+                info._physical_cores = nodeData.physical_cores || 0;
+                info._numa_nodes = nodeData.numa_nodes || (info.cpu?.sockets || 1);
+                info._mem_allocated = nodeData.mem_allocated || 0;
+                info._mem_total = nodeData.maxmem || 0;
+            }
             document.getElementById('node-info-body').innerHTML = this.renderNodeInfoBody(info);
         } catch (e) {
             document.getElementById('node-info-body').innerHTML = '<p class="text-danger">Failed to load node info.</p>';
@@ -265,12 +412,33 @@ const Health = {
         const rootfs = info.rootfs || {};
         const loadAvg = info.load_avg || [];
 
-        const cpuTitle = [
-            cpu.model,
-            cpu.sockets && cpu.cores ? `${cpu.sockets} × ${cpu.cores} cores` : null,
-            cpu.threads ? `${cpu.threads} threads` : null,
-            cpu.mhz ? `${Math.round(cpu.mhz)} MHz` : null,
-        ].filter(Boolean).join(', ');
+        // NUMA & vCPU ratio
+        const sockets = cpu.sockets || 1;
+        const coresPerSocket = cpu.cores || 0;
+        const threads = cpu.threads || 0;
+        const physicalCores = info._physical_cores || (sockets * coresPerSocket);
+        const numaNodes = info._numa_nodes || sockets;
+        const coresPerNuma = coresPerSocket;
+        const vcpus = info._vcpus_allocated || 0;
+        const ratio = physicalCores > 0 ? (vcpus / physicalCores) : 0;
+        const ratioStr = ratio.toFixed(1);
+
+        const ratioBadge = ratio <= 2
+            ? `<span class="badge bg-success">${ratioStr}:1 — ${this.vcpuRatioLabel(ratio)}</span>`
+            : ratio <= 4
+                ? `<span class="badge bg-warning text-dark">${ratioStr}:1 — ${this.vcpuRatioLabel(ratio)}</span>`
+                : `<span class="badge bg-danger">${ratioStr}:1 — ${this.vcpuRatioLabel(ratio)}</span>`;
+
+        // RAM allocation
+        const memAllocated = info._mem_allocated || 0;
+        const memTotal = info._mem_total || (mem.total || 0);
+        const memAllocRatio = memTotal > 0 ? memAllocated / memTotal : 0;
+        const memAllocPct = Math.round(memAllocRatio * 100);
+        const memAllocBadge = memAllocRatio <= 0.8
+            ? `<span class="badge bg-success">${memAllocPct}% — ${this.memAllocLabel(memAllocRatio)}</span>`
+            : memAllocRatio <= 1.0
+                ? `<span class="badge bg-warning text-dark">${memAllocPct}% — ${this.memAllocLabel(memAllocRatio)}</span>`
+                : `<span class="badge bg-danger">${memAllocPct}% — ${this.memAllocLabel(memAllocRatio)}</span>`;
 
         return `
             <div class="row g-3">
@@ -287,13 +455,32 @@ const Health = {
                     </table>
                 </div>
                 <div class="col-12">
-                    <h6 class="text-muted mb-2">CPU</h6>
+                    <h6 class="text-muted mb-2">CPU & NUMA Topology</h6>
                     <table class="table table-sm table-dark mb-0">
                         <tbody>
                             ${row('Model', cpu.model ? escapeHtml(cpu.model) : null)}
-                            ${row('Topology', cpu.sockets && cpu.cores ? `${cpu.sockets} socket(s) × ${cpu.cores} cores = ${cpu.threads || cpu.cores * cpu.sockets} threads` : null)}
+                            ${row('Topology', cpu.sockets && cpu.cores ? `${cpu.sockets} socket(s) × ${cpu.cores} cores = ${threads} threads` : null)}
+                            ${row('Physical Cores', physicalCores ? `${physicalCores} cores` : null)}
+                            ${row('NUMA Nodes', `${numaNodes} (${coresPerNuma} cores / ${Math.floor(threads / numaNodes)} threads per node)`)}
                             ${row('Speed', cpu.mhz ? `${Math.round(parseFloat(cpu.mhz))} MHz` : null)}
                             ${row('HVM', cpu.hvm ? '<span class="badge bg-success">Enabled</span>' : (cpu.hvm === 0 ? '<span class="badge bg-secondary">Disabled</span>' : null))}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="col-12">
+                    <h6 class="text-muted mb-2">vCPU Allocation</h6>
+                    <table class="table table-sm table-dark mb-0">
+                        <tbody>
+                            ${row('Allocated vCPUs', `${vcpus}`)}
+                            ${row('Physical Cores', `${physicalCores}`)}
+                            ${row('vCPU:pCPU Ratio', ratioBadge)}
+                            ${vcpus > 0 && coresPerNuma > 0 ? row('NUMA Assessment',
+                                vcpus <= coresPerNuma
+                                    ? '<span class="badge bg-success">Fits single NUMA node</span>'
+                                    : vcpus <= physicalCores
+                                        ? `<span class="badge bg-info text-dark">Spans ${Math.ceil(vcpus / coresPerNuma)} of ${numaNodes} NUMA nodes</span>`
+                                        : `<span class="badge bg-warning text-dark">Oversubscribed — ${vcpus} vCPUs across ${numaNodes} NUMA nodes (${physicalCores} physical cores)</span>`
+                            ) : ''}
                         </tbody>
                     </table>
                 </div>
@@ -304,6 +491,25 @@ const Health = {
                             ${row('Total', mem.total ? Utils.formatBytes(mem.total) : null)}
                             ${row('Used', mem.used ? Utils.formatBytes(mem.used) : null)}
                             ${row('Free', mem.free ? Utils.formatBytes(mem.free) : null)}
+                            ${row('Allocated to VMs/CTs', memAllocated ? Utils.formatBytes(memAllocated) : null)}
+                            ${row('Allocation Ratio', memAllocated ? memAllocBadge : null)}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="col-md-6">
+                    <h6 class="text-muted mb-2">Storage I/O</h6>
+                    <table class="table table-sm table-dark mb-0">
+                        <tbody>
+                            ${(() => {
+                                const nodeData = this.data?.nodes?.find(n => n.node === (info.node || ''));
+                                const iow = nodeData?.iowait || 0;
+                                const iowBadge = iow <= 5
+                                    ? `<span class="badge bg-success">${iow.toFixed(1)}% — ${this.iowaitLabel(iow)}</span>`
+                                    : iow <= 15
+                                        ? `<span class="badge bg-warning text-dark">${iow.toFixed(1)}% — ${this.iowaitLabel(iow)}</span>`
+                                        : `<span class="badge bg-danger">${iow.toFixed(1)}% — ${this.iowaitLabel(iow)}</span>`;
+                                return row('I/O Wait', iowBadge);
+                            })()}
                         </tbody>
                     </table>
                 </div>
@@ -653,6 +859,7 @@ const Health = {
                                 <th>Status</th>
                                 <th>CPU</th>
                                 <th>Memory</th>
+                                <th>Node</th>
                                 <th>Suggestions</th>
                                 <th></th>
                             </tr>
@@ -660,6 +867,9 @@ const Health = {
                         <tbody>
                             ${visible.map(r => {
                                 const hasRec = r.recommended && (r.recommended.cpu_cores || r.recommended.mem_bytes);
+                                const nc = r.node_context || {};
+                                const vcpuR = nc.vcpu_ratio || 0;
+                                const iow = nc.iowait || 0;
                                 return `
                                 <tr class="${r.severity === 'critical' ? 'table-danger' : r.severity === 'undersized' ? 'table-warning' : ''}" data-rs-vmid="${r.vmid}">
                                     <td>
@@ -676,6 +886,10 @@ const Health = {
                                         <div class="small">Avg: ${r.usage.avg_mem_pct}%</div>
                                         <div class="small">P95: ${r.usage.p95_mem_pct}%</div>
                                         <div class="small text-muted">${Utils.formatBytes(r.current.mem_bytes)}${r.recommended?.mem_bytes ? ` → <strong>${Utils.formatBytes(r.recommended.mem_bytes)}</strong>` : ''}</div>
+                                    </td>
+                                    <td>
+                                        <div class="small"><span class="badge ${vcpuR <= 2 ? 'bg-success' : vcpuR <= 4 ? 'bg-warning text-dark' : 'bg-danger'}" title="vCPU:pCPU">${vcpuR.toFixed(1)}:1</span></div>
+                                        <div class="small mt-1"><span class="badge ${iow <= 5 ? 'bg-success' : iow <= 15 ? 'bg-warning text-dark' : 'bg-danger'}" title="I/O Wait">IO ${iow.toFixed(1)}%</span></div>
                                     </td>
                                     <td>${r.suggestions.map(s => `<div class="small fw-semibold">${escapeHtml(s)}</div>`).join('')}</td>
                                     <td class="text-nowrap">
@@ -800,6 +1014,29 @@ const Health = {
         if (pct >= 90) return 'level-danger';
         if (pct >= 70) return 'level-warn';
         return 'level-ok';
+    },
+
+    _nodeVcpuText(node) {
+        const vcpus = node.vcpus_allocated || 0;
+        const pCores = node.physical_cores || 0;
+        const ratio = pCores > 0 ? (vcpus / pCores).toFixed(1) : '–';
+        return `${ratio}:1 (${vcpus} vCPU / ${pCores} pCPU)`;
+    },
+
+    _nodeMemAllocText(node) {
+        const allocated = node.mem_allocated || 0;
+        const total = node.maxmem || 0;
+        const pct = total > 0 ? Math.round((allocated / total) * 100) : 0;
+        return `${pct}% (${Utils.formatBytes(allocated)} / ${Utils.formatBytes(total)})`;
+    },
+
+    _nodeNumaTooltip(node) {
+        const topo = node.cpu_topology;
+        if (!topo) return '';
+        const numaNodes = node.numa_nodes || topo.sockets || 1;
+        const coresPerNuma = topo.cores || 0;
+        const threadsPerNuma = Math.floor(topo.threads / numaNodes);
+        return `${numaNodes} NUMA node${numaNodes > 1 ? 's' : ''} · ${coresPerNuma} cores/socket · ${topo.threads} threads`;
     },
 
 };

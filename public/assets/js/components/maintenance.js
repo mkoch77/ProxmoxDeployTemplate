@@ -185,12 +185,12 @@ const Maintenance = {
                                 </button>
                             ` : ''}
                             ${maint && maint.status === 'entering' ? `
-                                <button class="btn btn-outline-light btn-sm w-100" disabled>
+                                <button class="btn btn-outline-light btn-sm w-100 mb-1" disabled>
                                     <span class="spinner-border spinner-border-sm me-1"></span>Migration in progress...
                                 </button>
                             ` : ''}
                             ${maint && maint.status === 'leaving' ? `
-                                <button class="btn btn-outline-light btn-sm w-100" disabled>
+                                <button class="btn btn-outline-light btn-sm w-100 mb-1" disabled>
                                     <span class="spinner-border spinner-border-sm me-1"></span>VMs being migrated back...
                                 </button>
                             ` : ''}
@@ -199,6 +199,14 @@ const Maintenance = {
                 </div>
             `;
         }).join('');
+    },
+
+    formatElapsed(seconds) {
+        if (!seconds || seconds < 0) return '';
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        if (m === 0) return `${s}s`;
+        return `${m}m ${s}s`;
     },
 
     renderNodeContent(nodeName, maint) {
@@ -213,11 +221,15 @@ const Maintenance = {
         // During migration (entering or leaving): show migration progress
         if (maint && migrations.length > 0) {
             const isLeaving = maint.status === 'leaving';
+            const hasRunning = migrations.some(m => m.status === 'running');
             return `
                 ${isLeaving ? '<div class="text-muted small mb-2"><i class="bi bi-arrow-left-right me-1"></i>Back-migration:</div>' : ''}
                 <div class="migration-list">
                     ${migrations.map(m => {
-                        let icon, statusClass;
+                        let icon, statusClass, extra = '';
+                        const elapsed = m.elapsed_seconds || (m.started_at ? Math.floor((Date.now() - new Date(m.started_at).getTime()) / 1000) : 0);
+                        const isLong = elapsed > 300; // > 5 min
+
                         switch (m.status) {
                             case 'completed':
                                 icon = '<i class="bi bi-check-circle-fill text-success"></i>';
@@ -227,10 +239,30 @@ const Maintenance = {
                                 icon = '<i class="bi bi-x-circle-fill text-danger"></i>';
                                 statusClass = 'text-danger';
                                 break;
+                            case 'skipped':
+                                icon = '<i class="bi bi-skip-forward-fill text-muted"></i>';
+                                statusClass = 'text-muted';
+                                break;
+                            case 'timeout':
+                                icon = '<i class="bi bi-clock-history text-danger"></i>';
+                                statusClass = 'text-danger';
+                                extra = '<small class="text-danger ms-1">(timeout)</small>';
+                                break;
                             default:
                                 icon = '<span class="spinner-border spinner-border-sm text-warning"></span>';
                                 statusClass = 'text-warning';
                         }
+
+                        const elapsedLabel = m.status === 'running' && elapsed > 0
+                            ? `<small class="${isLong ? 'text-danger' : 'text-muted'} ms-2">${this.formatElapsed(elapsed)}</small>`
+                            : '';
+
+                        const skipBtn = m.status === 'running'
+                            ? `<button class="btn btn-outline-secondary btn-sm py-0 px-1 ms-2" title="Skip this migration"
+                                onclick="event.stopPropagation();Maintenance.skipMigration('${escapeHtml(nodeName)}', ${m.vmid})">
+                                <i class="bi bi-skip-forward"></i>
+                              </button>`
+                            : '';
 
                         return `
                             <div class="migration-item d-flex align-items-center gap-2 py-2 border-bottom" style="border-color: var(--border-color) !important;">
@@ -238,12 +270,20 @@ const Maintenance = {
                                 <div class="flex-grow-1">
                                     <strong>${escapeHtml(m.name)}</strong>
                                     <small class="text-muted ms-1">(${m.type} ${m.vmid})</small>
+                                    ${elapsedLabel}${extra}
                                 </div>
                                 <small class="${statusClass}">\u2192 ${escapeHtml(m.target)}</small>
+                                ${skipBtn}
                             </div>
                         `;
                     }).join('')}
                 </div>
+                ${hasRunning ? `
+                <div class="mt-2 text-end">
+                    <button class="btn btn-outline-danger btn-sm" onclick="Maintenance.forceComplete('${escapeHtml(nodeName)}')">
+                        <i class="bi bi-lightning me-1"></i>Force Complete
+                    </button>
+                </div>` : ''}
             `;
         }
 
@@ -312,6 +352,54 @@ const Maintenance = {
             await this.loadData();
         } catch (err) {
             Toast.error('Failed to initiate maintenance mode');
+        }
+    },
+
+    async skipMigration(nodeName, vmid) {
+        if (!confirm(`Skip migration of VM ${vmid}? The VM will remain on its current node.`)) return;
+
+        try {
+            const resp = await fetch('api/maintenance.php', {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': API.csrfToken,
+                },
+                body: JSON.stringify({ node: nodeName, action: 'skip-vm', vmid }),
+            });
+            const result = await resp.json();
+            if (result.success) {
+                Toast.info(`Migration of VM ${vmid} skipped.`);
+                await this.loadData();
+            } else {
+                Toast.error(result.message || 'Failed to skip migration');
+            }
+        } catch (err) {
+            Toast.error('Failed to skip migration');
+        }
+    },
+
+    async forceComplete(nodeName) {
+        if (!confirm(`Force complete all migrations for "${nodeName}"?\n\nAll pending migrations will be skipped and the node will transition to the next state.`)) return;
+
+        try {
+            const resp = await fetch('api/maintenance.php', {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': API.csrfToken,
+                },
+                body: JSON.stringify({ node: nodeName, action: 'force-complete' }),
+            });
+            const result = await resp.json();
+            if (result.success) {
+                Toast.success(`Maintenance state for ${nodeName} force-completed.`);
+                await this.loadData();
+            } else {
+                Toast.error(result.message || 'Failed to force complete');
+            }
+        } catch (err) {
+            Toast.error('Failed to force complete');
         }
     },
 

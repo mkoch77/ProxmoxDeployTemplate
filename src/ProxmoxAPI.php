@@ -289,6 +289,11 @@ class ProxmoxAPI
         ]);
     }
 
+    public function stopTask(string $node, string $upid): array
+    {
+        return $this->delete("/nodes/{$node}/tasks/{$upid}");
+    }
+
     // --- Storage ---
 
     public function getStorages(string $node, ?string $content = null): array
@@ -376,6 +381,11 @@ class ProxmoxAPI
 
     // --- Apt / Updates ---
 
+    public function refreshAptIndex(string $node): array
+    {
+        return $this->post("/nodes/{$node}/apt/update");
+    }
+
     public function getAptUpdates(string $node): array
     {
         return $this->get("/nodes/{$node}/apt/updates");
@@ -411,6 +421,22 @@ class ProxmoxAPI
     public function rollbackSnapshot(string $node, string $type, int $vmid, string $snapname): array
     {
         return $this->post("/nodes/{$node}/{$type}/{$vmid}/snapshot/{$snapname}/rollback");
+    }
+
+    // --- QEMU Guest Agent ---
+
+    public function agentExec(string $node, int $vmid, string $command, array $inputData = []): array
+    {
+        $params = ['command' => $command];
+        if (!empty($inputData)) {
+            $params['input-data'] = implode("\n", $inputData);
+        }
+        return $this->post("/nodes/{$node}/qemu/{$vmid}/agent/exec", $params);
+    }
+
+    public function agentExecStatus(string $node, int $vmid, int $pid): array
+    {
+        return $this->get("/nodes/{$node}/qemu/{$vmid}/agent/exec-status", ['pid' => $pid]);
     }
 
     // --- Migration ---

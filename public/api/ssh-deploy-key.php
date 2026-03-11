@@ -4,6 +4,7 @@ require_once __DIR__ . '/../../vendor/autoload.php';
 
 use App\Bootstrap;
 use App\Auth;
+use App\Request;
 use App\Response;
 use App\Config;
 use App\Helpers;
@@ -14,14 +15,22 @@ Bootstrap::init();
 Auth::requireAuth();
 \App\Config::requireSsh();
 
+$body = Request::jsonBody();
+
 $keyPath  = Config::get('SSH_KEY_PATH', '');
 $pubKeyPath = $keyPath . '.pub';
 $password = Config::get('SSH_PASSWORD', '');
 $port     = (int) Config::get('SSH_PORT', 22);
 $user     = Config::get('SSH_USER', 'root');
 
+// Accept one-time password from request body (used when SSH_PASSWORD is not in .env)
+$oneTimePassword = trim($body['password'] ?? '');
+if ($oneTimePassword) {
+    $password = $oneTimePassword;
+}
+
 if (!$password) {
-    Response::error('SSH_PASSWORD is not configured. Cannot deploy key without password auth.', 400);
+    Response::error('SSH password required. Enter the SSH password to deploy the key.', 400, ['needs_password' => true]);
 }
 
 if (!$keyPath || !file_exists($pubKeyPath)) {
@@ -89,6 +98,19 @@ if (!empty($failedNodes)) {
     AppLogger::warning('security', 'SSH key deployment had failures', ['failed_nodes' => array_column($failedNodes, 'node')], $userId);
 } else {
     AppLogger::info('security', 'SSH key deployment completed successfully', ['node_count' => count($nodes)], $userId);
+
+    // Key deployed — remove password from .env (no longer needed)
+    $envFile = dirname(__DIR__, 2) . '/.env';
+    if (file_exists($envFile)) {
+        $envContent = file_get_contents($envFile);
+        $envContent = preg_replace('/^SSH_PASSWORD=.*/m', 'SSH_PASSWORD=', $envContent);
+        file_put_contents($envFile, $envContent);
+        AppLogger::info('security', 'SSH_PASSWORD removed from .env after successful key deployment', null, $userId);
+    }
+
+    // Remove needs_deploy flag
+    $flagFile = dirname($keyPath) . '/needs_deploy';
+    @unlink($flagFile);
 }
 
 Response::success(['results' => $results]);

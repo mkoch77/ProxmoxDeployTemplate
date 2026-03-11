@@ -32,7 +32,9 @@ const API = {
             }
 
             if (!response.ok || data.error) {
-                throw new Error(data.message || `HTTP ${response.status}`);
+                const err = new Error(data.message || `HTTP ${response.status}`);
+                err.details = data.details || null;
+                throw err;
             }
 
             return data.data ?? data;
@@ -223,7 +225,7 @@ const API = {
     },
 
     deleteServiceTemplate(id) {
-        return this.delete(`api/service-templates.php?id=${id}`);
+        return this.post('api/service-templates.php', { action: 'delete', id });
     },
 
     // --- Custom Images ---
@@ -257,6 +259,16 @@ const API = {
 
     getNodeInfo(node) {
         return this.get('api/node-info.php', { node });
+    },
+
+    // --- Cloud-Init Key Rotation ---
+
+    previewCiKeyRotation() {
+        return this.get('api/cloud-init-rotate-key.php');
+    },
+
+    rotateCiKey() {
+        return this.post('api/cloud-init-rotate-key.php');
     },
 
     // --- Windows Deploy ---

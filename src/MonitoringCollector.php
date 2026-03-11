@@ -19,17 +19,19 @@ class MonitoringCollector
         $nodes = $nodesResult['data'] ?? [];
 
         $nodeStmt = $db->prepare('INSERT INTO node_metrics
-            (node, ts, cpu_pct, mem_used, mem_total, disk_read_bytes, disk_write_bytes, disk_read_iops, disk_write_iops, net_in_bytes, net_out_bytes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+            (node, ts, cpu_pct, mem_used, mem_total, disk_read_bytes, disk_write_bytes, disk_read_iops, disk_write_iops, net_in_bytes, net_out_bytes, load_avg, swap_used, swap_total)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
 
         foreach ($nodes as $node) {
             if (($node['status'] ?? '') !== 'online') continue;
             $name = $node['node'];
 
-            // Get detailed node status for disk/net I/O
+            // Get detailed node status for disk/net I/O + load + swap
             $diskRead = 0; $diskWrite = 0;
             $netIn = 0; $netOut = 0;
             $diskReadIops = 0; $diskWriteIops = 0;
+            $loadAvg = 0.0;
+            $swapUsed = 0; $swapTotal = 0;
 
             try {
                 $rrd = $api->getNodeRRDData($name, 'hour');
@@ -41,6 +43,9 @@ class MonitoringCollector
                     $netIn = (int)($last['netin'] ?? 0);
                     $netOut = (int)($last['netout'] ?? 0);
                     $diskReadIops = (float)($last['iowait'] ?? 0);
+                    $loadAvg = (float)($last['loadavg'] ?? 0);
+                    $swapUsed = (int)($last['swapused'] ?? 0);
+                    $swapTotal = (int)($last['swaptotal'] ?? 0);
                 }
             } catch (\Exception $e) {}
 
@@ -52,6 +57,7 @@ class MonitoringCollector
                 $diskRead, $diskWrite,
                 $diskReadIops, $diskWriteIops,
                 $netIn, $netOut,
+                $loadAvg, $swapUsed, $swapTotal,
             ]);
             $stats['nodes']++;
         }
@@ -63,8 +69,8 @@ class MonitoringCollector
         $guests = $resources['data'] ?? [];
 
         $vmStmt = $db->prepare('INSERT INTO vm_metrics
-            (vmid, node, name, vm_type, ts, status, cpu_pct, cpu_count, mem_used, mem_total, disk_read_bytes, disk_write_bytes, disk_read_iops, disk_write_iops, net_in_bytes, net_out_bytes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+            (vmid, node, name, vm_type, ts, status, cpu_pct, cpu_count, mem_used, mem_total, disk_read_bytes, disk_write_bytes, disk_read_iops, disk_write_iops, net_in_bytes, net_out_bytes, uptime, disk_used, disk_total)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
 
         foreach ($guests as $guest) {
             if (!empty($guest['template'])) continue;
@@ -91,6 +97,9 @@ class MonitoringCollector
                 $diskRead, $diskWrite,
                 0, 0, // iops not available from cluster resources
                 $netIn, $netOut,
+                (int)($guest['uptime'] ?? 0),
+                (int)($guest['disk'] ?? 0),
+                (int)($guest['maxdisk'] ?? 0),
             ]);
             $stats['vms']++;
         }
@@ -119,12 +128,13 @@ class MonitoringCollector
         $db = Database::connection();
         $interval = self::parseTimerange($timerange);
 
-        $stmt = $db->prepare("SELECT ts, cpu_pct, mem_used, mem_total, disk_read_bytes, disk_write_bytes, disk_read_iops, disk_write_iops, net_in_bytes, net_out_bytes
+        $stmt = $db->prepare("SELECT ts, cpu_pct, mem_used, mem_total, disk_read_bytes, disk_write_bytes, disk_read_iops, disk_write_iops, net_in_bytes, net_out_bytes, load_avg, swap_used, swap_total
             FROM node_metrics WHERE node = ? AND ts >= NOW() - ?::interval ORDER BY ts");
         $stmt->execute([$node, $interval]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        $rows = self::computeRates($rows);
+        // Node RRD data from Proxmox is already per-second rates (bytes/s),
+        // NOT cumulative counters — do NOT apply computeRates().
 
         if ($smoothing > 1) {
             $rows = self::applyMovingAverage($rows, $smoothing);
@@ -138,7 +148,7 @@ class MonitoringCollector
         $db = Database::connection();
         $interval = self::parseTimerange($timerange);
 
-        $stmt = $db->prepare("SELECT ts, status, cpu_pct, cpu_count, mem_used, mem_total, disk_read_bytes, disk_write_bytes, disk_read_iops, disk_write_iops, net_in_bytes, net_out_bytes
+        $stmt = $db->prepare("SELECT ts, status, cpu_pct, cpu_count, mem_used, mem_total, disk_read_bytes, disk_write_bytes, disk_read_iops, disk_write_iops, net_in_bytes, net_out_bytes, uptime, disk_used, disk_total
             FROM vm_metrics WHERE vmid = ? AND ts >= NOW() - ?::interval ORDER BY ts");
         $stmt->execute([$vmid, $interval]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -175,6 +185,10 @@ class MonitoringCollector
             MAX(disk_read_bytes) as max_disk_read,
             AVG(disk_write_bytes) as avg_disk_write,
             MAX(disk_write_bytes) as max_disk_write,
+            MAX(uptime) as uptime,
+            MAX(disk_used) as disk_used,
+            MAX(disk_total) as disk_total,
+            AVG(disk_used) as avg_disk_used,
             MIN(ts) as first_sample,
             MAX(ts) as last_sample
         FROM vm_metrics WHERE vmid = ? AND ts >= NOW() - ?::interval AND status = 'running'");
@@ -324,7 +338,8 @@ class MonitoringCollector
         if (count($rows) <= $window) return $rows;
 
         $numericFields = ['cpu_pct', 'mem_used', 'mem_total', 'disk_read_bytes', 'disk_write_bytes',
-            'disk_read_iops', 'disk_write_iops', 'net_in_bytes', 'net_out_bytes'];
+            'disk_read_iops', 'disk_write_iops', 'net_in_bytes', 'net_out_bytes',
+            'load_avg', 'swap_used', 'swap_total', 'disk_used', 'disk_total'];
 
         $result = [];
         for ($i = 0; $i < count($rows); $i++) {

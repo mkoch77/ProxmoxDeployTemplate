@@ -1070,12 +1070,43 @@ const Settings = {
 
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <label class="form-label fw-semibold mb-0">Copy to Nodes</label>
-                    <button class="btn btn-sm btn-primary" onclick="Settings.deployKeyToNodes(this)">
-                        <i class="bi bi-cloud-upload me-1"></i>Deploy to All Nodes
-                    </button>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-outline-warning" onclick="Settings.rotateKey(this)" title="Generate a new key pair, deploy to all nodes, and remove the old key">
+                            <i class="bi bi-arrow-repeat me-1"></i>Rotate Key
+                        </button>
+                        <button class="btn btn-sm btn-primary" onclick="Settings.deployKeyToNodes(this)">
+                            <i class="bi bi-cloud-upload me-1"></i>Deploy to All Nodes
+                        </button>
+                    </div>
                 </div>
                 <div id="ssh-deploy-results" class="mb-3"></div>
+                <p class="text-muted small mb-3">
+                    <i class="bi bi-info-circle me-1"></i>Keys are automatically rotated every 4 hours and on container restart.
+                </p>
                 <div id="ssh-setup-commands"><div class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></div></div>
+            </div>
+
+            <div class="settings-section mt-4">
+                <h5 class="settings-section-title"><i class="bi bi-cloud-check me-2"></i>Cloud-Init VM Key Rotation</h5>
+                <p class="text-muted small mb-3">
+                    Rotate the SSH key used for Cloud-Init VMs. This generates a new keypair, updates the
+                    cloud-init config on all VMs that use your current key, and attempts to update running VMs
+                    via the QEMU guest agent.
+                </p>
+
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <label class="form-label fw-semibold mb-0">Affected VMs</label>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-outline-info" onclick="Settings.previewCiRotation(this)">
+                            <i class="bi bi-search me-1"></i>Scan VMs
+                        </button>
+                        <button class="btn btn-sm btn-warning" id="ci-rotate-btn" onclick="Settings.rotateCiKey(this)" disabled>
+                            <i class="bi bi-arrow-repeat me-1"></i>Rotate Cloud-Init Key
+                        </button>
+                    </div>
+                </div>
+                <div id="ci-rotate-preview" class="mb-3"></div>
+                <div id="ci-rotate-results" class="mb-3"></div>
             </div>
         `;
     },
@@ -1128,23 +1159,259 @@ const Settings = {
         }
     },
 
-    async deployKeyToNodes(btn) {
+    _promptSshPassword(action) {
+        return new Promise((resolve) => {
+            const modalId = 'ssh-password-modal';
+            let modal = document.getElementById(modalId);
+            if (modal) modal.remove();
+
+            modal = document.createElement('div');
+            modal.id = modalId;
+            modal.className = 'modal fade';
+            modal.tabIndex = -1;
+            modal.innerHTML = `
+                <div class="modal-dialog modal-sm modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header py-2">
+                            <h6 class="modal-title"><i class="bi bi-shield-lock me-2"></i>SSH Password</h6>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p class="small text-muted mb-2">
+                                Key-based authentication failed. Enter the SSH root password to ${action === 'rotate' ? 'rotate the key' : 'deploy the key'}.
+                                The password is only used for this operation and will not be stored.
+                            </p>
+                            <input type="password" class="form-control form-control-sm" id="ssh-onetime-pw" placeholder="SSH root password" autocomplete="off">
+                        </div>
+                        <div class="modal-footer py-2">
+                            <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="button" class="btn btn-sm btn-primary" id="ssh-pw-confirm">
+                                <i class="bi bi-key me-1"></i>Continue
+                            </button>
+                        </div>
+                    </div>
+                </div>`;
+            document.body.appendChild(modal);
+
+            const bsModal = new bootstrap.Modal(modal);
+            let resolved = false;
+
+            const submit = () => {
+                const pw = document.getElementById('ssh-onetime-pw')?.value?.trim();
+                resolved = true;
+                bsModal.hide();
+                resolve(pw || null);
+            };
+
+            modal.querySelector('#ssh-pw-confirm').addEventListener('click', submit);
+            modal.querySelector('#ssh-onetime-pw').addEventListener('keydown', e => {
+                if (e.key === 'Enter') submit();
+            });
+            modal.addEventListener('hidden.bs.modal', () => {
+                if (!resolved) resolve(null);
+                setTimeout(() => modal.remove(), 300);
+            });
+
+            bsModal.show();
+            setTimeout(() => modal.querySelector('#ssh-onetime-pw')?.focus(), 300);
+        });
+    },
+
+    _renderSshResults(resultsEl, results) {
+        resultsEl.innerHTML = results.map(r => `
+            <div class="d-flex align-items-center gap-2 mb-1">
+                <i class="bi ${r.success ? 'bi-check-circle-fill text-success' : 'bi-x-circle-fill text-danger'}"></i>
+                <span class="small">${escapeHtml(r.node)} (${escapeHtml(r.ip)})${r.error ? ' — ' + escapeHtml(r.error) : ''}</span>
+            </div>`).join('');
+    },
+
+    async rotateKey(btn, password) {
+        const resultsEl = document.getElementById('ssh-deploy-results');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Rotating...';
+        resultsEl.innerHTML = '';
+        try {
+            const payload = password ? { password } : {};
+            const res = await API.post('api/ssh-rotate-key.php', payload);
+            this._renderSshResults(resultsEl, res.results);
+            const allOk = res.results.every(r => r.success);
+            if (allOk) {
+                Toast.success('SSH key rotated successfully');
+                if (res.new_public_key) {
+                    const keyEl = document.getElementById('ssh-setup-pubkey');
+                    if (keyEl) keyEl.textContent = res.new_public_key;
+                }
+            } else if (res.needs_password && !password) {
+                // Auth failed — prompt for password and retry
+                const pw = await this._promptSshPassword('rotate');
+                if (pw) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Rotate Key';
+                    return this.rotateKey(btn, pw);
+                }
+                Toast.warning('Rotation cancelled');
+            } else {
+                Toast.warning('Rotation failed on some nodes — old key kept');
+            }
+        } catch (e) {
+            const errData = e.details || {};
+            if (errData.needs_password && !password) {
+                const pw = await this._promptSshPassword('rotate');
+                if (pw) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Rotate Key';
+                    return this.rotateKey(btn, pw);
+                }
+                resultsEl.innerHTML = '';
+            } else {
+                resultsEl.innerHTML = `<p class="text-danger small">${escapeHtml(e.message || 'Rotation failed')}</p>`;
+            }
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Rotate Key';
+        }
+    },
+
+    // ── Cloud-Init Key Rotation ────────────────────────────────────────
+
+    async previewCiRotation(btn) {
+        const previewEl = document.getElementById('ci-rotate-preview');
+        const rotateBtn = document.getElementById('ci-rotate-btn');
+        if (!previewEl) return;
+
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Scanning...';
+        previewEl.innerHTML = '';
+
+        try {
+            const res = await API.previewCiKeyRotation();
+
+            if (!res.current_key) {
+                previewEl.innerHTML = '<p class="text-warning small"><i class="bi bi-exclamation-triangle me-1"></i>No SSH key found. Generate one via the Deploy form first.</p>';
+                return;
+            }
+
+            if (!res.vms || res.vms.length === 0) {
+                previewEl.innerHTML = '<p class="text-muted small"><i class="bi bi-info-circle me-1"></i>No VMs found with your current SSH key.</p>';
+                return;
+            }
+
+            previewEl.innerHTML = `
+                <div class="small text-muted mb-2">${res.vms.length} VM(s) found with your current key:</div>
+                <div class="ci-rotate-vm-list">
+                    ${res.vms.map(vm => `
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <span class="badge ${vm.status === 'running' ? 'bg-success' : 'bg-secondary'}" style="min-width:60px">${escapeHtml(vm.status)}</span>
+                            <span class="small fw-semibold">${escapeHtml(String(vm.vmid))}</span>
+                            <span class="small text-muted">${escapeHtml(vm.name)}</span>
+                            <span class="small text-muted ms-auto">${escapeHtml(vm.node)}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            if (rotateBtn) rotateBtn.disabled = false;
+        } catch (e) {
+            previewEl.innerHTML = `<p class="text-danger small">${escapeHtml(e.message || 'Scan failed')}</p>`;
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-search me-1"></i>Scan VMs';
+        }
+    },
+
+    async rotateCiKey(btn) {
+        const resultsEl = document.getElementById('ci-rotate-results');
+        const previewEl = document.getElementById('ci-rotate-preview');
+        if (!resultsEl) return;
+
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Rotating...';
+        resultsEl.innerHTML = '';
+
+        try {
+            const res = await API.rotateCiKey();
+
+            // Show results per VM
+            if (res.results && res.results.length > 0) {
+                resultsEl.innerHTML = res.results.map(r => {
+                    let icon, text;
+                    if (r.error) {
+                        icon = 'bi-x-circle-fill text-danger';
+                        text = `${r.name} (${r.vmid}) — ${r.error}`;
+                    } else if (r.agent_updated) {
+                        icon = 'bi-check-circle-fill text-success';
+                        text = `${r.name} (${r.vmid}) — config + live updated`;
+                    } else if (r.config_updated && r.needs_restart) {
+                        icon = 'bi-exclamation-circle-fill text-warning';
+                        text = `${r.name} (${r.vmid}) — config updated, restart needed`;
+                    } else if (r.config_updated) {
+                        icon = 'bi-check-circle-fill text-success';
+                        text = `${r.name} (${r.vmid}) — config updated`;
+                    } else {
+                        icon = 'bi-dash-circle text-muted';
+                        text = `${r.name} (${r.vmid}) — skipped`;
+                    }
+                    return `<div class="d-flex align-items-center gap-2 mb-1">
+                        <i class="bi ${icon}"></i>
+                        <span class="small">${escapeHtml(text)}</span>
+                    </div>`;
+                }).join('');
+            }
+
+            // Offer private key download
+            if (res.private_key) {
+                const blob = new Blob([res.private_key], { type: 'application/x-pem-file' });
+                const url = URL.createObjectURL(blob);
+                resultsEl.innerHTML += `
+                    <div class="alert alert-info mt-3 py-2 px-3 small">
+                        <i class="bi bi-download me-1"></i>
+                        <strong>Save your new private key now!</strong> It cannot be retrieved later.
+                        <a href="${url}" download="id_ed25519_cloud_init" class="btn btn-sm btn-info ms-2">
+                            <i class="bi bi-download me-1"></i>Download Private Key
+                        </a>
+                    </div>
+                `;
+            }
+
+            // Update the user's key in the deploy form if open
+            if (res.public_key && window.APP_USER) {
+                window.APP_USER.ssh_public_keys = res.public_key;
+            }
+
+            Toast.success(`Cloud-Init key rotated — ${res.updated} VM(s) updated`);
+            if (previewEl) previewEl.innerHTML = '';
+        } catch (e) {
+            resultsEl.innerHTML = `<p class="text-danger small">${escapeHtml(e.message || 'Rotation failed')}</p>`;
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Rotate Cloud-Init Key';
+        }
+    },
+
+    async deployKeyToNodes(btn, password) {
         const resultsEl = document.getElementById('ssh-deploy-results');
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Deploying...';
         resultsEl.innerHTML = '';
         try {
-            const res = await API.post('api/ssh-deploy-key.php', {});
-            resultsEl.innerHTML = res.results.map(r => `
-                <div class="d-flex align-items-center gap-2 mb-1">
-                    <i class="bi ${r.success ? 'bi-check-circle-fill text-success' : 'bi-x-circle-fill text-danger'}"></i>
-                    <span class="small">${escapeHtml(r.node)} (${escapeHtml(r.ip)})${r.error ? ' — ' + escapeHtml(r.error) : ''}</span>
-                </div>`).join('');
+            const payload = password ? { password } : {};
+            const res = await API.post('api/ssh-deploy-key.php', payload);
+            this._renderSshResults(resultsEl, res.results);
             const allOk = res.results.every(r => r.success);
             if (allOk) Toast.success('SSH key deployed to all nodes');
             else Toast.warning('Some nodes failed — see details above');
         } catch (e) {
-            resultsEl.innerHTML = `<p class="text-danger small">${escapeHtml(e.message || 'Deploy failed')}</p>`;
+            const errData = e.details || {};
+            if ((errData.needs_password || (e.message && e.message.includes('SSH password required'))) && !password) {
+                const pw = await this._promptSshPassword('deploy');
+                if (pw) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="bi bi-cloud-upload me-1"></i>Deploy to All Nodes';
+                    return this.deployKeyToNodes(btn, pw);
+                }
+                resultsEl.innerHTML = '';
+            } else {
+                resultsEl.innerHTML = `<p class="text-danger small">${escapeHtml(e.message || 'Deploy failed')}</p>`;
+            }
         } finally {
             btn.disabled = false;
             btn.innerHTML = '<i class="bi bi-cloud-upload me-1"></i>Deploy to All Nodes';

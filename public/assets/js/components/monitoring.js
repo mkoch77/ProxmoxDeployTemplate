@@ -178,6 +178,15 @@ const Monitoring = {
                 <div class="col-md-6"><div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)"><div class="card-body p-2">
                     <h6 class="mb-1">Disk Throughput</h6><div style="position:relative;height:200px"><canvas id="chart-node-disk"></canvas></div>
                 </div></div></div>
+                <div class="col-md-6"><div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)"><div class="card-body p-2">
+                    <h6 class="mb-1">I/O Wait</h6><div style="position:relative;height:200px"><canvas id="chart-node-iowait"></canvas></div>
+                </div></div></div>
+                <div class="col-md-6"><div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)"><div class="card-body p-2">
+                    <h6 class="mb-1">Load Average</h6><div style="position:relative;height:200px"><canvas id="chart-node-load"></canvas></div>
+                </div></div></div>
+                <div class="col-md-6"><div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)"><div class="card-body p-2">
+                    <h6 class="mb-1">Swap Usage</h6><div style="position:relative;height:200px"><canvas id="chart-node-swap"></canvas></div>
+                </div></div></div>
             </div>
         `;
 
@@ -213,6 +222,26 @@ const Monitoring = {
                 { label: 'Read', data: m.map(r => (r.disk_read_bytes / 1048576).toFixed(2)), borderColor: '#0d6efd' },
                 { label: 'Write', data: m.map(r => (r.disk_write_bytes / 1048576).toFixed(2)), borderColor: '#dc3545' },
             ], { label: 'MB/s' });
+
+            this.createChart('chart-node-iowait', labels, [
+                { label: 'I/O Wait %', data: m.map(r => ((r.disk_read_iops || 0) * 100).toFixed(1)), borderColor: '#fd7e14', backgroundColor: 'rgba(253,126,20,0.1)', fill: true },
+            ], { max: 100 });
+
+            this.createChart('chart-node-load', labels, [
+                { label: 'Load Avg', data: m.map(r => parseFloat(r.load_avg || 0).toFixed(2)), borderColor: '#6f42c1', backgroundColor: 'rgba(111,66,193,0.1)', fill: true },
+            ], { label: 'Load' });
+
+            const hasSwap = m.some(r => (r.swap_total || 0) > 0);
+            if (hasSwap) {
+                this.createChart('chart-node-swap', labels, [
+                    { label: 'Used', data: m.map(r => (r.swap_used / 1073741824).toFixed(2)), borderColor: '#e83e8c', backgroundColor: 'rgba(232,62,140,0.1)', fill: true },
+                    { label: 'Total', data: m.map(r => (r.swap_total / 1073741824).toFixed(2)), borderColor: '#6c757d', borderDash: [5, 5] },
+                ], { label: 'GB' });
+            } else {
+                this.createChart('chart-node-swap', labels, [
+                    { label: 'Used', data: m.map(() => 0), borderColor: '#e83e8c' },
+                ], { label: 'GB' });
+            }
         } catch (e) {}
     },
 
@@ -240,6 +269,9 @@ const Monitoring = {
                 </div></div></div>
                 <div class="col-md-6"><div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)"><div class="card-body p-2">
                     <h6 class="mb-1">Disk Throughput</h6><div style="position:relative;height:200px"><canvas id="chart-vm-disk"></canvas></div>
+                </div></div></div>
+                <div class="col-md-6"><div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)"><div class="card-body p-2">
+                    <h6 class="mb-1">Disk Space</h6><div style="position:relative;height:200px"><canvas id="chart-vm-diskspace"></canvas></div>
                 </div></div></div>
             </div>
         `;
@@ -277,6 +309,18 @@ const Monitoring = {
                 { label: 'Read', data: m.map(r => (r.disk_read_bytes / 1048576).toFixed(2)), borderColor: '#0d6efd' },
                 { label: 'Write', data: m.map(r => (r.disk_write_bytes / 1048576).toFixed(2)), borderColor: '#dc3545' },
             ], { label: 'MB/s' });
+
+            const hasDisk = m.some(r => (r.disk_total || 0) > 0);
+            if (hasDisk) {
+                this.createChart('chart-vm-diskspace', labels, [
+                    { label: 'Used', data: m.map(r => ((r.disk_used || 0) / 1073741824).toFixed(2)), borderColor: '#e83e8c', backgroundColor: 'rgba(232,62,140,0.1)', fill: true },
+                    { label: 'Total', data: m.map(r => ((r.disk_total || 0) / 1073741824).toFixed(2)), borderColor: '#6c757d', borderDash: [5, 5] },
+                ], { label: 'GB' });
+            } else {
+                this.createChart('chart-vm-diskspace', labels, [
+                    { label: 'Used', data: m.map(() => 0), borderColor: '#e83e8c' },
+                ], { label: 'GB' });
+            }
         } catch (e) {}
     },
 
@@ -292,10 +336,15 @@ const Monitoring = {
             }
 
             const memTotal = s.mem_total || 1;
+            const diskUsed = parseInt(s.disk_used) || 0;
+            const diskTotal = parseInt(s.disk_total) || 0;
+            const diskPct = diskTotal > 0 ? ((diskUsed / diskTotal) * 100).toFixed(1) : 0;
+            const uptime = parseInt(s.uptime) || 0;
+
             document.getElementById('mon-vm-summary').innerHTML = `
-                <div class="row g-2">
-                    <div class="col-md-3">
-                        <div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)">
+                <div class="row g-2 mon-vm-summary-row">
+                    <div class="col">
+                        <div class="card h-100" style="background:var(--card-bg);border:1px solid var(--border-color)">
                             <div class="card-body p-2 text-center">
                                 <div class="text-muted small">CPU Avg / P95 / Max</div>
                                 <div class="fw-bold">${(s.avg_cpu * 100).toFixed(1)}% / ${(s.p95_cpu * 100).toFixed(1)}% / ${(s.max_cpu * 100).toFixed(1)}%</div>
@@ -303,8 +352,8 @@ const Monitoring = {
                             </div>
                         </div>
                     </div>
-                    <div class="col-md-3">
-                        <div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)">
+                    <div class="col">
+                        <div class="card h-100" style="background:var(--card-bg);border:1px solid var(--border-color)">
                             <div class="card-body p-2 text-center">
                                 <div class="text-muted small">RAM Avg / P95</div>
                                 <div class="fw-bold">${((s.avg_mem / memTotal) * 100).toFixed(1)}% / ${((s.p95_mem / memTotal) * 100).toFixed(1)}%</div>
@@ -312,16 +361,35 @@ const Monitoring = {
                             </div>
                         </div>
                     </div>
-                    <div class="col-md-3">
-                        <div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)">
+                    <div class="col">
+                        <div class="card h-100" style="background:var(--card-bg);border:1px solid var(--border-color)">
                             <div class="card-body p-2 text-center">
-                                <div class="text-muted small">Net In / Out (avg)</div>
-                                <div class="fw-bold">${((s.avg_net_in || 0) * 8 / 1048576).toFixed(2)} Mbit/s / ${((s.avg_net_out || 0) * 8 / 1048576).toFixed(2)} Mbit/s</div>
+                                <div class="text-muted small">Disk Space</div>
+                                <div class="fw-bold">${diskTotal > 0 ? diskPct + '%' : 'N/A'}</div>
+                                <div class="text-muted small">${diskTotal > 0 ? this.formatBytes(diskUsed) + ' / ' + this.formatBytes(diskTotal) : 'No data'}</div>
                             </div>
                         </div>
                     </div>
-                    <div class="col-md-3">
-                        <div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)">
+                    <div class="col">
+                        <div class="card h-100" style="background:var(--card-bg);border:1px solid var(--border-color)">
+                            <div class="card-body p-2 text-center">
+                                <div class="text-muted small">Network (avg)</div>
+                                <div class="fw-bold">${((s.avg_net_in || 0) * 8 / 1048576).toFixed(2)} / ${((s.avg_net_out || 0) * 8 / 1048576).toFixed(2)}</div>
+                                <div class="text-muted small">Mbit/s In / Out</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="card h-100" style="background:var(--card-bg);border:1px solid var(--border-color)">
+                            <div class="card-body p-2 text-center">
+                                <div class="text-muted small">Uptime</div>
+                                <div class="fw-bold">${uptime > 0 ? this.formatUptime(uptime) : 'N/A'}</div>
+                                <div class="text-muted small">${uptime > 0 ? (uptime >= 86400 ? Math.floor(uptime / 86400) + ' days total' : Math.floor(uptime / 3600) + 'h ' + Math.floor((uptime % 3600) / 60) + 'm total') : '\u00a0'}</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col">
+                        <div class="card h-100" style="background:var(--card-bg);border:1px solid var(--border-color)">
                             <div class="card-body p-2 text-center">
                                 <div class="text-muted small">Samples</div>
                                 <div class="fw-bold">${parseInt(s.samples).toLocaleString()}</div>
@@ -447,5 +515,15 @@ const Monitoring = {
         if (!ts) return '';
         const d = new Date(ts.replace(' ', 'T') + 'Z');
         return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    },
+
+    formatUptime(seconds) {
+        seconds = parseInt(seconds) || 0;
+        const d = Math.floor(seconds / 86400);
+        const h = Math.floor((seconds % 86400) / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        if (d > 0) return `${d}d ${h}h ${m}m`;
+        if (h > 0) return `${h}h ${m}m`;
+        return `${m}m`;
     },
 };

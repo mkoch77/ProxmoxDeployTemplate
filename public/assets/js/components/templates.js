@@ -181,7 +181,7 @@ const Templates = {
             this.loadCommunityScripts();
         }
         if (this.activeTab === 'cloudinit') {
-            this.renderCloudImages();
+            this.loadCloudImages();
         }
         if (this.activeTab === 'custom') {
             this.loadCustomImages();
@@ -218,7 +218,7 @@ const Templates = {
             this.loadCommunityScripts();
         }
         if (tab === 'cloudinit') {
-            this.renderCloudImages();
+            this.loadCloudImages();
         }
         if (tab === 'custom') {
             this.loadCustomImages();
@@ -237,17 +237,18 @@ const Templates = {
         container.innerHTML = '<div class="loading-spinner"><div class="spinner-border text-primary"></div></div>';
 
         try {
-            const resp = await fetch('https://community-scripts.github.io/ProxmoxVE/api/categories');
-            if (!resp.ok) throw new Error('Failed to load');
-            this.communityData = await resp.json();
+            console.debug('[HTTP] Fetching community scripts via proxy');
+            const data = await API.request('/api/community-scripts.php');
+            this.communityData = data.categories;
             this.renderCommunity();
         } catch (e) {
+            console.error('[HTTP] External request failed: community scripts API', e.message);
             container.innerHTML = `
                 <div class="text-center py-5" style="color:var(--text-muted)">
                     <i class="bi bi-wifi-off" style="font-size:2rem;opacity:0.4"></i>
                     <p class="mt-2">Failed to load community scripts.<br>
                     <small>Check your internet connection or visit
-                    <a href="https://community-scripts.github.io/ProxmoxVE/scripts" target="_blank" style="color:var(--accent-green)">community-scripts.github.io</a> directly.</small></p>
+                    <a href="https://community-scripts.org/scripts" target="_blank" style="color:var(--accent-green)">community-scripts.org</a> directly.</small></p>
                 </div>`;
         } finally {
             this.communityLoading = false;
@@ -636,27 +637,35 @@ const Templates = {
 
     // ===== Cloud Images =====
 
-    CI_IMAGES: {
-        // Ubuntu
-        'ubuntu-24.04':      { name: 'Ubuntu 24.04 LTS',  subtitle: 'Noble Numbat',   color: '#E95420', default_user: 'ubuntu' },
-        'ubuntu-22.04':      { name: 'Ubuntu 22.04 LTS',  subtitle: 'Jammy Jellyfish', color: '#E95420', default_user: 'ubuntu' },
-        'ubuntu-20.04':      { name: 'Ubuntu 20.04 LTS',  subtitle: 'Focal Fossa',    color: '#E95420', default_user: 'ubuntu' },
-        // Debian
-        'debian-12':         { name: 'Debian 12',         subtitle: 'Bookworm',        color: '#D70A53', default_user: 'debian' },
-        'debian-11':         { name: 'Debian 11',         subtitle: 'Bullseye',        color: '#D70A53', default_user: 'debian' },
-        // RHEL-family
-        'rocky-9':           { name: 'Rocky Linux 9',     subtitle: 'GenericCloud',    color: '#10B981', default_user: 'rocky' },
-        'almalinux-9':       { name: 'AlmaLinux 9',       subtitle: 'GenericCloud',    color: '#1D6FA4', default_user: 'almalinux' },
-        'centos-stream-9':   { name: 'CentOS Stream 9',   subtitle: 'GenericCloud',    color: '#9CDD05', default_user: 'cloud-user' },
-        // Other Linux
-        'fedora-41':         { name: 'Fedora 41',         subtitle: 'Cloud Base',      color: '#51A2DA', default_user: 'fedora' },
-        'opensuse-leap-15.6':{ name: 'openSUSE Leap 15.6',subtitle: 'Minimal Cloud',   color: '#73BA25', default_user: 'opensuse' },
-        'arch-linux':        { name: 'Arch Linux',        subtitle: 'Rolling (latest)', color: '#1793D1', default_user: 'arch' },
+    CI_IMAGES: {},       // loaded from API
+    _ciImagesLoaded: false,
+
+    async loadCloudImages() {
+        if (this._ciImagesLoaded) {
+            this.renderCloudImages();
+            return;
+        }
+        const grid = document.getElementById('ci-grid');
+        if (!grid) return;
+        grid.innerHTML = '<div class="text-center py-3"><div class="spinner-border spinner-border-sm"></div></div>';
+        try {
+            const res = await API.get('api/cloud-init-images.php');
+            this.CI_IMAGES = res.images || {};
+            this._ciImagesLoaded = true;
+            this.renderCloudImages();
+        } catch (e) {
+            grid.innerHTML = `<p class="text-danger small">${escapeHtml(e.message || 'Failed to load cloud images')}</p>`;
+        }
     },
 
     renderCloudImages() {
         const grid = document.getElementById('ci-grid');
         if (!grid) return;
+
+        if (Object.keys(this.CI_IMAGES).length === 0) {
+            grid.innerHTML = '<p class="text-muted">No cloud images enabled. Configure <code>CLOUD_DISTROS</code> in your .env file.</p>';
+            return;
+        }
 
         grid.innerHTML = Object.entries(this.CI_IMAGES).map(([id, img]) => `
             <div class="ci-card" onclick="Templates.openCloudImageModal('${id}')">

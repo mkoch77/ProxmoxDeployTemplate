@@ -38,9 +38,15 @@ if (in_array($maintNode['status'], ['entering', 'leaving']) && !empty($migration
         $api = Helpers::createAPI();
         $allDone = true;
         $allSuccess = true;
+        $autoSkipMinutes = 15;
 
         foreach ($migrations as &$mig) {
-            if (empty($mig['upid']) || $mig['status'] === 'error') {
+            // Calculate elapsed time for running migrations
+            if ($mig['status'] === 'running' && !empty($mig['started_at'])) {
+                $mig['elapsed_seconds'] = time() - strtotime($mig['started_at']);
+            }
+
+            if (empty($mig['upid']) || $mig['status'] === 'error' || $mig['status'] === 'skipped') {
                 continue;
             }
             if ($mig['status'] === 'completed') {
@@ -60,7 +66,15 @@ if (in_array($maintNode['status'], ['entering', 'leaving']) && !empty($migration
                         $allSuccess = false;
                     }
                 } else {
-                    $allDone = false;
+                    // Auto-skip if running longer than threshold
+                    if (!empty($mig['started_at']) && (time() - strtotime($mig['started_at'])) > $autoSkipMinutes * 60) {
+                        $mig['status'] = 'timeout';
+                        AppLogger::warning('maintenance', 'Migration auto-skipped after timeout', [
+                            'node' => $nodeName, 'vmid' => $mig['vmid'], 'minutes' => $autoSkipMinutes,
+                        ]);
+                    } else {
+                        $allDone = false;
+                    }
                 }
             } catch (\Exception $e) {
                 $allDone = false;

@@ -24,8 +24,35 @@ if ($method === 'GET') {
         Response::error('Invalid node name', 400);
     }
 
+    set_time_limit(120);
+
     try {
         $api = Helpers::createAPI();
+
+        // Refresh package index first (POST apt/update = apt-get update)
+        // This returns a UPID task — wait for it to finish before querying updates
+        try {
+            $refreshResult = $api->refreshAptIndex($node);
+            $upid = $refreshResult['data'] ?? '';
+            if ($upid) {
+                // Poll task status until finished (max 90s)
+                $start = time();
+                while (time() - $start < 90) {
+                    usleep(500000); // 0.5s
+                    try {
+                        $taskStatus = $api->getTaskStatus($node, $upid);
+                        $status = $taskStatus['data']['status'] ?? '';
+                        if ($status !== 'running') break;
+                    } catch (\Exception $e) {
+                        break; // task may have finished and been cleaned up
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            // Refresh failed (e.g. no internet on node) — still try to get cached updates
+            AppLogger::debug('system', 'apt refresh failed on ' . $node, ['error' => $e->getMessage()]);
+        }
+
         $result = $api->getAptUpdates($node);
         $packages = $result['data'] ?? [];
         Response::success([
