@@ -101,6 +101,13 @@ if [[ "${SSH_ENABLED:-true}" != "false" && -f "$KEY_PATH" ]]; then
     ) >> /var/www/html/data/ssh-rotate.log 2>&1 &
 fi
 
+# Sync maintenance state from Proxmox (detect nodes already in maintenance)
+(
+    sleep 5
+    . /etc/docker-env.sh
+    /usr/local/bin/php /var/www/html/cli/maintenance-sync.php
+) >> /var/www/html/data/maintenance-sync.log 2>&1 &
+
 # Start monitoring collector loop in background (10s interval)
 (
     while true; do

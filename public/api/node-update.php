@@ -17,7 +17,7 @@ Auth::requirePermission('cluster.update');
 $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method === 'GET') {
-    // Check for available updates via Proxmox API
+    // Check for available updates via SSH + Proxmox API fallback
     Request::requireMethod('GET');
     $node = Request::get('node');
     if (!$node || !Helpers::validateNodeName($node)) {
@@ -27,42 +27,46 @@ if ($method === 'GET') {
     set_time_limit(120);
 
     try {
-        $api = Helpers::createAPI();
+        $api     = Helpers::createAPI();
+        $sshHost = Helpers::resolveNodeSshHost($api, $node);
 
-        // Refresh package index first (POST apt/update = apt-get update)
-        // This returns a UPID task — wait for it to finish before querying updates
+        // Refresh package index via SSH (handles enterprise repo errors gracefully)
         try {
-            $refreshResult = $api->refreshAptIndex($node);
-            $upid = $refreshResult['data'] ?? '';
-            if ($upid) {
-                // Poll task status until finished (max 90s)
-                $start = time();
-                while (time() - $start < 90) {
-                    usleep(500000); // 0.5s
-                    try {
-                        $taskStatus = $api->getTaskStatus($node, $upid);
-                        $status = $taskStatus['data']['status'] ?? '';
-                        if ($status !== 'running') break;
-                    } catch (\Exception $e) {
-                        break; // task may have finished and been cleaned up
-                    }
-                }
-            }
+            SSH::exec($sshHost, 'apt-get update -qq 2>&1', 90);
         } catch (\Exception $e) {
-            // Refresh failed (e.g. no internet on node) — still try to get cached updates
-            AppLogger::debug('system', 'apt refresh failed on ' . $node, ['error' => $e->getMessage()]);
+            AppLogger::debug('system', 'apt refresh via SSH failed on ' . $node, ['error' => $e->getMessage()]);
         }
 
-        $result = $api->getAptUpdates($node);
-        $packages = $result['data'] ?? [];
-        Response::success([
-            'node'     => $node,
-            'count'    => count($packages),
-            'packages' => array_map(fn($p) => [
+        // Try Proxmox API first for structured package data
+        $packages = [];
+        try {
+            $result   = $api->getAptUpdates($node);
+            $packages = array_map(fn($p) => [
                 'name'        => $p['Package'] ?? $p['name'] ?? '',
                 'new_version' => $p['Version'] ?? $p['new_version'] ?? '',
                 'old_version' => $p['OldVersion'] ?? $p['old_version'] ?? '',
-            ], $packages),
+            ], $result['data'] ?? []);
+        } catch (\Exception $e) {
+            // API returns 501 when enterprise repo has no subscription — fall back to SSH
+            AppLogger::debug('system', 'apt/updates API failed on ' . $node . ', falling back to SSH', ['error' => $e->getMessage()]);
+            $output = SSH::exec($sshHost, 'apt list --upgradable 2>/dev/null | tail -n +2');
+            foreach (explode("\n", trim($output)) as $line) {
+                if (!$line) continue;
+                // Format: "package/source version arch [upgradable from: old_version]"
+                if (preg_match('/^(\S+)\/\S+\s+(\S+)\s+\S+\s+\[upgradable from:\s+(\S+)\]/', $line, $m)) {
+                    $packages[] = [
+                        'name'        => $m[1],
+                        'new_version' => $m[2],
+                        'old_version' => $m[3],
+                    ];
+                }
+            }
+        }
+
+        Response::success([
+            'node'     => $node,
+            'count'    => count($packages),
+            'packages' => $packages,
         ]);
     } catch (\Exception $e) {
         Response::error($e->getMessage(), 500);

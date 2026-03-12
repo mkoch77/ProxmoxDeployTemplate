@@ -1,0 +1,115 @@
+Date : 2026-03-12 11:06:12
+Directory : /home/michael/Coding/ProxmoxDeployTemplate/public
+Total : 81 files,  17854 codes, 716 comments, 2281 blanks, all 20851 lines
+
+Languages
++------------+------------+------------+------------+------------+------------+
+| language   | files      | code       | comment    | blank      | total      |
++------------+------------+------------+------------+------------+------------+
+| JavaScript |         18 |     10,032 |        261 |        959 |     11,252 |
+| PHP        |         61 |      6,525 |        404 |      1,110 |      8,039 |
+| PostCSS    |          1 |      1,293 |         50 |        211 |      1,554 |
+| Ini        |          1 |          4 |          1 |          1 |          6 |
++------------+------------+------------+------------+------------+------------+
+
+Directories
++----------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| path                                                                                   | files      | code       | comment    | blank      | total      |
++----------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| .                                                                                      |         81 |     17,854 |        716 |      2,281 |     20,851 |
+| . (Files)                                                                              |          3 |        754 |          6 |         40 |        800 |
+| api                                                                                    |         59 |      5,775 |        399 |      1,071 |      7,245 |
+| assets                                                                                 |         19 |     11,325 |        311 |      1,170 |     12,806 |
+| assets/css                                                                             |          1 |      1,293 |         50 |        211 |      1,554 |
+| assets/js                                                                              |         18 |     10,032 |        261 |        959 |     11,252 |
+| assets/js (Files)                                                                      |          4 |      1,014 |         74 |        191 |      1,279 |
+| assets/js/components                                                                   |         14 |      9,018 |        187 |        768 |      9,973 |
++----------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+
+Files
++----------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| filename                                                                               | language   | code       | comment    | blank      | total      |
++----------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+
+| /home/michael/Coding/ProxmoxDeployTemplate/public/.user.ini                            | Ini        |          4 |          1 |          1 |          6 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/affinity.php                     | PHP        |        274 |         10 |         33 |        317 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/auth-callback.php                | PHP        |         41 |          2 |         10 |         53 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/auth-entraid.php                 | PHP        |         15 |          0 |          7 |         22 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/auth.php                         | PHP        |         17 |          0 |          6 |         23 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/change-password.php              | PHP        |         37 |          3 |         13 |         53 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/clone.php                        | PHP        |        183 |         13 |         23 |        219 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/cloud-init-images.php            | PHP        |         49 |          2 |          8 |         59 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/cloud-init-rotate-key.php        | PHP        |        177 |         18 |         38 |        233 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/cloud-init-start.php             | PHP        |        293 |         23 |         38 |        354 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/cluster-health.php               | PHP        |        224 |         17 |         23 |        264 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/cluster-stats.php                | PHP        |        190 |         11 |         24 |        225 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/community-install.php            | PHP        |         73 |         10 |         15 |         98 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/community-scripts.php            | PHP        |        123 |         21 |         30 |        174 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/custom-images-distribute.php     | PHP        |         86 |          7 |         21 |        114 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/custom-images.php                | PHP        |        119 |         12 |         29 |        160 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/delete-guest.php                 | PHP        |         42 |          3 |         10 |         55 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/generate-ssh-key.php             | PHP        |         48 |          5 |         17 |         70 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/guest-config.php                 | PHP        |         32 |          0 |          9 |         41 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/guest-ips-bulk.php               | PHP        |        163 |         12 |         19 |        194 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/guest-ips.php                    | PHP        |        140 |          5 |         15 |        160 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/guests.php                       | PHP        |         61 |          3 |         13 |         77 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/ha.php                           | PHP        |         55 |          1 |         13 |         69 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/loadbalancer-history.php         | PHP        |         25 |          0 |          7 |         32 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/loadbalancer.php                 | PHP        |        100 |          0 |         15 |        115 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/login.php                        | PHP        |         31 |          2 |          9 |         42 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/logout.php                       | PHP        |         13 |          0 |          5 |         18 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/logs.php                         | PHP        |        144 |         13 |         22 |        179 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/maintenance-status.php           | PHP        |         93 |         10 |         17 |        120 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/maintenance.php                  | PHP        |        268 |         18 |         46 |        332 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/me.php                           | PHP        |         32 |          1 |         10 |         43 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/migrate.php                      | PHP        |         67 |          3 |         12 |         82 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/monitoring-rightsizing.php       | PHP        |         90 |          5 |         21 |        116 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/monitoring.php                   | PHP        |         98 |          5 |         24 |        127 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/networks.php                     | PHP        |         24 |          0 |          8 |         32 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/next-vmid.php                    | PHP        |         17 |          0 |          6 |         23 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/node-info.php                    | PHP        |         72 |          5 |          9 |         86 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/node-update.php                  | PHP        |        113 |          8 |         23 |        144 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/nodes.php                        | PHP        |         19 |          0 |          7 |         26 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/power.php                        | PHP        |         69 |          3 |         12 |         84 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/profile.php                      | PHP        |         32 |          0 |         11 |         43 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/reports.php                      | PHP        |        508 |         27 |         70 |        605 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/rolling-update.php               | PHP        |         97 |          3 |         18 |        118 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/service-templates.php            | PHP        |         87 |         11 |         18 |        116 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/snapshots.php                    | PHP        |        143 |         10 |         21 |        174 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/ssh-deploy-key.php               | PHP        |         93 |          5 |         19 |        117 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/ssh-pubkey.php                   | PHP        |         18 |          0 |          8 |         26 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/ssh-rotate-key.php               | PHP        |        176 |         16 |         34 |        226 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/storages.php                     | PHP        |         25 |          0 |          8 |         33 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/tags.php                         | PHP        |         99 |          6 |         20 |        125 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/task-log.php                     | PHP        |         25 |          0 |          8 |         33 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/tasks.php                        | PHP        |         35 |          0 |          8 |         43 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/templates.php                    | PHP        |         21 |          0 |          8 |         29 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/terminal-input.php               | PHP        |         32 |          5 |          9 |         46 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/terminal-output.php              | PHP        |        183 |         14 |         33 |        230 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/terminal-start.php               | PHP        |         79 |          5 |         17 |        101 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/upload-chunk.php                 | PHP        |         75 |         24 |         20 |        119 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/users.php                        | PHP        |        112 |          1 |         27 |        140 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/windows-deploy.php               | PHP        |        169 |         17 |         33 |        219 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/api/windows-images.php               | PHP        |         49 |          4 |         14 |         67 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/assets/css/app.css                   | PostCSS    |      1,293 |         50 |        211 |      1,554 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/assets/js/api.js                     | JavaScript |        275 |         11 |         88 |        374 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/assets/js/app.js                     | JavaScript |        452 |         35 |         63 |        550 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/assets/js/components/controls.js     | JavaScript |        113 |          8 |         14 |        135 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/assets/js/components/dashboard.js    | JavaScript |      1,242 |         38 |        112 |      1,392 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/assets/js/components/deploy.js       | JavaScript |        388 |         10 |         37 |        435 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/assets/js/components/health.js       | JavaScript |        950 |         20 |         73 |      1,043 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/assets/js/components/loadbalancer.js | JavaScript |        370 |          5 |         39 |        414 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/assets/js/components/maintenance.js  | JavaScript |        397 |          7 |         34 |        438 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/assets/js/components/monitoring.js   | JavaScript |        518 |          0 |         12 |        530 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/assets/js/components/reports.js      | JavaScript |        736 |          8 |         53 |        797 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/assets/js/components/settings.js     | JavaScript |      1,313 |         15 |         93 |      1,421 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/assets/js/components/tasks.js        | JavaScript |        135 |          1 |         20 |        156 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/assets/js/components/templates.js    | JavaScript |      2,023 |         49 |        196 |      2,268 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/assets/js/components/toast.js        | JavaScript |         42 |          2 |          7 |         51 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/assets/js/components/updater.js      | JavaScript |        371 |         13 |         40 |        424 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/assets/js/components/users.js        | JavaScript |        420 |         11 |         38 |        469 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/assets/js/permissions.js             | JavaScript |         16 |          0 |          5 |         21 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/assets/js/utils.js                   | JavaScript |        271 |         28 |         35 |        334 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/index.php                            | PHP        |        551 |          4 |         24 |        579 |
+| /home/michael/Coding/ProxmoxDeployTemplate/public/login.php                            | PHP        |        199 |          1 |         15 |        215 |
+| Total                                                                                  |            |     17,854 |        716 |      2,281 |     20,851 |
++----------------------------------------------------------------------------------------+------------+------------+------------+------------+------------+

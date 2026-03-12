@@ -1,0 +1,46 @@
+"filename", "language", "JSON", "PHP", "Docker", "Ignore", "YAML", "Shell Script", "Properties", "Markdown", "comment", "blank", "total"
+"/home/michael/Coding/ProxmoxDeployTemplate/.dockerignore", "Ignore", 0, 0, 0, 13, 0, 0, 0, 0, 6, 6, 25
+"/home/michael/Coding/ProxmoxDeployTemplate/Dockerfile", "Docker", 0, 0, 45, 0, 0, 0, 0, 0, 7, 12, 64
+"/home/michael/Coding/ProxmoxDeployTemplate/cli/affinity-resolve.php", "PHP", 0, 49, 0, 0, 0, 0, 0, 0, 6, 13, 68
+"/home/michael/Coding/ProxmoxDeployTemplate/cli/cloudinit-cleanup.php", "PHP", 0, 65, 0, 0, 0, 0, 0, 0, 21, 15, 101
+"/home/michael/Coding/ProxmoxDeployTemplate/cli/loadbalancer-run.php", "PHP", 0, 32, 0, 0, 0, 0, 0, 0, 6, 10, 48
+"/home/michael/Coding/ProxmoxDeployTemplate/cli/maintenance-sync.php", "PHP", 0, 73, 0, 0, 0, 0, 0, 0, 19, 14, 106
+"/home/michael/Coding/ProxmoxDeployTemplate/cli/monitoring-collect.php", "PHP", 0, 24, 0, 0, 0, 0, 0, 0, 5, 7, 36
+"/home/michael/Coding/ProxmoxDeployTemplate/cli/seed-admin.php", "PHP", 0, 34, 0, 0, 0, 0, 0, 0, 8, 10, 52
+"/home/michael/Coding/ProxmoxDeployTemplate/cli/ssh-deploy-key.php", "PHP", 0, 73, 0, 0, 0, 0, 0, 0, 5, 14, 92
+"/home/michael/Coding/ProxmoxDeployTemplate/cli/ssh-rotate-key.php", "PHP", 0, 169, 0, 0, 0, 0, 0, 0, 27, 31, 227
+"/home/michael/Coding/ProxmoxDeployTemplate/composer.json", "JSON", 14, 0, 0, 0, 0, 0, 0, 0, 0, 1, 15
+"/home/michael/Coding/ProxmoxDeployTemplate/composer.lock", "JSON", 250, 0, 0, 0, 0, 0, 0, 0, 0, 1, 251
+"/home/michael/Coding/ProxmoxDeployTemplate/config/config.example.php", "PHP", 0, 18, 0, 0, 0, 0, 0, 0, 2, 4, 24
+"/home/michael/Coding/ProxmoxDeployTemplate/docker-compose.yml", "YAML", 0, 0, 0, 0, 95, 0, 0, 0, 17, 12, 124
+"/home/michael/Coding/ProxmoxDeployTemplate/docker/apache.conf", "Properties", 0, 0, 0, 0, 0, 0, 18, 0, 3, 6, 27
+"/home/michael/Coding/ProxmoxDeployTemplate/docker/entrypoint.sh", "Shell Script", 0, 0, 0, 0, 0, 87, 0, 0, 17, 17, 121
+"/home/michael/Coding/ProxmoxDeployTemplate/docker/gen-cert.sh", "Shell Script", 0, 0, 0, 0, 0, 11, 0, 0, 3, 4, 18
+"/home/michael/Coding/ProxmoxDeployTemplate/docker/letsencrypt-init.sh", "Shell Script", 0, 0, 0, 0, 0, 28, 0, 0, 17, 11, 56
+"/home/michael/Coding/ProxmoxDeployTemplate/docker/letsencrypt-renew.sh", "Shell Script", 0, 0, 0, 0, 0, 28, 0, 0, 9, 11, 48
+"/home/michael/Coding/ProxmoxDeployTemplate/docker/nginx/default.conf", "Properties", 0, 0, 0, 0, 0, 0, 61, 0, 10, 17, 88
+"/home/michael/Coding/ProxmoxDeployTemplate/docker/nginx/nginx.conf", "Properties", 0, 0, 0, 0, 0, 0, 25, 0, 4, 12, 41
+"/home/michael/Coding/ProxmoxDeployTemplate/docs/DEVELOPER_GUIDE.md", "Markdown", 0, 0, 0, 0, 0, 0, 0, 422, 0, 130, 552
+"/home/michael/Coding/ProxmoxDeployTemplate/docs/DOCKER.md", "Markdown", 0, 0, 0, 0, 0, 0, 0, 233, 0, 91, 324
+"/home/michael/Coding/ProxmoxDeployTemplate/docs/USER_GUIDE.md", "Markdown", 0, 0, 0, 0, 0, 0, 0, 197, 0, 94, 291
+"/home/michael/Coding/ProxmoxDeployTemplate/setup.sh", "Shell Script", 0, 0, 0, 0, 0, 282, 0, 0, 37, 49, 368
+"/home/michael/Coding/ProxmoxDeployTemplate/src/AffinityHelper.php", "PHP", 0, 378, 0, 0, 0, 0, 0, 0, 46, 53, 477
+"/home/michael/Coding/ProxmoxDeployTemplate/src/AppLogger.php", "PHP", 0, 72, 0, 0, 0, 0, 0, 0, 1, 13, 86
+"/home/michael/Coding/ProxmoxDeployTemplate/src/Auth.php", "PHP", 0, 240, 0, 0, 0, 0, 0, 0, 14, 48, 302
+"/home/michael/Coding/ProxmoxDeployTemplate/src/Bootstrap.php", "PHP", 0, 44, 0, 0, 0, 0, 0, 0, 4, 8, 56
+"/home/michael/Coding/ProxmoxDeployTemplate/src/Config.php", "PHP", 0, 56, 0, 0, 0, 0, 0, 0, 3, 9, 68
+"/home/michael/Coding/ProxmoxDeployTemplate/src/Database.php", "PHP", 0, 24, 0, 0, 0, 0, 0, 0, 2, 7, 33
+"/home/michael/Coding/ProxmoxDeployTemplate/src/EntraID.php", "PHP", 0, 98, 0, 0, 0, 0, 0, 0, 4, 21, 123
+"/home/michael/Coding/ProxmoxDeployTemplate/src/Helpers.php", "PHP", 0, 80, 0, 0, 0, 0, 0, 0, 7, 12, 99
+"/home/michael/Coding/ProxmoxDeployTemplate/src/Loadbalancer.php", "PHP", 0, 473, 0, 0, 0, 0, 0, 0, 38, 98, 609
+"/home/michael/Coding/ProxmoxDeployTemplate/src/MaintenanceManager.php", "PHP", 0, 57, 0, 0, 0, 0, 0, 0, 9, 13, 79
+"/home/michael/Coding/ProxmoxDeployTemplate/src/Migrator.php", "PHP", 0, 729, 0, 0, 0, 0, 0, 0, 18, 88, 835
+"/home/michael/Coding/ProxmoxDeployTemplate/src/MonitoringCollector.php", "PHP", 0, 297, 0, 0, 0, 0, 0, 0, 18, 53, 368
+"/home/michael/Coding/ProxmoxDeployTemplate/src/ProxmoxAPI.php", "PHP", 0, 343, 0, 0, 0, 0, 0, 0, 26, 87, 456
+"/home/michael/Coding/ProxmoxDeployTemplate/src/Request.php", "PHP", 0, 42, 0, 0, 0, 0, 0, 0, 0, 8, 50
+"/home/michael/Coding/ProxmoxDeployTemplate/src/Response.php", "PHP", 0, 33, 0, 0, 0, 0, 0, 0, 1, 5, 39
+"/home/michael/Coding/ProxmoxDeployTemplate/src/RightSizing.php", "PHP", 0, 318, 0, 0, 0, 0, 0, 0, 41, 43, 402
+"/home/michael/Coding/ProxmoxDeployTemplate/src/SSH.php", "PHP", 0, 118, 0, 0, 0, 0, 0, 0, 19, 38, 175
+"/home/michael/Coding/ProxmoxDeployTemplate/src/Session.php", "PHP", 0, 33, 0, 0, 0, 0, 0, 0, 0, 5, 38
+"/home/michael/Coding/ProxmoxDeployTemplate/src/UserManager.php", "PHP", 0, 163, 0, 0, 0, 0, 0, 0, 0, 26, 189
+"Total", "-", 264, 4135, 45, 13, 95, 436, 104, 852, 480, 1227, 7651
