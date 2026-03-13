@@ -314,17 +314,21 @@ $lines[] = '      fi';
 $lines[] = '    fi';
 $lines[] = '  done';
 $lines[] = 'fi';
-// Resolve snippet directory path and create vendor cloud-init file
-$lines[] = 'if [ -n "$SNIPPET_STORAGE" ]; then';
-$lines[] = '  SNIPPET_DIR=$(pvesm path "${SNIPPET_STORAGE}:snippets/" 2>/dev/null | sed "s|/\\.||" || echo "")';
-$lines[] = '  if [ -z "$SNIPPET_DIR" ]; then';
-$lines[] = '    # Fallback: resolve storage base path and append snippets/';
-$lines[] = '    SBASE=$(pvesm path "${SNIPPET_STORAGE}:vztmpl/dummy" 2>/dev/null | sed "s|/template/cache/dummy||" || echo "/var/lib/vz")';
-$lines[] = '    SNIPPET_DIR="${SBASE}/snippets"';
-$lines[] = '  fi';
-$lines[] = '  mkdir -p "$SNIPPET_DIR"';
+// Resolve snippet path and create vendor cloud-init file
 $vendorFileName = 'ci_vendor_' . $vmid . '.yaml';
-$lines[] = '  cat > "${SNIPPET_DIR}/' . $vendorFileName . '" << \'CI_VENDOR_EOF\'';
+$lines[] = 'if [ -n "$SNIPPET_STORAGE" ]; then';
+// Use pvesm path on the exact volume ID so the file is written exactly where Proxmox expects it
+$lines[] = '  SNIPPET_VOL="${SNIPPET_STORAGE}:snippets/' . $vendorFileName . '"';
+$lines[] = '  SNIPPET_PATH=$(pvesm path "$SNIPPET_VOL" 2>/dev/null || echo "")';
+$lines[] = '  if [ -z "$SNIPPET_PATH" ]; then';
+// Fallback: resolve storage base path and construct snippets path manually
+$lines[] = '    STYPE=$(grep -A5 "^\\(dir\\|nfs\\|cifs\\|btrfs\\|glusterfs\\): ${SNIPPET_STORAGE}$" /etc/pve/storage.cfg 2>/dev/null | grep "path " | awk "{print \$2}" || echo "")';
+$lines[] = '    SBASE="${STYPE:-/var/lib/vz}"';
+$lines[] = '    SNIPPET_PATH="${SBASE}/snippets/' . $vendorFileName . '"';
+$lines[] = '  fi';
+$lines[] = '  SNIPPET_DIR="$(dirname "$SNIPPET_PATH")"';
+$lines[] = '  mkdir -p "$SNIPPET_DIR"';
+$lines[] = '  cat > "$SNIPPET_PATH" << \'CI_VENDOR_EOF\'';
 $lines[] = '#cloud-config';
 $lines[] = 'packages:';
 $lines[] = '  - qemu-guest-agent';
@@ -338,12 +342,12 @@ foreach ($ciRuncmd as $cmd) {
 }
 $lines[] = 'CI_VENDOR_EOF';
 $lines[] = '  sync';
-$lines[] = '  SNIPPET_VOL="${SNIPPET_STORAGE}:snippets/' . $vendorFileName . '"';
-$lines[] = '  if pvesm path "$SNIPPET_VOL" >/dev/null 2>&1; then';
+// Verify the file actually exists before attaching
+$lines[] = '  if [ -f "$SNIPPET_PATH" ]; then';
 $lines[] = '    echo "    Attaching vendor cloud-init snippet (${SNIPPET_STORAGE})..."';
-$lines[] = '    qm set $VMID --cicustom "vendor=${SNIPPET_VOL}" 2>/dev/null || qm set $VMID --vendor-data "$SNIPPET_VOL" 2>/dev/null || echo "    Warning: could not attach vendor snippet (qemu-guest-agent will need manual install)"';
+$lines[] = '    qm set $VMID --cicustom "vendor=${SNIPPET_VOL}" 2>/dev/null || echo "    Warning: could not attach vendor snippet (qemu-guest-agent will need manual install)"';
 $lines[] = '  else';
-$lines[] = '    echo "    Warning: Proxmox cannot resolve snippet volume — skipping vendor cloud-init"';
+$lines[] = '    echo "    Warning: Snippet file not found at $SNIPPET_PATH — skipping vendor cloud-init"';
 $lines[] = '  fi';
 $lines[] = 'else';
 $lines[] = '  echo "    Warning: No snippet-capable storage found — skipping vendor cloud-init"';
@@ -355,15 +359,22 @@ $lines[] = "echo '==> [7/8] Resizing disk to " . (int)$diskSize . "G...'";
 $lines[] = 'qm resize $VMID scsi0 ' . (int)$diskSize . 'G';
 $lines[] = '';
 $lines[] = "echo '==> [8/8] Starting VM...'";
-$lines[] = 'qm start $VMID';
+// Try starting the VM. If it fails due to snippet volume issues, remove cicustom and retry.
+// The cloud-init ISO already contains user/network data; vendor-data (qemu-guest-agent) is optional.
+$lines[] = 'if ! qm start $VMID 2>&1; then';
+$lines[] = '  echo "    Start failed — removing cicustom snippet reference and retrying..."';
+$lines[] = '  qm set $VMID --delete cicustom 2>/dev/null || true';
+$lines[] = '  if [ -n "$SNIPPET_PATH" ]; then rm -f "$SNIPPET_PATH"; fi';
+$lines[] = '  qm start $VMID';
+$lines[] = '  echo "    Warning: VM started without vendor cloud-init — install qemu-guest-agent manually: apt install qemu-guest-agent"';
+$lines[] = 'else';
+// Remove cicustom reference after successful start — no longer needed and prevents
+// "volume does not exist" errors after migration to another node (snippets are per-node).
+$lines[] = '  echo "    Removing cloud-init snippet reference (no longer needed after first boot)..."';
+$lines[] = '  qm set $VMID --delete cicustom 2>/dev/null || true';
+$lines[] = '  if [ -n "$SNIPPET_PATH" ]; then rm -f "$SNIPPET_PATH"; fi';
+$lines[] = 'fi';
 $lines[] = 'rm -f "$IMG"';
-// Remove cicustom reference after start — Proxmox has already generated the cloud-init ISO.
-// Cloud-init only processes vendor-data once (marks itself done), so this reference is no longer
-// needed and would cause "volume does not exist" errors after migration to another node
-// (local:snippets/ is per-node storage).
-$lines[] = "echo '    Removing cloud-init snippet reference (no longer needed after first boot)...'";
-$lines[] = 'qm set $VMID --delete cicustom 2>/dev/null || true';
-$lines[] = 'if [ -n "$SNIPPET_DIR" ]; then rm -f "${SNIPPET_DIR}/' . $vendorFileName . '"; fi';
 
 $lines[] = "echo ''";
 $lines[] = 'echo "==> Done! VM $VMID (' . addslashes($name) . ') is starting."';
