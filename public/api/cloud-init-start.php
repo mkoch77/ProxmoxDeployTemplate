@@ -247,7 +247,7 @@ $lines[] = "DISK=\$(qm config \$VMID | grep '^unused0:' | awk '{print \$2}')";
 $lines[] = 'qm set $VMID --scsihw virtio-scsi-pci --scsi0 "${DISK},discard=on,ssd=1"';
 $lines[] = 'qm set $VMID --ide2 ' . escapeshellarg($storage) . ':cloudinit';
 $lines[] = 'qm set $VMID --boot order=scsi0';
-$lines[] = 'qm set $VMID --serial0 socket --vga serial0';
+$lines[] = 'qm set $VMID --serial0 socket --vga std';
 $lines[] = 'qm set $VMID --agent enabled=1';
 $lines[] = '';
 $lines[] = "echo '==> [5/8] Configuring Cloud-Init...'";
