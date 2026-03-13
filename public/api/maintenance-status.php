@@ -129,16 +129,21 @@ if (in_array($maintNode['status'], ['entering', 'leaving']) && !empty($migration
         // If all done, update status.
         // Always transition to 'maintenance' even if some migrations failed —
         // otherwise the node stays stuck in 'entering' and the Exit button never appears.
+        AppLogger::info('maintenance', 'Migration check result', [
+            'node' => $nodeName, 'allDone' => $allDone, 'currentStatus' => $maintNode['status'],
+        ]);
         if ($allDone) {
             if ($maintNode['status'] === 'entering') {
                 $newStatus = 'maintenance';
                 $stmt = $db->prepare('UPDATE maintenance_nodes SET status = ? WHERE node_name = ?');
                 $stmt->execute([$newStatus, $nodeName]);
                 $maintNode['status'] = $newStatus;
+                AppLogger::info('maintenance', 'Status transitioned to maintenance', ['node' => $nodeName]);
             } elseif ($maintNode['status'] === 'leaving') {
                 // Back-migrations done, remove maintenance record
                 $stmt = $db->prepare('DELETE FROM maintenance_nodes WHERE node_name = ?');
                 $stmt->execute([$nodeName]);
+                AppLogger::info('maintenance', 'Maintenance record deleted (leaving done)', ['node' => $nodeName]);
                 Response::success([
                     'node' => $nodeName,
                     'status' => 'done',
@@ -147,7 +152,9 @@ if (in_array($maintNode['status'], ['entering', 'leaving']) && !empty($migration
             }
         }
     } catch (\Exception $e) {
-        // Proxmox API error - return what we have
+        AppLogger::error('maintenance', 'Exception in status check', [
+            'node' => $nodeName, 'error' => $e->getMessage(),
+        ]);
     }
 }
 
