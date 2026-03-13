@@ -53,9 +53,10 @@ if (in_array($maintNode['status'], ['entering', 'leaving']) && !empty($migration
                 continue;
             }
 
+            // 1. Try Proxmox task status API
+            $taskDone = false;
+            $taskNode = $mig['source'] ?? $nodeName;
             try {
-                // Task runs on the source node (where migration was initiated)
-                $taskNode = $mig['source'] ?? $nodeName;
                 $taskStatus = $api->getTaskStatus($taskNode, $mig['upid']);
                 $data = $taskStatus['data'] ?? [];
 
@@ -65,40 +66,41 @@ if (in_array($maintNode['status'], ['entering', 'leaving']) && !empty($migration
                         $mig['error'] = $data['exitstatus'] ?? 'Unknown error';
                         $allSuccess = false;
                     }
-                } elseif (($data['status'] ?? '') === 'running') {
-                    // Auto-skip if running longer than threshold
-                    if (!empty($mig['started_at']) && (time() - strtotime($mig['started_at'])) > $autoSkipMinutes * 60) {
-                        $mig['status'] = 'timeout';
-                        AppLogger::warning('maintenance', 'Migration auto-skipped after timeout', [
-                            'node' => $nodeName, 'vmid' => $mig['vmid'], 'minutes' => $autoSkipMinutes,
-                        ]);
-                    } else {
-                        $allDone = false;
-                    }
-                } else {
-                    // Unknown status — check if VM is already on the target node
-                    $allDone = false;
+                    $taskDone = true;
                 }
             } catch (\Exception $e) {
-                // Task status check failed — verify if VM already arrived at target
-                $migDone = false;
+                AppLogger::debug('maintenance', 'Task status check failed', [
+                    'node' => $taskNode, 'vmid' => $mig['vmid'], 'error' => $e->getMessage(),
+                ]);
+            }
+
+            // 2. Fallback: if task not marked done, check if VM is already on target node
+            if (!$taskDone) {
                 try {
                     $targetNode = $mig['target'] ?? '';
                     $type = $mig['type'] ?? 'qemu';
                     if ($targetNode) {
                         $guestStatus = $api->get("/nodes/{$targetNode}/{$type}/{$mig['vmid']}/status/current");
-                        if (!empty($guestStatus['data'])) {
+                        if (!empty($guestStatus['data']['status'])) {
                             $mig['status'] = 'completed';
-                            $migDone = true;
+                            $taskDone = true;
+                            AppLogger::debug('maintenance', 'Migration confirmed via guest check on target', [
+                                'vmid' => $mig['vmid'], 'target' => $targetNode,
+                            ]);
                         }
                     }
-                } catch (\Exception $e2) { /* VM not on target */ }
+                } catch (\Exception $e2) { /* VM not on target yet */ }
+            }
 
-                if (!$migDone) {
-                    $allDone = false;
-                    AppLogger::debug('maintenance', 'Task status check failed', [
-                        'node' => $taskNode, 'vmid' => $mig['vmid'], 'error' => $e->getMessage(),
+            if (!$taskDone) {
+                // Auto-skip if running longer than threshold
+                if (!empty($mig['started_at']) && (time() - strtotime($mig['started_at'])) > $autoSkipMinutes * 60) {
+                    $mig['status'] = 'timeout';
+                    AppLogger::warning('maintenance', 'Migration auto-skipped after timeout', [
+                        'node' => $nodeName, 'vmid' => $mig['vmid'], 'minutes' => $autoSkipMinutes,
                     ]);
+                } else {
+                    $allDone = false;
                 }
             }
         }

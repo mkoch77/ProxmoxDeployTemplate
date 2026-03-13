@@ -234,10 +234,23 @@ const Updater = {
         // ── Step 1: Enter Maintenance ─────────────────────────────────
         this.setNodeStep(node, 'entering_maintenance');
         await API.updateRollingNode(this.session.id, node, 'entering_maintenance');
-        await API.enterMaintenance(node);
+
+        // If node is already in maintenance, skip entering
+        let alreadyInMaintenance = false;
+        try {
+            await API.enterMaintenance(node);
+        } catch (err) {
+            if (err.status === 409) {
+                alreadyInMaintenance = true;
+            } else {
+                throw err;
+            }
+        }
 
         // Wait until maintenance is active (all migrations done)
-        await this.waitMaintenance(node, 'maintenance');
+        if (!alreadyInMaintenance) {
+            await this.waitMaintenance(node, 'maintenance');
+        }
 
         // ── Step 2: Run apt upgrade ────────────────────────────────────
         this.setNodeStep(node, 'updating');
@@ -252,15 +265,18 @@ const Updater = {
         }
 
         // ── Step 3: Leave Maintenance ─────────────────────────────────
-        this.setNodeStep(node, 'leaving_maintenance', updateResult.log, updateResult.upgraded);
-        await API.updateRollingNode(this.session.id, node, 'leaving_maintenance',
-            updateResult.log, updateResult.upgraded);
+        // Only exit maintenance if we entered it (not if node was already in maintenance)
+        if (!alreadyInMaintenance) {
+            this.setNodeStep(node, 'leaving_maintenance', updateResult.log, updateResult.upgraded);
+            await API.updateRollingNode(this.session.id, node, 'leaving_maintenance',
+                updateResult.log, updateResult.upgraded);
 
-        try {
-            await API.leaveMaintenance(node);
-            await this.waitMaintenance(node, 'done');
-        } catch (_) {
-            // Best effort — maintenance record may already be gone
+            try {
+                await API.leaveMaintenance(node);
+                await this.waitMaintenance(node, 'done');
+            } catch (_) {
+                // Best effort — maintenance record may already be gone
+            }
         }
 
         // ── Step 4: Done ──────────────────────────────────────────────

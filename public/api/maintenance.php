@@ -163,21 +163,32 @@ switch ($method) {
             $backMigrations = [];
 
             foreach ($forwardMigrations as $mig) {
-                // Only migrate back successfully forwarded VMs
-                if ($mig['status'] !== 'completed') continue;
+                // Skip migrations that clearly failed (never left the source)
+                if ($mig['status'] === 'error' && empty($mig['upid'])) continue;
 
                 $vmid = (int) $mig['vmid'];
                 $type = $mig['type'];
-                $currentNode = $mig['target'];  // VM is now on the target node
-                $originalNode = $mig['source'];  // Migrate back to source
+                $targetNode = $mig['target'];
+                $originalNode = $mig['source'];
+
+                // Verify VM is actually on the target node before migrating back
+                $vmOnTarget = false;
+                try {
+                    $guestStatus = $api->get("/nodes/{$targetNode}/{$type}/{$vmid}/status/current");
+                    if (!empty($guestStatus['data']['status'])) {
+                        $vmOnTarget = true;
+                    }
+                } catch (\Exception $e) { /* VM not on target */ }
+
+                if (!$vmOnTarget) continue;
 
                 try {
-                    $result = $api->migrateGuest($currentNode, $type, $vmid, $originalNode, true);
+                    $result = $api->migrateGuest($targetNode, $type, $vmid, $originalNode, true);
                     $backMigrations[] = [
                         'vmid' => $vmid,
                         'type' => $type,
                         'name' => $mig['name'],
-                        'source' => $currentNode,
+                        'source' => $targetNode,
                         'target' => $originalNode,
                         'upid' => $result['data'] ?? '',
                         'status' => 'running',
@@ -188,7 +199,7 @@ switch ($method) {
                         'vmid' => $vmid,
                         'type' => $type,
                         'name' => $mig['name'],
-                        'source' => $currentNode,
+                        'source' => $targetNode,
                         'target' => $originalNode,
                         'upid' => '',
                         'status' => 'error',

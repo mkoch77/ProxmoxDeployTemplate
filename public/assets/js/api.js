@@ -33,6 +33,7 @@ const API = {
 
             if (!response.ok || data.error) {
                 const err = new Error(data.message || `HTTP ${response.status}`);
+                err.status = response.status;
                 err.details = data.details || null;
                 throw err;
             }
