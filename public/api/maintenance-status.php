@@ -65,7 +65,7 @@ if (in_array($maintNode['status'], ['entering', 'leaving']) && !empty($migration
                         $mig['error'] = $data['exitstatus'] ?? 'Unknown error';
                         $allSuccess = false;
                     }
-                } else {
+                } elseif (($data['status'] ?? '') === 'running') {
                     // Auto-skip if running longer than threshold
                     if (!empty($mig['started_at']) && (time() - strtotime($mig['started_at'])) > $autoSkipMinutes * 60) {
                         $mig['status'] = 'timeout';
@@ -75,9 +75,31 @@ if (in_array($maintNode['status'], ['entering', 'leaving']) && !empty($migration
                     } else {
                         $allDone = false;
                     }
+                } else {
+                    // Unknown status — check if VM is already on the target node
+                    $allDone = false;
                 }
             } catch (\Exception $e) {
-                $allDone = false;
+                // Task status check failed — verify if VM already arrived at target
+                $migDone = false;
+                try {
+                    $targetNode = $mig['target'] ?? '';
+                    $type = $mig['type'] ?? 'qemu';
+                    if ($targetNode) {
+                        $guestStatus = $api->get("/nodes/{$targetNode}/{$type}/{$mig['vmid']}/status/current");
+                        if (!empty($guestStatus['data'])) {
+                            $mig['status'] = 'completed';
+                            $migDone = true;
+                        }
+                    }
+                } catch (\Exception $e2) { /* VM not on target */ }
+
+                if (!$migDone) {
+                    $allDone = false;
+                    AppLogger::debug('maintenance', 'Task status check failed', [
+                        'node' => $taskNode, 'vmid' => $mig['vmid'], 'error' => $e->getMessage(),
+                    ]);
+                }
             }
         }
         unset($mig);

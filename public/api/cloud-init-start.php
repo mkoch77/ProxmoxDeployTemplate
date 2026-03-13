@@ -110,6 +110,11 @@ if (!$bridge || !preg_match('/^[a-zA-Z0-9][a-zA-Z0-9\-_]{0,15}$/', $bridge)) {
     Response::error('Invalid bridge name', 400);
 }
 
+$vlanTag = isset($body['net_vlan']) ? (int)$body['net_vlan'] : 0;
+if ($vlanTag && ($vlanTag < 1 || $vlanTag > 4094)) {
+    Response::error('VLAN tag must be between 1 and 4094', 400);
+}
+
 $cores = (int)($body['cores'] ?? 2);
 if ($cores < 1 || $cores > 128) {
     Response::error('CPU cores must be between 1 and 128', 400);
@@ -236,7 +241,7 @@ $lines[] = 'qm create $VMID'
     . ' --name ' . escapeshellarg($name)
     . ' --memory ' . (int)$memory
     . ' --cores ' . (int)$cores
-    . ' --net0 virtio,bridge=' . escapeshellarg($bridge)
+    . ' --net0 virtio,bridge=' . escapeshellarg($bridge) . ($vlanTag ? ',tag=' . $vlanTag : '')
     . ' --ostype ' . escapeshellarg($image['ostype'] ?? 'l26') . ' --cpu host';
 $lines[] = '';
 $lines[] = "echo '==> [3/8] Importing disk (may take a while)...'";
