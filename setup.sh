@@ -143,6 +143,20 @@ echo -e "\n  APP_SECRET wird automatisch generiert (sicherer Zufallswert)."
 APP_SECRET="$(gen_secret)"
 echo -e "${GREEN}  → App-Secret generiert.${RESET}"
 
+echo -e "  ENCRYPTION_KEY (Vault Master-Key) wird automatisch generiert."
+ENCRYPTION_KEY="$(openssl rand -hex 32 2>/dev/null || tr -dc 'a-f0-9' < /dev/urandom | head -c 64)"
+
+# Write all secrets to Docker secret files
+SECRETS_DIR="$SCRIPT_DIR/secrets"
+mkdir -p "$SECRETS_DIR"
+echo -n "$ENCRYPTION_KEY" > "$SECRETS_DIR/encryption_key.txt"
+echo -n "$DB_PASSWORD" > "$SECRETS_DIR/db_password.txt"
+chmod 700 "$SECRETS_DIR"
+chmod 600 "$SECRETS_DIR"/*.txt
+echo -e "${GREEN}  → Docker Secrets generiert in secrets/${RESET}"
+echo -e "  ${YELLOW}Hinweis:${RESET} Alle Secrets werden als Docker Secrets gemountet."
+echo -e "  Kein Passwort steht mehr in der .env — nur noch DB-Name, User und Ports."
+
 # ── 4. SSH ────────────────────────────────────────────────────────────────────
 header "4 / 7 · SSH (für Maintenance, Rolling-Updates, Community-Scripts)"
 echo -e "  SSH ermöglicht: Terminal, Community-Scripts, Rolling-Updates,"
@@ -301,14 +315,23 @@ fi
 # ── .env schreiben ────────────────────────────────────────────────────────────
 cat > "$ENV_FILE" <<EOF
 # ProxmoxDeploy — generiert von setup.sh am $(date '+%Y-%m-%d %H:%M:%S')
-# Dieses File enthält Secrets — niemals in Git einchecken!
+# Secrets liegen in secrets/ (Docker Secrets) und in der verschlüsselten Vault.
+# Vault-Secrets verwalten: Settings > Vault
 
-# ── PostgreSQL ────────────────────────────────────────────────────────────────
+# ── PostgreSQL (Passwort liegt in secrets/db_password.txt) ──────────────────
 DB_NAME=${DB_NAME}
 DB_USER=${DB_USER}
-DB_PASSWORD=${DB_PASSWORD}
 
-# ── Proxmox API ───────────────────────────────────────────────────────────────
+# ── Ports ───────────────────────────────────────────────────────────────────
+HTTP_PORT=${HTTP_PORT}
+HTTPS_PORT=${HTTPS_PORT}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Die folgenden Werte werden beim ersten Start in die verschlüsselte Vault
+# migriert und können danach aus dieser Datei entfernt werden.
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Proxmox API ─────────────────────────────────────────────────────────────
 PROXMOX_HOST=${PROXMOX_HOST}
 PROXMOX_PORT=${PROXMOX_PORT}
 PROXMOX_VERIFY_SSL=${PROXMOX_VERIFY_SSL}
@@ -316,31 +339,29 @@ PROXMOX_FALLBACK_HOSTS=${PROXMOX_FALLBACK_HOSTS}
 PROXMOX_TOKEN_ID=${PROXMOX_TOKEN_ID}
 PROXMOX_TOKEN_SECRET=${PROXMOX_TOKEN_SECRET}
 
-# ── App ───────────────────────────────────────────────────────────────────────
+# ── App ─────────────────────────────────────────────────────────────────────
 APP_SECRET=${APP_SECRET}
-HTTP_PORT=${HTTP_PORT}
-HTTPS_PORT=${HTTPS_PORT}
 
-# ── SSH ───────────────────────────────────────────────────────────────────────
+# ── SSH ─────────────────────────────────────────────────────────────────────
 SSH_ENABLED=${SSH_ENABLED}
 SSH_PORT=${SSH_PORT}
 SSH_USER=${SSH_USER}
 SSH_KEY_PATH=/var/www/html/data/.ssh/id_ed25519
 SSH_PASSWORD=${SSH_PASSWORD}
 
-# ── Cloud Images ─────────────────────────────────────────────────────────────
+# ── Cloud Images ────────────────────────────────────────────────────────────
 CLOUD_DISTROS=${CLOUD_DISTROS}
 
-# ── Let's Encrypt (leer = deaktiviert) ───────────────────────────────────────
+# ── Let's Encrypt (leer = deaktiviert) ─────────────────────────────────────
 DOMAIN=${DOMAIN}
 LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
 
-# ── Admin-Account (einmalig beim ersten Start angelegt, danach ignoriert) ─────
+# ── Admin-Account (einmalig beim ersten Start angelegt, danach ignoriert) ──
 ADMIN_USER=${ADMIN_USER}
 ADMIN_PASSWORD=${ADMIN_PASSWORD}
 ADMIN_SSH_PUBKEY=${ADMIN_SSH_PUBKEY}
 
-# ── Entra ID / Azure AD (leer = deaktiviert) ─────────────────────────────────
+# ── Entra ID / Azure AD (leer = deaktiviert) ──────────────────────────────
 ENTRAID_TENANT_ID=${ENTRAID_TENANT_ID}
 ENTRAID_CLIENT_ID=${ENTRAID_CLIENT_ID}
 ENTRAID_CLIENT_SECRET=${ENTRAID_CLIENT_SECRET}

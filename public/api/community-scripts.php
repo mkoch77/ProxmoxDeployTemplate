@@ -35,7 +35,7 @@ if (file_exists($cacheFile) && (time() - filemtime($cacheFile)) < $cacheTtl) {
 
 set_time_limit(120);
 
-$ghRawBase = 'https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/frontend/public/json/';
+$ghRawBase = 'https://raw.githubusercontent.com/community-scripts/ProxmoxVE-Frontend-Archive/main/public/json/';
 
 // 1. Fetch metadata (categories)
 $metadataJson = @file_get_contents($ghRawBase . 'metadata.json');
@@ -44,7 +44,8 @@ if (!$metadataJson) {
     Response::error('Failed to fetch community scripts catalog', 502);
 }
 
-$categories = json_decode($metadataJson, true);
+$metadata = json_decode($metadataJson, true);
+$categories = $metadata['categories'] ?? $metadata;
 if (!is_array($categories)) {
     Response::error('Invalid metadata format', 502);
 }
@@ -69,7 +70,7 @@ $ctx = stream_context_create(['http' => [
 ]]);
 
 $dirJson = @file_get_contents(
-    'https://api.github.com/repos/community-scripts/ProxmoxVE/contents/frontend/public/json',
+    'https://api.github.com/repos/community-scripts/ProxmoxVE-Frontend-Archive/contents/public/json',
     false, $ctx
 );
 if (!$dirJson) {

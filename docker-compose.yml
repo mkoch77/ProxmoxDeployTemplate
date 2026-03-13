@@ -3,10 +3,12 @@ services:
     image: postgres:16-alpine
     container_name: proxmoxdeploy_db
     restart: unless-stopped
+    secrets:
+      - db_password
     environment:
       POSTGRES_DB: ${DB_NAME:-proxmoxdeploy}
       POSTGRES_USER: ${DB_USER:-proxmoxdeploy}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
     volumes:
       - proxmoxdeploy_pgdata:/var/lib/postgresql/data
     networks:
@@ -25,6 +27,9 @@ services:
       db:
         condition: service_healthy
     # No ports exposed directly — Nginx is the only entry point
+    secrets:
+      - encryption_key
+      - db_password
     volumes:
       # Persistent data: SSH keys + custom images
       - proxmoxdeploy_data:/var/www/html/data
@@ -34,18 +39,18 @@ services:
       DB_PORT: 5432
       DB_NAME: ${DB_NAME:-proxmoxdeploy}
       DB_USER: ${DB_USER:-proxmoxdeploy}
-      DB_PASSWORD: ${DB_PASSWORD:-changeme}
+      # DB_PASSWORD is read from Docker secret /run/secrets/db_password
 
-      # Proxmox API
-      PROXMOX_HOST: ${PROXMOX_HOST}
+      # Proxmox API (migrated to vault on first boot)
+      PROXMOX_HOST: ${PROXMOX_HOST:-}
       PROXMOX_FALLBACK_HOSTS: ${PROXMOX_FALLBACK_HOSTS:-}
       PROXMOX_PORT: ${PROXMOX_PORT:-8006}
       PROXMOX_VERIFY_SSL: ${PROXMOX_VERIFY_SSL:-false}
-      PROXMOX_TOKEN_ID: "${PROXMOX_TOKEN_ID}"
-      PROXMOX_TOKEN_SECRET: "${PROXMOX_TOKEN_SECRET}"
+      PROXMOX_TOKEN_ID: "${PROXMOX_TOKEN_ID:-}"
+      PROXMOX_TOKEN_SECRET: "${PROXMOX_TOKEN_SECRET:-}"
 
-      # App
-      APP_SECRET: ${APP_SECRET}
+      # App (migrated to vault on first boot)
+      APP_SECRET: ${APP_SECRET:-}
 
       # SSH — key is auto-generated in /var/www/html/data/.ssh/id_ed25519
       SSH_ENABLED: ${SSH_ENABLED:-true}
@@ -112,6 +117,12 @@ services:
         --keep-until-expiring
     profiles:
       - letsencrypt
+
+secrets:
+  encryption_key:
+    file: ./secrets/encryption_key.txt
+  db_password:
+    file: ./secrets/db_password.txt
 
 networks:
   internal:

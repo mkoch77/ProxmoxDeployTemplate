@@ -21,7 +21,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         echo 'memory_limit = 512M'; \
         echo 'max_execution_time = 3600'; \
         echo 'max_input_time = 3600'; \
-    } > /usr/local/etc/php/conf.d/uploads.ini
+    } > /usr/local/etc/php/conf.d/uploads.ini \
+    && { \
+        echo 'display_errors = Off'; \
+        echo 'display_startup_errors = Off'; \
+        echo 'log_errors = On'; \
+        echo 'error_log = /var/log/php_errors.log'; \
+        echo 'output_buffering = 4096'; \
+    } > /usr/local/etc/php/conf.d/errors.ini
 
 # Install Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer

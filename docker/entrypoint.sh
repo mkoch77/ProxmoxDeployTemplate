@@ -1,8 +1,23 @@
 #!/bin/bash
 set -e
 
+# Docker secrets are mounted read-only with root ownership.
+# Copy to www-data-readable locations so PHP can access them.
+for secret in encryption_key db_password; do
+    if [[ -f "/run/secrets/$secret" ]]; then
+        cp "/run/secrets/$secret" "/tmp/$secret"
+        chown www-data:www-data "/tmp/$secret"
+        chmod 400 "/tmp/$secret"
+    fi
+done
+
+# Export DB_PASSWORD from Docker secret if not already set via env
+if [[ -z "${DB_PASSWORD:-}" && -f /tmp/db_password ]]; then
+    export DB_PASSWORD="$(cat /tmp/db_password)"
+fi
+
 # Warn if critical env vars are missing (setup.sh was not run)
-if [[ -z "${PROXMOX_HOST:-}" || -z "${PROXMOX_TOKEN_SECRET:-}" || -z "${APP_SECRET:-}" ]]; then
+if [[ -z "${DB_PASSWORD:-}" ]]; then
     echo "╔══════════════════════════════════════════════════════╗"
     echo "║  FEHLER: Konfiguration unvollständig!                ║"
     echo "║                                                      ║"

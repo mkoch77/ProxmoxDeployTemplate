@@ -77,6 +77,7 @@ class Migrator
            27 => self::migration027(),
            28 => self::migration028(),
            29 => self::migration029(),
+           30 => self::migration030(),
         ];
     }
 
@@ -691,6 +692,17 @@ class Migrator
             ALTER TABLE vm_metrics ADD COLUMN IF NOT EXISTS uptime BIGINT NOT NULL DEFAULT 0;
             ALTER TABLE vm_metrics ADD COLUMN IF NOT EXISTS disk_used BIGINT NOT NULL DEFAULT 0;
             ALTER TABLE vm_metrics ADD COLUMN IF NOT EXISTS disk_total BIGINT NOT NULL DEFAULT 0;
+        ";
+    }
+
+    private static function migration030(): string
+    {
+        return "
+            CREATE TABLE IF NOT EXISTS vault (
+                key VARCHAR(255) PRIMARY KEY,
+                encrypted_value TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
         ";
     }
 

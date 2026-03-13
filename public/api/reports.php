@@ -8,7 +8,6 @@ use App\Request;
 use App\Response;
 use App\Helpers;
 use App\AppLogger;
-use PDO;
 
 Bootstrap::init();
 Request::requireMethod('GET');

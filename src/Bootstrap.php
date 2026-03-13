@@ -15,6 +15,8 @@ class Bootstrap
 
         // Prevent PHP warnings/notices from corrupting JSON API responses
         if (php_sapi_name() !== 'cli') {
+            // Clean any output that leaked before this point (e.g. PHP startup warnings)
+            if (ob_get_level() > 0) ob_end_clean();
             ob_start(); // Capture any stray output — Response::json() will discard it
             ini_set('display_errors', '0');
             error_reporting(E_ALL);
@@ -50,6 +52,13 @@ class Bootstrap
         } catch (\Throwable $e) {
             // Log but don't crash — migration may be running concurrently
             error_log('Bootstrap migration error: ' . $e->getMessage());
+        }
+
+        // Auto-migrate .env secrets to vault on first boot (if ENCRYPTION_KEY is set)
+        try {
+            Vault::migrateFromEnv();
+        } catch (\Throwable $e) {
+            // Vault not ready yet — skip silently
         }
     }
 }

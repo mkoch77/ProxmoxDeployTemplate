@@ -52,6 +52,11 @@ const Settings = {
                         <i class="bi bi-key-fill me-1"></i>SSH Keys
                     </button>
                 </li>` : ''}
+                ${Permissions.has('users.manage') ? `<li class="nav-item" role="presentation">
+                    <button class="nav-link" data-tab="vault" onclick="Settings.switchTab('vault')">
+                        <i class="bi bi-shield-lock-fill me-1"></i>Vault
+                    </button>
+                </li>` : ''}
             </ul>
 
             <div id="settings-tab-content"></div>
@@ -81,6 +86,9 @@ const Settings = {
         } else if (tab === 'ssh') {
             this.renderSshTab(container);
             this.loadSshData();
+        } else if (tab === 'vault') {
+            this.renderVaultTab(container);
+            this.loadVaultData();
         }
     },
 
@@ -1415,6 +1423,193 @@ const Settings = {
         } finally {
             btn.disabled = false;
             btn.innerHTML = '<i class="bi bi-cloud-upload me-1"></i>Deploy to All Nodes';
+        }
+    },
+
+    // ── Vault Tab ────────────────────────────────────────────────────────────
+
+    _vaultData: null,
+
+    renderVaultTab(container) {
+        container.innerHTML = `
+            <div class="stat-card mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0"><i class="bi bi-shield-lock me-2"></i>Secret Vault</h5>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-outline-primary btn-sm" onclick="Settings.vaultMigrate()" id="vault-migrate-btn">
+                            <i class="bi bi-box-arrow-in-down me-1"></i>Import from .env
+                        </button>
+                    </div>
+                </div>
+                <p class="text-muted small mb-3">
+                    Secrets are encrypted with AES-256-GCM using the ENCRYPTION_KEY (Docker Secret).
+                    Only database credentials remain in .env — the master key is stored as a Docker Secret in <code>secrets/encryption_key.txt</code>.
+                </p>
+                <div id="vault-status" class="mb-3"></div>
+                <div id="vault-table"></div>
+            </div>
+        `;
+    },
+
+    async loadVaultData() {
+        const statusEl = document.getElementById('vault-status');
+        const tableEl = document.getElementById('vault-table');
+        if (!statusEl) return;
+
+        try {
+            const data = await API.get('api/vault.php');
+            this._vaultData = data;
+            const esc = Utils.escapeHtml;
+
+            if (!data.available) {
+                statusEl.innerHTML = `
+                    <div class="alert alert-warning mb-0">
+                        <i class="bi bi-exclamation-triangle me-2"></i>
+                        <strong>Vault not active.</strong> The encryption key is missing. Create the Docker Secret file:
+                        <br><small class="text-muted"><code>mkdir -p secrets &amp;&amp; openssl rand -hex 32 &gt; secrets/encryption_key.txt</code></small>
+                        <br><small class="text-muted">Then restart: <code>docker compose up -d</code></small>
+                    </div>`;
+                tableEl.innerHTML = '';
+                return;
+            }
+
+            statusEl.innerHTML = `
+                <div class="d-flex gap-3">
+                    <span class="badge bg-success"><i class="bi bi-shield-check me-1"></i>Vault active</span>
+                    <span class="text-muted small">${data.total_in_vault} / ${data.entries.length} secrets in vault</span>
+                </div>`;
+
+            // Group keys
+            const groups = {
+                'Proxmox API': ['PROXMOX_HOST', 'PROXMOX_PORT', 'PROXMOX_VERIFY_SSL', 'PROXMOX_FALLBACK_HOSTS', 'PROXMOX_TOKEN_ID', 'PROXMOX_TOKEN_SECRET'],
+                'Application': ['APP_SECRET'],
+                'SSH': ['SSH_ENABLED', 'SSH_PORT', 'SSH_USER', 'SSH_KEY_PATH', 'SSH_PASSWORD'],
+                'Entra ID / Azure AD': ['ENTRAID_TENANT_ID', 'ENTRAID_CLIENT_ID', 'ENTRAID_CLIENT_SECRET', 'ENTRAID_REDIRECT_URI'],
+                'Other': ['CLOUD_DISTROS', 'DOMAIN', 'LETSENCRYPT_EMAIL'],
+            };
+
+            const entryMap = {};
+            for (const e of data.entries) entryMap[e.key] = e;
+
+            let html = '';
+            for (const [group, keys] of Object.entries(groups)) {
+                html += `<h6 class="mt-3 mb-2 text-muted small text-uppercase">${esc(group)}</h6>`;
+                html += `<div class="guest-table mb-2"><table class="table table-dark table-hover table-sm mb-0"><tbody>`;
+                for (const key of keys) {
+                    const e = entryMap[key];
+                    if (!e) continue;
+                    const sensitive = key.includes('SECRET') || key.includes('PASSWORD') || key === 'APP_SECRET';
+                    const statusBadge = e.in_vault
+                        ? '<span class="badge bg-success"><i class="bi bi-shield-lock-fill"></i> Vault</span>'
+                        : e.in_env
+                            ? '<span class="badge bg-warning text-dark"><i class="bi bi-file-earmark-text"></i> .env</span>'
+                            : '<span class="badge bg-secondary">Not set</span>';
+                    const updated = e.updated_at ? `<small class="text-muted">${new Date(e.updated_at).toLocaleString()}</small>` : '';
+
+                    html += `<tr>
+                        <td style="width:250px"><code class="small">${esc(key)}</code></td>
+                        <td style="width:100px">${statusBadge}</td>
+                        <td style="width:180px">${updated}</td>
+                        <td>
+                            <div class="d-flex gap-1 justify-content-end">
+                                <button class="btn btn-outline-light btn-sm py-0 px-2" onclick="Settings.vaultEdit('${esc(key)}', ${sensitive})" title="Edit">
+                                    <i class="bi bi-pencil-fill" style="font-size:0.75rem"></i>
+                                </button>
+                                ${e.in_vault ? `<button class="btn btn-outline-danger btn-sm py-0 px-2" onclick="Settings.vaultDelete('${esc(key)}')" title="Remove from vault">
+                                    <i class="bi bi-trash-fill" style="font-size:0.75rem"></i>
+                                </button>` : ''}
+                            </div>
+                        </td>
+                    </tr>`;
+                }
+                html += `</tbody></table></div>`;
+            }
+
+            tableEl.innerHTML = html;
+        } catch (err) {
+            statusEl.innerHTML = `<div class="alert alert-danger">${Utils.escapeHtml(err.message)}</div>`;
+        }
+    },
+
+    vaultEdit(key, sensitive = false) {
+        const currentVal = '';
+        const inputType = sensitive ? 'password' : 'text';
+        const modal = document.createElement('div');
+        modal.className = 'modal fade show d-block';
+        modal.style.background = 'rgba(0,0,0,0.6)';
+        modal.innerHTML = `
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content bg-dark text-light border-secondary">
+                    <div class="modal-header border-secondary">
+                        <h5 class="modal-title"><i class="bi bi-shield-lock me-2"></i>Edit Secret</h5>
+                        <button type="button" class="btn-close btn-close-white" onclick="this.closest('.modal').remove()"></button>
+                    </div>
+                    <div class="modal-body">
+                        <label class="form-label"><code>${Utils.escapeHtml(key)}</code></label>
+                        <input type="${inputType}" class="form-control bg-dark text-light border-secondary" id="vault-edit-value"
+                            placeholder="Enter new value..." autocomplete="off">
+                        <small class="text-muted mt-1 d-block">Leave empty and save to keep current value unchanged.</small>
+                    </div>
+                    <div class="modal-footer border-secondary">
+                        <button class="btn btn-secondary btn-sm" onclick="this.closest('.modal').remove()">Cancel</button>
+                        <button class="btn btn-primary btn-sm" onclick="Settings.vaultSave('${Utils.escapeHtml(key)}', this.closest('.modal'))">
+                            <i class="bi bi-shield-lock me-1"></i>Save to Vault
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+        document.body.appendChild(modal);
+        modal.querySelector('#vault-edit-value').focus();
+    },
+
+    async vaultSave(key, modal) {
+        const input = modal.querySelector('#vault-edit-value');
+        const value = input.value.trim();
+        if (!value) {
+            modal.remove();
+            return;
+        }
+
+        try {
+            await API.post('api/vault.php', {
+                action: 'save',
+                secrets: { [key]: value },
+            });
+            modal.remove();
+            Toast.success(`${key} saved to vault`);
+            this.loadVaultData();
+        } catch (err) {
+            Toast.error(err.message);
+        }
+    },
+
+    async vaultDelete(key) {
+        if (!confirm(`Remove "${key}" from the vault? The value in .env (if any) will be used as fallback.`)) return;
+
+        try {
+            await API.post('api/vault.php', { action: 'delete', key });
+            Toast.success(`${key} removed from vault`);
+            this.loadVaultData();
+        } catch (err) {
+            Toast.error(err.message);
+        }
+    },
+
+    async vaultMigrate() {
+        const btn = document.getElementById('vault-migrate-btn');
+        if (!btn) return;
+
+        if (!confirm('Import all secrets from .env into the encrypted vault? Existing vault entries will not be overwritten.')) return;
+
+        btn.disabled = true;
+        try {
+            const data = await API.post('api/vault.php', { action: 'migrate' });
+            Toast.success(data.message || 'Migration complete');
+            this.loadVaultData();
+        } catch (err) {
+            Toast.error(err.message);
+        } finally {
+            btn.disabled = false;
         }
     },
 };

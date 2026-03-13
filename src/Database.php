@@ -15,7 +15,13 @@ class Database
             $port = getenv('DB_PORT') ?: '5432';
             $name = getenv('DB_NAME') ?: 'proxmoxdeploy';
             $user = getenv('DB_USER') ?: 'proxmoxdeploy';
-            $pass = getenv('DB_PASSWORD') ?: 'changeme';
+            $pass = getenv('DB_PASSWORD') ?: '';
+            if (empty($pass) && is_readable('/tmp/db_password')) {
+                $pass = trim(file_get_contents('/tmp/db_password'));
+            }
+            if (empty($pass)) {
+                $pass = 'changeme';
+            }
 
             $dsn = "pgsql:host={$host};port={$port};dbname={$name}";
             self::$pdo = new PDO($dsn, $user, $pass, [
