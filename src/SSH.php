@@ -12,7 +12,7 @@ class SSH
      *
      * Tries key-based auth first, falls back to password if configured.
      */
-    public static function exec(string $host, string $command): string
+    public static function exec(string $host, string $command, int $timeout = 30): string
     {
         $port = (int) Config::get('SSH_PORT', 22);
         $user = Config::get('SSH_USER', 'root');
@@ -22,6 +22,7 @@ class SSH
         AppLogger::debug('ssh', "SSH exec connecting to {$host}", ['port' => $port, 'user' => $user]);
 
         $ssh = new SSH2($host, $port, 10);
+        $ssh->setTimeout($timeout);
 
         $authenticated = false;
 
@@ -162,13 +163,13 @@ class SSH
     {
         $host = Config::get('PROXMOX_HOST');
         $cmd = 'ha-manager crm-command node-maintenance enable ' . escapeshellarg($nodeName);
-        return self::exec($host, $cmd);
+        return self::exec($host, $cmd, 10);
     }
 
     public static function disableNodeMaintenance(string $nodeName): string
     {
         $host = Config::get('PROXMOX_HOST');
         $cmd = 'ha-manager crm-command node-maintenance disable ' . escapeshellarg($nodeName);
-        return self::exec($host, $cmd);
+        return self::exec($host, $cmd, 10);
     }
 }
