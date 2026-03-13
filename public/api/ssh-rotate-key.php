@@ -9,6 +9,7 @@ use App\Response;
 use App\Config;
 use App\Helpers;
 use App\AppLogger;
+use App\SSH;
 use phpseclib3\Net\SSH2;
 use phpseclib3\Crypt\PublicKeyLoader;
 
@@ -84,15 +85,15 @@ if (empty($nodes)) {
 $userId = Auth::check()['id'] ?? null;
 AppLogger::info('security', 'Manual SSH key rotation started', ['node_count' => count($nodes)], $userId);
 
-// Helper: connect + authenticate to a node
-$connectNode = function (string $host) use ($keyPath, $user, $password, $port): ?SSH2 {
+// Helper: connect + authenticate to a node (key from vault or file, then password fallback)
+$connectNode = function (string $host) use ($user, $password, $port): ?SSH2 {
     $ssh = new SSH2($host, $port, 10);
     $authenticated = false;
 
-    // Try key-based auth with current key
-    if (file_exists($keyPath)) {
+    // Try key-based auth with current key (from vault or file)
+    $keyContents = SSH::loadPrivateKeyContent();
+    if ($keyContents) {
         try {
-            $keyContents = file_get_contents($keyPath);
             $key = $password
                 ? PublicKeyLoader::load($keyContents, $password)
                 : PublicKeyLoader::load($keyContents);

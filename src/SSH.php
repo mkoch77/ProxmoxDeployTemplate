@@ -11,7 +11,7 @@ class SSH
      * Load the SSH private key contents.
      * Priority: SSH_PRIVATE_KEY (vault content) → SSH_KEY_PATH (file on disk).
      */
-    private static function loadPrivateKey(): string
+    public static function loadPrivateKeyContent(): string
     {
         // 1. Key content directly from vault
         $keyContent = Config::get('SSH_PRIVATE_KEY', '');
@@ -36,7 +36,7 @@ class SSH
     {
         $user = Config::get('SSH_USER', 'root');
         $password = Config::get('SSH_PASSWORD', '');
-        $keyContents = self::loadPrivateKey();
+        $keyContents = self::loadPrivateKeyContent();
 
         $authenticated = false;
 

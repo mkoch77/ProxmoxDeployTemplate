@@ -8,7 +8,9 @@ use App\Request;
 use App\Response;
 use App\Config;
 use App\Helpers;
+use App\SSH;
 use phpseclib3\Net\SSH2;
+use phpseclib3\Crypt\PublicKeyLoader;
 use App\AppLogger;
 
 Bootstrap::init();
@@ -27,10 +29,6 @@ $user     = Config::get('SSH_USER', 'root');
 $oneTimePassword = trim($body['password'] ?? '');
 if ($oneTimePassword) {
     $password = $oneTimePassword;
-}
-
-if (!$password) {
-    Response::error('SSH password required. Enter the SSH password to deploy the key.', 400, ['needs_password' => true]);
 }
 
 if (!$keyPath || !file_exists($pubKeyPath)) {
@@ -66,8 +64,32 @@ if (empty($nodes)) {
 $userId = Auth::check()['id'] ?? null;
 AppLogger::info('security', 'SSH key deployment started', ['node_count' => count($nodes)], $userId);
 
-// Deploy key to each node via password SSH
+// Helper: connect + authenticate to a node (key-based first, then password fallback)
+$connectNode = function (string $host) use ($keyPath, $user, $password, $port): ?SSH2 {
+    $ssh = new SSH2($host, $port, 10);
+    $authenticated = false;
+
+    // Try key-based auth with current key (from vault or file)
+    $keyContents = SSH::loadPrivateKeyContent();
+    if ($keyContents) {
+        try {
+            $key = $password
+                ? PublicKeyLoader::load($keyContents, $password)
+                : PublicKeyLoader::load($keyContents);
+            $authenticated = $ssh->login($user, $key);
+        } catch (\Exception $e) { /* key auth failed */ }
+    }
+    // Fallback to password
+    if (!$authenticated && $password) {
+        $authenticated = $ssh->login($user, $password);
+    }
+
+    return $authenticated ? $ssh : null;
+};
+
+// Deploy key to each node
 $results = [];
+$needsPassword = false;
 $cmd = 'mkdir -p ~/.ssh && chmod 700 ~/.ssh && '
     . '(grep -qF ' . escapeshellarg($pubKey) . ' ~/.ssh/authorized_keys 2>/dev/null '
     . '|| echo ' . escapeshellarg($pubKey) . ' >> ~/.ssh/authorized_keys) '
@@ -76,9 +98,10 @@ $cmd = 'mkdir -p ~/.ssh && chmod 700 ~/.ssh && '
 foreach ($nodes as $node) {
     $host = $node['ip'];
     try {
-        $ssh = new SSH2($host, $port, 10);
-        if (!$ssh->login($user, $password)) {
+        $ssh = $connectNode($host);
+        if (!$ssh) {
             $results[] = ['node' => $node['name'], 'ip' => $host, 'success' => false, 'error' => 'Authentication failed'];
+            $needsPassword = true;
             continue;
         }
         $ssh->exec($cmd);
@@ -94,7 +117,11 @@ foreach ($nodes as $node) {
 }
 
 $failedNodes = array_filter($results, fn($r) => !$r['success']);
-if (!empty($failedNodes)) {
+if (!empty($failedNodes) && $needsPassword && !$oneTimePassword) {
+    // Auth failed without password — prompt user
+    AppLogger::warning('security', 'SSH key deployment needs password', ['failed_nodes' => array_column($failedNodes, 'node')], $userId);
+    Response::error('SSH authentication failed. Enter the root password to deploy the key.', 401, ['needs_password' => true]);
+} elseif (!empty($failedNodes)) {
     AppLogger::warning('security', 'SSH key deployment had failures', ['failed_nodes' => array_column($failedNodes, 'node')], $userId);
 } else {
     AppLogger::info('security', 'SSH key deployment completed successfully', ['node_count' => count($nodes)], $userId);
@@ -113,4 +140,4 @@ if (!empty($failedNodes)) {
     @unlink($flagFile);
 }
 
-Response::success(['results' => $results]);
+Response::success(['results' => $results, 'needs_password' => false]);
