@@ -110,10 +110,25 @@ if (in_array($maintNode['status'], ['entering', 'leaving']) && !empty($migration
             }
 
             if (!$taskDone) {
-                // Auto-skip if running longer than threshold
-                if (!empty($mig['started_at']) && (time() - strtotime($mig['started_at'])) > $autoSkipMinutes * 60) {
+                // Only auto-skip if the Proxmox task is no longer running
+                $taskStillActive = false;
+                if (!empty($mig['upid'])) {
+                    try {
+                        $taskCheck = $api->getTaskStatus($taskNode, $mig['upid']);
+                        $taskStillActive = (($taskCheck['data']['status'] ?? '') === 'running');
+                    } catch (\Exception $e) {
+                        // Can't determine task status — assume still active to be safe
+                        $taskStillActive = true;
+                    }
+                }
+
+                if ($taskStillActive) {
+                    // Task is still running in Proxmox — keep waiting regardless of elapsed time
+                    $allDone = false;
+                } elseif (!empty($mig['started_at']) && (time() - strtotime($mig['started_at'])) > $autoSkipMinutes * 60) {
+                    // Task is NOT running but we couldn't detect completion — timeout
                     $mig['status'] = 'timeout';
-                    AppLogger::warning('maintenance', 'Migration auto-skipped after timeout', [
+                    AppLogger::warning('maintenance', 'Migration auto-skipped after timeout (task no longer active)', [
                         'node' => $nodeName, 'vmid' => $mig['vmid'], 'minutes' => $autoSkipMinutes,
                     ]);
                 } else {

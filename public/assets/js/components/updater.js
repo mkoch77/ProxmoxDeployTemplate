@@ -241,7 +241,7 @@ const Updater = {
         // If node is already in maintenance, skip entering
         let alreadyInMaintenance = false;
         try {
-            await API.enterMaintenance(node);
+            await API.postSilent('api/maintenance.php', { node });
         } catch (err) {
             if (err.status === 409) {
                 alreadyInMaintenance = true;

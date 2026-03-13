@@ -85,7 +85,7 @@ $perms = $user['permissions'];
             <div class="d-flex align-items-center gap-3">
                 <?php if (in_array('cluster.update', $perms)): ?>
                 <button id="cluster-updates-btn" class="btn btn-link p-0 d-none" title="Updates available"
-                    onclick="location.hash='maintenance'" style="font-size:1.1rem;line-height:1;color:var(--bs-success)">
+                    onclick="location.hash='maintenance';setTimeout(()=>{if(typeof Maintenance!=='undefined')Maintenance.showTab('updates')},100)" style="font-size:1.1rem;line-height:1;color:var(--bs-success)">
                     <i class="bi bi-arrow-down-circle-fill"></i>
                     <span id="cluster-updates-count" class="badge bg-success ms-1" style="font-size:0.65rem;vertical-align:middle"></span>
                 </button>

@@ -272,14 +272,7 @@ const App = {
                 } catch (_) {}
             }
 
-            // ── Info: Host updates available (from hourly cache) ──────
-            if (Permissions.has('cluster.update')) {
-                for (const [node, count] of Object.entries(this._cachedUpdateCounts)) {
-                    if (count > 0) {
-                        infos.push({ level: 'info', msg: `Node <strong>${Utils.escapeHtml(node)}</strong> has ${count} update${count !== 1 ? 's' : ''} available`, cat: 'updates', link: '#maintenance' });
-                    }
-                }
-            }
+            // Host updates are shown via the dedicated topbar icon (no longer in info panel)
 
             this._warnings = warnings;
             this._infos = infos;
