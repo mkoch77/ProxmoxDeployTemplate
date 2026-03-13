@@ -34,6 +34,7 @@ class Vault
         'SSH_PORT',
         'SSH_USER',
         'SSH_KEY_PATH',
+        'SSH_PRIVATE_KEY',
         'SSH_PASSWORD',
         'ENTRAID_TENANT_ID',
         'ENTRAID_CLIENT_ID',

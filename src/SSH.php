@@ -8,6 +8,53 @@ use phpseclib3\Crypt\PublicKeyLoader;
 class SSH
 {
     /**
+     * Load the SSH private key contents.
+     * Priority: SSH_PRIVATE_KEY (vault content) → SSH_KEY_PATH (file on disk).
+     */
+    private static function loadPrivateKey(): string
+    {
+        // 1. Key content directly from vault
+        $keyContent = Config::get('SSH_PRIVATE_KEY', '');
+        if ($keyContent) {
+            return $keyContent;
+        }
+
+        // 2. Key file path fallback
+        $keyPath = Config::get('SSH_KEY_PATH', '');
+        if ($keyPath && file_exists($keyPath)) {
+            return file_get_contents($keyPath);
+        }
+
+        return '';
+    }
+
+    /**
+     * Authenticate an SSH2 connection.
+     * Tries key-based auth first, falls back to password.
+     */
+    private static function authenticate(SSH2 $ssh): bool
+    {
+        $user = Config::get('SSH_USER', 'root');
+        $password = Config::get('SSH_PASSWORD', '');
+        $keyContents = self::loadPrivateKey();
+
+        $authenticated = false;
+
+        if ($keyContents) {
+            $key = $password
+                ? PublicKeyLoader::load($keyContents, $password)
+                : PublicKeyLoader::load($keyContents);
+            $authenticated = $ssh->login($user, $key);
+        }
+
+        if (!$authenticated && $password) {
+            $authenticated = $ssh->login($user, $password);
+        }
+
+        return $authenticated;
+    }
+
+    /**
      * Execute a command on a Proxmox node via SSH.
      *
      * Tries key-based auth first, falls back to password if configured.
@@ -16,31 +63,13 @@ class SSH
     {
         $port = (int) Config::get('SSH_PORT', 22);
         $user = Config::get('SSH_USER', 'root');
-        $keyPath = Config::get('SSH_KEY_PATH', '');
-        $password = Config::get('SSH_PASSWORD', '');
 
         AppLogger::debug('ssh', "SSH exec connecting to {$host}", ['port' => $port, 'user' => $user]);
 
         $ssh = new SSH2($host, $port, 10);
         $ssh->setTimeout($timeout);
 
-        $authenticated = false;
-
-        // Try key-based auth
-        if ($keyPath && file_exists($keyPath)) {
-            $keyContents = file_get_contents($keyPath);
-            $key = $password
-                ? PublicKeyLoader::load($keyContents, $password)
-                : PublicKeyLoader::load($keyContents);
-            $authenticated = $ssh->login($user, $key);
-        }
-
-        // Fall back to password auth
-        if (!$authenticated && $password) {
-            $authenticated = $ssh->login($user, $password);
-        }
-
-        if (!$authenticated) {
+        if (!self::authenticate($ssh)) {
             AppLogger::debug('ssh', "SSH authentication failed for {$user}@{$host}:{$port}");
             throw new \RuntimeException("SSH authentication failed for {$user}@{$host}:{$port}");
         }
@@ -69,29 +98,13 @@ class SSH
     {
         $port = (int) Config::get('SSH_PORT', 22);
         $user = Config::get('SSH_USER', 'root');
-        $keyPath = Config::get('SSH_KEY_PATH', '');
-        $password = Config::get('SSH_PASSWORD', '');
 
         AppLogger::debug('ssh', "SSH execInstall connecting to {$host}", ['port' => $port, 'timeout' => $timeout]);
 
         $ssh = new SSH2($host, $port, $timeout);
         $ssh->setTimeout($timeout);
 
-        $authenticated = false;
-
-        if ($keyPath && file_exists($keyPath)) {
-            $keyContents = file_get_contents($keyPath);
-            $key = $password
-                ? PublicKeyLoader::load($keyContents, $password)
-                : PublicKeyLoader::load($keyContents);
-            $authenticated = $ssh->login($user, $key);
-        }
-
-        if (!$authenticated && $password) {
-            $authenticated = $ssh->login($user, $password);
-        }
-
-        if (!$authenticated) {
+        if (!self::authenticate($ssh)) {
             AppLogger::debug('ssh', "SSH execInstall auth failed for {$user}@{$host}:{$port}");
             return [
                 'output' => "SSH authentication failed for {$user}@{$host}:{$port}",
@@ -122,29 +135,13 @@ class SSH
     {
         $port = (int) Config::get('SSH_PORT', 22);
         $user = Config::get('SSH_USER', 'root');
-        $keyPath = Config::get('SSH_KEY_PATH', '');
-        $password = Config::get('SSH_PASSWORD', '');
 
         AppLogger::debug('ssh', "SSH interactive session opening to {$host}", ['port' => $port, 'timeout' => $timeout]);
 
         $ssh = new SSH2($host, $port, $timeout);
         $ssh->setTimeout(0.3);
 
-        $authenticated = false;
-
-        if ($keyPath && file_exists($keyPath)) {
-            $keyContents = file_get_contents($keyPath);
-            $key = $password
-                ? PublicKeyLoader::load($keyContents, $password)
-                : PublicKeyLoader::load($keyContents);
-            $authenticated = $ssh->login($user, $key);
-        }
-
-        if (!$authenticated && $password) {
-            $authenticated = $ssh->login($user, $password);
-        }
-
-        if (!$authenticated) {
+        if (!self::authenticate($ssh)) {
             AppLogger::debug('ssh', "SSH interactive session auth failed for {$user}@{$host}:{$port}");
             throw new \RuntimeException("SSH authentication failed for {$user}@{$host}:{$port}");
         }

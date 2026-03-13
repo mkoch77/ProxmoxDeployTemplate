@@ -1483,7 +1483,7 @@ const Settings = {
             const groups = {
                 'Proxmox API': ['PROXMOX_HOST', 'PROXMOX_PORT', 'PROXMOX_VERIFY_SSL', 'PROXMOX_FALLBACK_HOSTS', 'PROXMOX_TOKEN_ID', 'PROXMOX_TOKEN_SECRET'],
                 'Application': ['APP_SECRET'],
-                'SSH': ['SSH_ENABLED', 'SSH_PORT', 'SSH_USER', 'SSH_KEY_PATH', 'SSH_PASSWORD'],
+                'SSH': ['SSH_ENABLED', 'SSH_PORT', 'SSH_USER', 'SSH_PRIVATE_KEY', 'SSH_KEY_PATH', 'SSH_PASSWORD'],
                 'Entra ID / Azure AD': ['ENTRAID_TENANT_ID', 'ENTRAID_CLIENT_ID', 'ENTRAID_CLIENT_SECRET', 'ENTRAID_REDIRECT_URI'],
                 'Other': ['CLOUD_DISTROS', 'DOMAIN', 'LETSENCRYPT_EMAIL'],
             };
@@ -1498,7 +1498,7 @@ const Settings = {
                 for (const key of keys) {
                     const e = entryMap[key];
                     if (!e) continue;
-                    const sensitive = key.includes('SECRET') || key.includes('PASSWORD') || key === 'APP_SECRET';
+                    const sensitive = key.includes('SECRET') || key.includes('PASSWORD') || key === 'APP_SECRET' || key === 'SSH_PRIVATE_KEY';
                     const statusBadge = e.in_vault
                         ? '<span class="badge bg-success"><i class="bi bi-shield-lock-fill"></i> Vault</span>'
                         : e.in_env
@@ -1534,11 +1534,19 @@ const Settings = {
     vaultEdit(key, sensitive = false) {
         const currentVal = '';
         const inputType = sensitive ? 'password' : 'text';
+        const isTextarea = key === 'SSH_PRIVATE_KEY';
         const modal = document.createElement('div');
         modal.className = 'modal fade show d-block';
         modal.style.background = 'rgba(0,0,0,0.6)';
+        const inputHtml = isTextarea
+            ? `<textarea class="form-control bg-dark text-light border-secondary font-monospace" id="vault-edit-value"
+                    rows="12" placeholder="Paste SSH private key here..." autocomplete="off" style="font-size:0.8rem"></textarea>
+               <small class="text-muted mt-1 d-block">Paste the full private key including BEGIN/END lines. Stored encrypted in vault — no file on disk needed.</small>`
+            : `<input type="${inputType}" class="form-control bg-dark text-light border-secondary" id="vault-edit-value"
+                    placeholder="Enter new value..." autocomplete="off">
+               <small class="text-muted mt-1 d-block">Leave empty and save to keep current value unchanged.</small>`;
         modal.innerHTML = `
-            <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-dialog modal-dialog-centered${isTextarea ? ' modal-lg' : ''}">
                 <div class="modal-content bg-dark text-light border-secondary">
                     <div class="modal-header border-secondary">
                         <h5 class="modal-title"><i class="bi bi-shield-lock me-2"></i>Edit Secret</h5>
@@ -1546,9 +1554,7 @@ const Settings = {
                     </div>
                     <div class="modal-body">
                         <label class="form-label"><code>${Utils.escapeHtml(key)}</code></label>
-                        <input type="${inputType}" class="form-control bg-dark text-light border-secondary" id="vault-edit-value"
-                            placeholder="Enter new value..." autocomplete="off">
-                        <small class="text-muted mt-1 d-block">Leave empty and save to keep current value unchanged.</small>
+                        ${inputHtml}
                     </div>
                     <div class="modal-footer border-secondary">
                         <button class="btn btn-secondary btn-sm" onclick="this.closest('.modal').remove()">Cancel</button>

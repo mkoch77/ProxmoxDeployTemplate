@@ -218,6 +218,9 @@ const Updater = {
         await API.finishRollingUpdate(this.session.id, finalStatus).catch(() => {});
         this.running = false;
 
+        const headerEl = document.getElementById('updater-header');
+        if (headerEl) headerEl.remove();
+
         const summaryEl = document.getElementById('updater-summary');
         if (summaryEl) {
             const icon  = finalStatus === 'completed' ? 'bi-check-circle-fill text-success' : 'bi-exclamation-triangle-fill text-warning';
@@ -336,7 +339,7 @@ const Updater = {
         const pEl    = document.getElementById('updater-progress');
 
         pEl.innerHTML = `
-            <div class="d-flex align-items-center gap-3 mb-4">
+            <div id="updater-header" class="d-flex align-items-center gap-3 mb-4">
                 <span class="spinner-border spinner-border-sm text-primary"></span>
                 <span class="text-muted">Rolling update in progress…</span>
                 <button class="btn btn-sm btn-outline-danger ms-auto" onclick="Updater.cancel()">

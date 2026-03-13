@@ -125,6 +125,16 @@ switch ($method) {
                 'failed_migrations' => $failedCount,
             ], $user['id']);
 
+            // No guests → already in 'maintenance' status, enable PVE maintenance mode now
+            if ($status === 'maintenance') {
+                try {
+                    SSH::enableNodeMaintenance($nodeName);
+                    AppLogger::info('maintenance', 'PVE maintenance mode enabled (no guests)', ['node' => $nodeName]);
+                } catch (\Exception $e) {
+                    AppLogger::warning('maintenance', 'Could not enable PVE maintenance mode', ['node' => $nodeName, 'error' => $e->getMessage()]);
+                }
+            }
+
             Response::success([
                 'node' => $nodeName,
                 'status' => $status,
