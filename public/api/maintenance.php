@@ -59,21 +59,22 @@ switch ($method) {
                 Response::error('Node not found or offline', 404);
             }
 
-            // Enable Proxmox built-in maintenance mode via SSH
-            try {
-                SSH::enableNodeMaintenance($nodeName);
-            } catch (\Exception $e) {
-                // SSH may not be configured - continue with manual migration only
-            }
-
             // Get all running guests on the node
             $guests = MaintenanceManager::getNodeGuests($api, $nodeName);
+            AppLogger::info('maintenance', 'Found guests on node', [
+                'node' => $nodeName,
+                'guest_count' => count($guests),
+                'guests' => array_map(fn($g) => ($g['vmid'] ?? '?') . ' (' . ($g['type'] ?? '?') . ')', $guests),
+            ], $user['id']);
             $migrations = [];
 
             // Migrate each guest
             foreach ($guests as $guest) {
                 $vmid = (int) $guest['vmid'];
                 $target = MaintenanceManager::selectTargetNode($api, $nodeName, $vmid);
+                AppLogger::info('maintenance', 'Selected migration target', [
+                    'vmid' => $vmid, 'source' => $nodeName, 'target' => $target ?? 'NONE',
+                ], $user['id']);
                 if (!$target) {
                     Response::error('No target node available for migration', 400);
                 }
@@ -81,6 +82,9 @@ switch ($method) {
 
                 try {
                     $result = $api->migrateGuest($nodeName, $type, $vmid, $target, true);
+                    AppLogger::info('maintenance', 'Migration API call succeeded', [
+                        'vmid' => $vmid, 'target' => $target, 'upid' => $result['data'] ?? 'EMPTY',
+                    ], $user['id']);
                     $migrations[] = [
                         'vmid' => $vmid,
                         'type' => $type,
@@ -92,6 +96,9 @@ switch ($method) {
                         'started_at' => date('c'),
                     ];
                 } catch (\Exception $e) {
+                    AppLogger::error('maintenance', 'Migration API call failed', [
+                        'vmid' => $vmid, 'target' => $target, 'error' => $e->getMessage(),
+                    ], $user['id']);
                     $migrations[] = [
                         'vmid' => $vmid,
                         'type' => $type,
@@ -150,13 +157,6 @@ switch ($method) {
 
         try {
             $api = Helpers::createAPI();
-
-            // Disable Proxmox built-in maintenance mode via SSH
-            try {
-                SSH::disableNodeMaintenance($nodeName);
-            } catch (\Exception $e) {
-                // SSH may not be configured - continue with manual back-migration only
-            }
 
             // Migrate VMs back to original node
             $forwardMigrations = json_decode($maintNode['migration_tasks'] ?? '[]', true);
