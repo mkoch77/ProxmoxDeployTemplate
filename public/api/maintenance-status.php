@@ -56,9 +56,16 @@ if (in_array($maintNode['status'], ['entering', 'leaving']) && !empty($migration
             // 1. Try Proxmox task status API
             $taskDone = false;
             $taskNode = $mig['source'] ?? $nodeName;
+            AppLogger::info('maintenance', 'Checking migration task status', [
+                'vmid' => $mig['vmid'], 'taskNode' => $taskNode, 'upid' => $mig['upid'],
+            ]);
             try {
                 $taskStatus = $api->getTaskStatus($taskNode, $mig['upid']);
                 $data = $taskStatus['data'] ?? [];
+                AppLogger::info('maintenance', 'Task status API response', [
+                    'vmid' => $mig['vmid'], 'status' => $data['status'] ?? 'N/A',
+                    'exitstatus' => $data['exitstatus'] ?? 'N/A',
+                ]);
 
                 if (($data['status'] ?? '') === 'stopped') {
                     $mig['status'] = ($data['exitstatus'] ?? '') === 'OK' ? 'completed' : 'error';
@@ -69,27 +76,36 @@ if (in_array($maintNode['status'], ['entering', 'leaving']) && !empty($migration
                     $taskDone = true;
                 }
             } catch (\Exception $e) {
-                AppLogger::debug('maintenance', 'Task status check failed', [
-                    'node' => $taskNode, 'vmid' => $mig['vmid'], 'error' => $e->getMessage(),
+                AppLogger::warning('maintenance', 'Task status check FAILED', [
+                    'node' => $taskNode, 'vmid' => $mig['vmid'],
+                    'error' => $e->getMessage(), 'upid' => $mig['upid'],
                 ]);
             }
 
             // 2. Fallback: if task not marked done, check if VM is already on target node
             if (!$taskDone) {
+                $targetNode = $mig['target'] ?? '';
+                $type = $mig['type'] ?? 'qemu';
+                AppLogger::info('maintenance', 'Fallback: checking if VM is on target node', [
+                    'vmid' => $mig['vmid'], 'target' => $targetNode, 'type' => $type,
+                ]);
                 try {
-                    $targetNode = $mig['target'] ?? '';
-                    $type = $mig['type'] ?? 'qemu';
                     if ($targetNode) {
                         $guestStatus = $api->get("/nodes/{$targetNode}/{$type}/{$mig['vmid']}/status/current");
+                        AppLogger::info('maintenance', 'Fallback guest check result', [
+                            'vmid' => $mig['vmid'], 'target' => $targetNode,
+                            'guest_status' => $guestStatus['data']['status'] ?? 'N/A',
+                        ]);
                         if (!empty($guestStatus['data']['status'])) {
                             $mig['status'] = 'completed';
                             $taskDone = true;
-                            AppLogger::debug('maintenance', 'Migration confirmed via guest check on target', [
-                                'vmid' => $mig['vmid'], 'target' => $targetNode,
-                            ]);
                         }
                     }
-                } catch (\Exception $e2) { /* VM not on target yet */ }
+                } catch (\Exception $e2) {
+                    AppLogger::debug('maintenance', 'Fallback guest check failed', [
+                        'vmid' => $mig['vmid'], 'target' => $targetNode, 'error' => $e2->getMessage(),
+                    ]);
+                }
             }
 
             if (!$taskDone) {
