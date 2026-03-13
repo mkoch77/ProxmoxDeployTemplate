@@ -8,6 +8,7 @@ use App\Request;
 use App\Response;
 use App\Helpers;
 use App\Database;
+use App\SSH;
 use App\AppLogger;
 
 Bootstrap::init();
@@ -139,6 +140,15 @@ if (in_array($maintNode['status'], ['entering', 'leaving']) && !empty($migration
                 $stmt->execute([$newStatus, $nodeName]);
                 $maintNode['status'] = $newStatus;
                 AppLogger::info('maintenance', 'Status transitioned to maintenance', ['node' => $nodeName]);
+
+                // Enable Proxmox built-in maintenance mode (blue wrench icon)
+                // Done AFTER migrations to avoid lock conflicts
+                try {
+                    $sshResult = SSH::enableNodeMaintenance($nodeName);
+                    AppLogger::info('maintenance', 'PVE maintenance mode enabled via SSH', ['node' => $nodeName, 'result' => $sshResult]);
+                } catch (\Exception $e) {
+                    AppLogger::warning('maintenance', 'Could not enable PVE maintenance mode via SSH', ['node' => $nodeName, 'error' => $e->getMessage()]);
+                }
             } elseif ($maintNode['status'] === 'leaving') {
                 // Back-migrations done, remove maintenance record
                 $stmt = $db->prepare('DELETE FROM maintenance_nodes WHERE node_name = ?');

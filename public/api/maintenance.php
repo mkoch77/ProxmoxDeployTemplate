@@ -158,6 +158,13 @@ switch ($method) {
         try {
             $api = Helpers::createAPI();
 
+            // Disable Proxmox built-in maintenance mode (blue wrench icon) before back-migration
+            try {
+                SSH::disableNodeMaintenance($nodeName);
+            } catch (\Exception $e) {
+                // SSH may not be configured - continue with back-migration
+            }
+
             // Migrate VMs back to original node
             $forwardMigrations = json_decode($maintNode['migration_tasks'] ?? '[]', true);
             $backMigrations = [];
