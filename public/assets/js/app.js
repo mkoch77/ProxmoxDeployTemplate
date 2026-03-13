@@ -14,10 +14,13 @@ const App = {
     },
 
     _warningInterval: null,
+    _updateInterval: null,
     _warnings: [],
     _infos: [],
     _dismissedInfos: new Set(), // dismissed info keys (session only)
     _resourceAlertSince: {},    // key → timestamp when threshold first exceeded
+    _lastUpdateCheck: 0,        // timestamp of last update check
+    _cachedUpdateCounts: {},    // node → count of available updates
 
     init() {
         // Remove null pages (not loaded due to missing permissions)
@@ -32,6 +35,12 @@ const App = {
         this.restoreSidebarState();
         this.checkClusterHealth();
         this._warningInterval = setInterval(() => this.checkClusterHealth(), 60000);
+
+        // Hourly update check (also runs on init)
+        if (Permissions.has('cluster.update')) {
+            this.checkForUpdates();
+            this._updateInterval = setInterval(() => this.checkForUpdates(), 3600000);
+        }
     },
 
     toggleSidebar() {
@@ -263,16 +272,12 @@ const App = {
                 } catch (_) {}
             }
 
-            // ── Info: Host updates available ─────────────────────────
+            // ── Info: Host updates available (from hourly cache) ──────
             if (Permissions.has('cluster.update')) {
-                const onlineNodes = (data.nodes || []).filter(n => n.status === 'online');
-                for (const node of onlineNodes) {
-                    try {
-                        const upd = await API.getSilent('api/node-update.php', { node: node.node });
-                        if ((upd?.count || 0) > 0) {
-                            infos.push({ level: 'info', msg: `Node <strong>${Utils.escapeHtml(node.node)}</strong> has ${upd.count} update${upd.count !== 1 ? 's' : ''} available`, cat: 'updates', link: '#maintenance' });
-                        }
-                    } catch (_) {}
+                for (const [node, count] of Object.entries(this._cachedUpdateCounts)) {
+                    if (count > 0) {
+                        infos.push({ level: 'info', msg: `Node <strong>${Utils.escapeHtml(node)}</strong> has ${count} update${count !== 1 ? 's' : ''} available`, cat: 'updates', link: '#maintenance' });
+                    }
                 }
             }
 
@@ -533,6 +538,49 @@ const App = {
             errEl.textContent = e.message || 'Failed to change password.';
             errEl.classList.remove('d-none');
         }
+    },
+
+    async checkForUpdates() {
+        if (!Permissions.has('cluster.update') || !window.APP_USER?.ssh_enabled) return;
+
+        try {
+            const data = await API.getSilent('api/cluster-health.php');
+            const onlineNodes = (data.nodes || []).filter(n => n.status === 'online');
+            const counts = {};
+            let totalUpdates = 0;
+
+            await Promise.allSettled(onlineNodes.map(async n => {
+                try {
+                    const upd = await API.getSilent('api/node-update.php', { node: n.node });
+                    const count = upd?.count || 0;
+                    counts[n.node] = count;
+                    totalUpdates += count;
+                } catch (_) {
+                    counts[n.node] = 0;
+                }
+            }));
+
+            this._cachedUpdateCounts = counts;
+            this._lastUpdateCheck = Date.now();
+
+            // Update topbar icon
+            const btn = document.getElementById('cluster-updates-btn');
+            const cnt = document.getElementById('cluster-updates-count');
+            if (btn) {
+                if (totalUpdates > 0) {
+                    btn.classList.remove('d-none');
+                    cnt.textContent = totalUpdates;
+                    btn.title = `${totalUpdates} update${totalUpdates !== 1 ? 's' : ''} available`;
+                } else {
+                    btn.classList.add('d-none');
+                }
+            }
+
+            // Refresh info button if health check has already run
+            if (this._warnings || this._infos) {
+                this.checkClusterHealth();
+            }
+        } catch (_) { /* silent */ }
     },
 
     async logout() {
