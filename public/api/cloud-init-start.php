@@ -252,9 +252,6 @@ $lines[] = 'qm set $VMID --agent enabled=1';
 $lines[] = '';
 $lines[] = "echo '==> [5/8] Configuring Cloud-Init...'";
 
-$snippetDir = '/var/lib/vz/snippets';
-$lines[] = 'mkdir -p ' . escapeshellarg($snippetDir);
-
 $ciSetCmd = 'qm set $VMID --ciuser ' . escapeshellarg($ciUser);
 if ($ciPassword) {
     $ciSetCmd .= ' --cipassword ' . escapeshellarg($ciPassword);
@@ -270,25 +267,64 @@ if ($ciNameserver)   $lines[] = 'qm set $VMID --nameserver '   . escapeshellarg(
 if ($ciSearchdomain) $lines[] = 'qm set $VMID --searchdomain ' . escapeshellarg($ciSearchdomain);
 if ($tags)           $lines[] = 'qm set $VMID --tags '         . escapeshellarg($tags);
 
-$vendorFile = $snippetDir . '/ci_vendor_' . $vmid . '.yaml';
 $lines[] = '';
 $lines[] = "echo '==> [6/8] Configuring QEMU guest agent installation...'";
-// Enable snippets on local storage FIRST (required before Proxmox can see snippet volumes)
-$lines[] = '# Check if snippets content type is enabled on local storage';
-$lines[] = 'if grep -A5 "^dir: local$" /etc/pve/storage.cfg 2>/dev/null | grep -q snippets; then';
-$lines[] = '  echo "    Snippets already enabled on local storage"';
-$lines[] = 'else';
-$lines[] = '  echo "    Enabling snippets content type on local storage..."';
-$lines[] = '  CURRENT_CONTENT=$(grep -A5 "^dir: local$" /etc/pve/storage.cfg 2>/dev/null | grep "content " | sed "s/.*content //" | tr -d " ")';
-$lines[] = '  if [ -n "$CURRENT_CONTENT" ]; then';
-$lines[] = '    pvesm set local --content "${CURRENT_CONTENT},snippets"';
-$lines[] = '  else';
-$lines[] = '    pvesm set local --content "images,rootdir,vztmpl,iso,backup,snippets"';
+// Find a storage that supports snippets (auto-detect, don't hardcode 'local')
+$lines[] = '# Find a storage with snippets support';
+$lines[] = 'SNIPPET_STORAGE=""';
+$lines[] = 'SNIPPET_DIR=""';
+// Check all enabled storages for snippets content type
+$lines[] = 'for sid in $(pvesm status --enabled 2>/dev/null | awk "NR>1 {print \$1}"); do';
+$lines[] = '  if pvesm status --enabled 2>/dev/null | grep "^${sid} " | grep -q snippets 2>/dev/null; then';
+$lines[] = '    SNIPPET_STORAGE="$sid"';
+$lines[] = '    break';
 $lines[] = '  fi';
-$lines[] = '  sleep 2';
+$lines[] = 'done';
+// Alternative: parse storage.cfg for snippet support
+$lines[] = 'if [ -z "$SNIPPET_STORAGE" ]; then';
+$lines[] = '  while IFS= read -r line; do';
+$lines[] = '    if echo "$line" | grep -qE "^(dir|nfs|cifs|glusterfs|btrfs): "; then';
+$lines[] = '      sid=$(echo "$line" | awk "{print \$2}")';
+$lines[] = '    elif echo "$line" | grep -q "content " && echo "$line" | grep -q "snippets"; then';
+$lines[] = '      # Check this storage is not disabled';
+$lines[] = '      if pvesm status --enabled 2>/dev/null | grep -q "^${sid} "; then';
+$lines[] = '        SNIPPET_STORAGE="$sid"';
+$lines[] = '        break';
+$lines[] = '      fi';
+$lines[] = '    fi';
+$lines[] = '  done < /etc/pve/storage.cfg';
 $lines[] = 'fi';
-// Now create the vendor snippet
-$lines[] = 'cat > ' . escapeshellarg($vendorFile) . " << 'CI_VENDOR_EOF'";
+// If still no snippet storage, try to enable snippets on 'local' (if enabled) or the target storage
+$lines[] = 'if [ -z "$SNIPPET_STORAGE" ]; then';
+$lines[] = '  for try_sid in local ' . escapeshellarg($storage) . '; do';
+$lines[] = '    if pvesm status --enabled 2>/dev/null | grep -q "^${try_sid} "; then';
+$lines[] = '      STYPE=$(pvesm status 2>/dev/null | awk "/^${try_sid} /{print \$2}")';
+$lines[] = '      if echo "$STYPE" | grep -qE "^(dir|nfs|cifs|glusterfs|btrfs)$"; then';
+$lines[] = '        echo "    Enabling snippets on ${try_sid} storage..."';
+$lines[] = '        CURRENT_CONTENT=$(pvesm status 2>/dev/null | awk "/^${try_sid} /{for(i=3;i<=NF;i++) printf \"%s \",\$i}" | grep -oP "content=\\K[^ ]*" || true)';
+$lines[] = '        if [ -n "$CURRENT_CONTENT" ]; then';
+$lines[] = '          pvesm set "$try_sid" --content "${CURRENT_CONTENT},snippets" 2>/dev/null || true';
+$lines[] = '        else';
+$lines[] = '          pvesm set "$try_sid" --content "snippets" 2>/dev/null || true';
+$lines[] = '        fi';
+$lines[] = '        sleep 1';
+$lines[] = '        SNIPPET_STORAGE="$try_sid"';
+$lines[] = '        break';
+$lines[] = '      fi';
+$lines[] = '    fi';
+$lines[] = '  done';
+$lines[] = 'fi';
+// Resolve snippet directory path and create vendor cloud-init file
+$lines[] = 'if [ -n "$SNIPPET_STORAGE" ]; then';
+$lines[] = '  SNIPPET_DIR=$(pvesm path "${SNIPPET_STORAGE}:snippets/" 2>/dev/null | sed "s|/\\.||" || echo "")';
+$lines[] = '  if [ -z "$SNIPPET_DIR" ]; then';
+$lines[] = '    # Fallback: resolve storage base path and append snippets/';
+$lines[] = '    SBASE=$(pvesm path "${SNIPPET_STORAGE}:vztmpl/dummy" 2>/dev/null | sed "s|/template/cache/dummy||" || echo "/var/lib/vz")';
+$lines[] = '    SNIPPET_DIR="${SBASE}/snippets"';
+$lines[] = '  fi';
+$lines[] = '  mkdir -p "$SNIPPET_DIR"';
+$vendorFileName = 'ci_vendor_' . $vmid . '.yaml';
+$lines[] = '  cat > "${SNIPPET_DIR}/' . $vendorFileName . '" << \'CI_VENDOR_EOF\'';
 $lines[] = '#cloud-config';
 $lines[] = 'packages:';
 $lines[] = '  - qemu-guest-agent';
@@ -301,14 +337,16 @@ foreach ($ciRuncmd as $cmd) {
     $lines[] = '  - ' . json_encode($cmd);
 }
 $lines[] = 'CI_VENDOR_EOF';
-$lines[] = 'sync';
-// Verify Proxmox can actually resolve the snippet volume before referencing it
-$snippetVol = 'local:snippets/ci_vendor_' . $vmid . '.yaml';
-$lines[] = 'if pvesm path ' . escapeshellarg($snippetVol) . ' >/dev/null 2>&1; then';
-$lines[] = '  echo "    Attaching vendor cloud-init snippet..."';
-$lines[] = '  qm set $VMID --cicustom ' . escapeshellarg('vendor=' . $snippetVol) . ' 2>/dev/null || qm set $VMID --vendor-data ' . escapeshellarg($snippetVol) . ' 2>/dev/null || echo "    Warning: could not attach vendor snippet (qemu-guest-agent will need manual install)"';
+$lines[] = '  sync';
+$lines[] = '  SNIPPET_VOL="${SNIPPET_STORAGE}:snippets/' . $vendorFileName . '"';
+$lines[] = '  if pvesm path "$SNIPPET_VOL" >/dev/null 2>&1; then';
+$lines[] = '    echo "    Attaching vendor cloud-init snippet (${SNIPPET_STORAGE})..."';
+$lines[] = '    qm set $VMID --cicustom "vendor=${SNIPPET_VOL}" 2>/dev/null || qm set $VMID --vendor-data "$SNIPPET_VOL" 2>/dev/null || echo "    Warning: could not attach vendor snippet (qemu-guest-agent will need manual install)"';
+$lines[] = '  else';
+$lines[] = '    echo "    Warning: Proxmox cannot resolve snippet volume — skipping vendor cloud-init"';
+$lines[] = '  fi';
 $lines[] = 'else';
-$lines[] = '  echo "    Warning: Proxmox cannot resolve snippet volume — skipping vendor cloud-init"';
+$lines[] = '  echo "    Warning: No snippet-capable storage found — skipping vendor cloud-init"';
 $lines[] = '  echo "    (qemu-guest-agent will need to be installed manually: apt install qemu-guest-agent)"';
 $lines[] = 'fi';
 
@@ -325,7 +363,7 @@ $lines[] = 'rm -f "$IMG"';
 // (local:snippets/ is per-node storage).
 $lines[] = "echo '    Removing cloud-init snippet reference (no longer needed after first boot)...'";
 $lines[] = 'qm set $VMID --delete cicustom 2>/dev/null || true';
-$lines[] = 'rm -f ' . escapeshellarg($vendorFile);
+$lines[] = 'if [ -n "$SNIPPET_DIR" ]; then rm -f "${SNIPPET_DIR}/' . $vendorFileName . '"; fi';
 
 $lines[] = "echo ''";
 $lines[] = 'echo "==> Done! VM $VMID (' . addslashes($name) . ') is starting."';
