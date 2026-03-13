@@ -82,6 +82,24 @@ if ($method === 'POST') {
         Response::error('Invalid node name', 400);
     }
 
+    // Safety check: refuse to update if VMs/CTs are still running on this node
+    try {
+        $api = Helpers::createAPI();
+        $guests = \App\MaintenanceManager::getNodeGuests($api, $node);
+        if (!empty($guests)) {
+            $vmids = array_map(fn($g) => $g['vmid'] ?? '?', $guests);
+            AppLogger::warning('system', 'Node update blocked: VMs still running', [
+                'node' => $node, 'running_guests' => $vmids,
+            ]);
+            Response::error('Cannot update: ' . count($guests) . ' VM(s)/CT(s) still running on this node (' . implode(', ', $vmids) . '). Migrate them first.', 409);
+        }
+    } catch (\Exception $e) {
+        AppLogger::warning('system', 'Could not verify guest status before update', [
+            'node' => $node, 'error' => $e->getMessage(),
+        ]);
+        // Don't block update if API check fails — let operator decide
+    }
+
     // Resolve SSH host: env override → cluster status IP → node name fallback
     $envKey  = 'SSH_HOST_' . strtoupper(str_replace('-', '_', $node));
     $sshHost = \App\Config::get($envKey, '');

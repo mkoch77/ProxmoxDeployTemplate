@@ -256,6 +256,7 @@ const Updater = {
         }
 
         // ── Step 2: Run apt upgrade ────────────────────────────────────
+        // Backend will reject the update if VMs are still running (409)
         this.setNodeStep(node, 'updating');
         await API.updateRollingNode(this.session.id, node, 'updating');
 
@@ -263,6 +264,10 @@ const Updater = {
         try {
             updateResult = await API.runNodeUpdate(node);
         } catch (err) {
+            // If backend reports VMs still running, this is a critical error — don't proceed
+            if (err.status === 409) {
+                throw new Error(err.message || 'VMs still running on node — update blocked');
+            }
             // SSH/update failure — still exit maintenance so node isn't stuck
             updateResult = { success: false, log: err.message || 'Update failed', upgraded: 0 };
         }
