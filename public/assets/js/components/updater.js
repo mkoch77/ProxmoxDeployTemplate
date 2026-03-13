@@ -303,7 +303,11 @@ const Updater = {
             try {
                 const s = await API.getMaintenanceStatus(node);
                 this.updateMaintenanceTasks(node, s);
-                if (target === 'maintenance' && s.status === 'maintenance') return;
+                if (target === 'maintenance' && s.status === 'maintenance') {
+                    // Give PVE HA-Manager time to sync maintenance state
+                    await this.sleep(5000);
+                    return;
+                }
                 if (target === 'done'        && s.status === 'done')        return;
             } catch (err) {
                 // 404 = record deleted = done
