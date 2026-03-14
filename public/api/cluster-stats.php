@@ -175,6 +175,16 @@ try {
         $haManaged = count($haResources['data'] ?? []);
     } catch (\Exception $e) {}
 
+    // ── Database size ─────────────────────────────────────────────────────
+    $dbSize = null;
+    $dbTableCount = null;
+    try {
+        $stmt = $db->query("SELECT pg_database_size(current_database())");
+        $dbSize = (int)$stmt->fetchColumn();
+        $stmt = $db->query("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'");
+        $dbTableCount = (int)$stmt->fetchColumn();
+    } catch (\Exception $e) {}
+
     Response::success([
         'nodes' => [
             'total' => count($nodes),
@@ -217,6 +227,10 @@ try {
         'deploys' => [
             'count_24h' => $deployCount24h,
             'count_7d' => $deployCount7d,
+        ],
+        'database' => [
+            'size' => $dbSize,
+            'tables' => $dbTableCount,
         ],
     ]);
 } catch (\Exception $e) {

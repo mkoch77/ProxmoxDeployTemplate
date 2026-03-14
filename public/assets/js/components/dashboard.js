@@ -50,10 +50,13 @@ const Dashboard = {
     },
 
     async loadData(silent = false) {
+        if (this._loading) return;
+        this._loading = true;
         try {
             const fetch = silent ? API.getSilent.bind(API) : API.get.bind(API);
+            const guestParams = silent ? { quick: '1' } : {};
             const [guests, nodes] = await Promise.all([
-                fetch('api/guests.php'),
+                fetch('api/guests.php', guestParams),
                 fetch('api/nodes.php'),
             ]);
             this.guests = guests;
@@ -94,6 +97,8 @@ const Dashboard = {
             this.updateView();
         } catch (err) {
             // Error shown by API (only when silent=false)
+        } finally {
+            this._loading = false;
         }
     },
 

@@ -71,15 +71,20 @@ const Tasks = {
     },
 
     async loadTasks() {
-        if (!this.currentNode) return;
+        if (!this.currentNode || this._loading) return;
+        this._loading = true;
 
         const container = document.getElementById('tasks-table-container');
 
         try {
-            const tasks = await API.getTasks(this.currentNode);
+            const tasks = await API.getSilentAbortable('tasks', 'api/tasks.php', { node: this.currentNode, limit: 50 });
             this.renderTasks(tasks);
         } catch (err) {
-            container.innerHTML = `<div class="alert alert-danger" style="border-radius:var(--radius-md)">Error: ${Utils.escapeHtml(err.message)}</div>`;
+            if (err?.name !== 'AbortError') {
+                container.innerHTML = `<div class="alert alert-danger" style="border-radius:var(--radius-md)">Error: ${Utils.escapeHtml(err.message)}</div>`;
+            }
+        } finally {
+            this._loading = false;
         }
     },
 

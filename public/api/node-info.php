@@ -19,7 +19,8 @@ if (!$nodeName || !Helpers::validateNodeName($nodeName)) {
 
 try {
     $api = Helpers::createAPI();
-    $status = $api->getNodeStatus($nodeName);
+    $quickOpts = ['connect_timeout' => 2, 'timeout' => 4];
+    $status = $api->getNodeStatus($nodeName, $quickOpts);
     $data = $status['data'] ?? $status;
 
     // Extract hardware and version info

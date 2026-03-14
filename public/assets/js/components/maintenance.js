@@ -92,10 +92,12 @@ const Maintenance = {
     },
 
     async loadData() {
+        if (this._loading) return;
+        this._loading = true;
         try {
             const [healthData, guestsData] = await Promise.all([
-                API.getClusterHealth(),
-                API.getGuests(),
+                API.getSilentAbortable('maint-health', 'api/cluster-health.php'),
+                API.getSilentAbortable('maint-guests', 'api/guests.php', { quick: '1' }),
             ]);
 
             this.nodes = (healthData.nodes || []).sort((a, b) => a.node.localeCompare(b.node));
@@ -127,23 +129,30 @@ const Maintenance = {
                 this.startAutoRefresh();
             }
 
-            // Load detailed migration status for entering/leaving nodes
-            for (const [nodeName, state] of Object.entries(this.maintenanceStates)) {
-                if (state.status === 'entering' || state.status === 'leaving') {
-                    try {
-                        const detail = await API.getMaintenanceNodeStatus(nodeName);
+            // Load detailed migration status for entering/leaving nodes (in parallel)
+            const activeNodes = Object.entries(this.maintenanceStates)
+                .filter(([, state]) => state.status === 'entering' || state.status === 'leaving');
+            if (activeNodes.length > 0) {
+                const results = await Promise.allSettled(
+                    activeNodes.map(([nodeName]) => API.getMaintenanceNodeStatus(nodeName).then(d => ({ nodeName, detail: d })))
+                );
+                for (const r of results) {
+                    if (r.status === 'fulfilled') {
+                        const { nodeName, detail } = r.value;
                         if (detail.status === 'done') {
                             delete this.maintenanceStates[nodeName];
                         } else {
                             this.maintenanceStates[nodeName] = detail;
                         }
-                    } catch (e) {}
+                    }
                 }
             }
 
             this.updateView();
         } catch (err) {
-            Toast.error('Failed to load maintenance data');
+            if (err?.name !== 'AbortError') Toast.error('Failed to load maintenance data');
+        } finally {
+            this._loading = false;
         }
     },
 

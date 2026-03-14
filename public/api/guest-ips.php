@@ -34,6 +34,7 @@ try {
     $ips = [];
     $agentRunning = false;
     $ipSource = 'none';
+    $quickOpts = ['connect_timeout' => 2, 'timeout' => 4];
 
     if ($type === 'lxc') {
         $result = $api->getLxcInterfaces($node, $vmid);
@@ -54,7 +55,7 @@ try {
         // Try QEMU guest agent first
         $cfg = null;
         try {
-            $result = $api->getQemuAgentNetworks($node, $vmid);
+            $result = $api->get("/nodes/{$node}/qemu/{$vmid}/agent/network-get-interfaces", [], $quickOpts);
             $ifaces = $result['data']['result'] ?? $result['result'] ?? [];
             foreach ($ifaces as $iface) {
                 foreach ($iface['ip-addresses'] ?? [] as $addr) {
@@ -77,7 +78,7 @@ try {
         // Fallback 1: static IP from cloud-init config
         if (empty($ips)) {
             try {
-                $config = $api->getGuestConfig($node, 'qemu', $vmid);
+                $config = $api->getGuestConfig($node, 'qemu', $vmid, $quickOpts);
                 $cfg = $config['data'] ?? $config;
                 foreach ($cfg as $key => $value) {
                     if (!preg_match('/^ipconfig\d+$/', $key) || !$value) continue;
@@ -96,7 +97,7 @@ try {
         if (empty($ips) && Config::get('SSH_ENABLED', 'true') !== 'false') {
             try {
                 if (!$cfg) {
-                    $config = $api->getGuestConfig($node, 'qemu', $vmid);
+                    $config = $api->getGuestConfig($node, 'qemu', $vmid, $quickOpts);
                     $cfg = $config['data'] ?? $config;
                 }
                 $mac = null;
@@ -131,7 +132,8 @@ try {
                     $arpOutput = SSH::exec($sshHost,
                         'cat /proc/net/arp 2>/dev/null; echo "---"; '
                         . 'ip neigh show 2>/dev/null; echo "---"; '
-                        . 'arp-scan --localnet --interface=vmbr0 -q 2>/dev/null || true'
+                        . 'arp-scan --localnet --interface=vmbr0 -q 2>/dev/null || true',
+                        8  // Short timeout for ARP fallback
                     );
                     foreach (explode("\n", $arpOutput) as $line) {
                         if (stripos($line, $mac) !== false) {

@@ -27,6 +27,18 @@ if (!is_array($guests) || empty($guests)) {
 try {
     $api = Helpers::createAPI();
     $result = [];
+    $quickOpts = ['connect_timeout' => 2, 'timeout' => 3];
+
+    // Build set of online nodes to skip API calls to unreachable nodes
+    $onlineNodes = [];
+    try {
+        $nodesResult = $api->getNodes();
+        foreach ($nodesResult['data'] ?? [] as $n) {
+            if (($n['status'] ?? '') === 'online') {
+                $onlineNodes[$n['node']] = true;
+            }
+        }
+    } catch (\Exception $e) { /* assume all online if check fails */ }
 
     // Collect node SSH hosts for ARP fallback (resolved once per node)
     $nodeHosts = [];
@@ -41,6 +53,13 @@ try {
         $ips = [];
         $agentRunning = false;
         $ipSource = 'none';
+
+        // Skip API calls for guests on offline nodes — use cached IPs from DB
+        if (!empty($onlineNodes) && !isset($onlineNodes[$node])) {
+            $result["{$vmid}-{$node}"] = ['ips' => [], 'agent' => false, 'source' => 'none'];
+            continue;
+        }
+
         try {
             if ($type === 'lxc') {
                 $res = $api->getLxcInterfaces($node, $vmid);
@@ -60,7 +79,7 @@ try {
             } else {
                 // Try QEMU guest agent first
                 try {
-                    $res = $api->getQemuAgentNetworks($node, $vmid);
+                    $res = $api->get("/nodes/{$node}/qemu/{$vmid}/agent/network-get-interfaces", [], $quickOpts);
                     $ifaces = $res['data']['result'] ?? $res['result'] ?? [];
                     foreach ($ifaces as $iface) {
                         foreach ($iface['ip-addresses'] ?? [] as $addr) {
@@ -81,7 +100,7 @@ try {
                 // Fallback 1: static IP from cloud-init config
                 if (empty($ips)) {
                     try {
-                        $config = $api->getGuestConfig($node, 'qemu', $vmid);
+                        $config = $api->getGuestConfig($node, 'qemu', $vmid, $quickOpts);
                         $cfg = $config['data'] ?? $config;
                         foreach ($cfg as $key => $value) {
                             if (!preg_match('/^ipconfig\d+$/', $key) || !$value) continue;
@@ -101,7 +120,7 @@ try {
                     try {
                         // Get MAC from VM config
                         if (!isset($cfg)) {
-                            $config = $api->getGuestConfig($node, 'qemu', $vmid);
+                            $config = $api->getGuestConfig($node, 'qemu', $vmid, $quickOpts);
                             $cfg = $config['data'] ?? $config;
                         }
                         $mac = null;
@@ -143,7 +162,8 @@ try {
                                     $arpCaches[$node] = SSH::exec($nodeHosts[$node],
                                         'cat /proc/net/arp 2>/dev/null; echo "---"; '
                                         . 'ip neigh show 2>/dev/null; echo "---"; '
-                                        . 'arp-scan --localnet --interface=vmbr0 -q 2>/dev/null || true'
+                                        . 'arp-scan --localnet --interface=vmbr0 -q 2>/dev/null || true',
+                                        8  // Short timeout for ARP fallback
                                     );
                                 } catch (\Exception $e) {
                                     $arpCaches[$node] = '';

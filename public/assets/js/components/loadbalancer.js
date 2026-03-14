@@ -55,6 +55,8 @@ const Loadbalancer = {
     },
 
     async loadData() {
+        if (this._loading) return;
+        this._loading = true;
         try {
             const [lbData, historyData] = await Promise.all([
                 API.getLoadbalancer(),
@@ -65,6 +67,8 @@ const Loadbalancer = {
             this.updateView();
         } catch (err) {
             // Error already shown by API wrapper
+        } finally {
+            this._loading = false;
         }
     },
 

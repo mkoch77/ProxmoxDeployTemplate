@@ -19,19 +19,19 @@ class MonitoringCollector
         $nodes = $nodesResult['data'] ?? [];
 
         $nodeStmt = $db->prepare('INSERT INTO node_metrics
-            (node, ts, cpu_pct, mem_used, mem_total, disk_read_bytes, disk_write_bytes, disk_read_iops, disk_write_iops, net_in_bytes, net_out_bytes, load_avg, swap_used, swap_total)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+            (node, ts, cpu_pct, mem_used, mem_total, disk_read_bytes, disk_write_bytes, disk_read_iops, disk_write_iops, net_in_bytes, net_out_bytes, load_avg, swap_used, swap_total, iowait)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
 
         foreach ($nodes as $node) {
             if (($node['status'] ?? '') !== 'online') continue;
             $name = $node['node'];
 
-            // Get detailed node status for disk/net I/O + load + swap
+            // Get detailed node status for disk/net I/O + load + swap + iowait
             $diskRead = 0; $diskWrite = 0;
             $netIn = 0; $netOut = 0;
-            $diskReadIops = 0; $diskWriteIops = 0;
             $loadAvg = 0.0;
             $swapUsed = 0; $swapTotal = 0;
+            $iowait = 0.0;
 
             try {
                 $rrd = $api->getNodeRRDData($name, 'hour');
@@ -42,7 +42,7 @@ class MonitoringCollector
                     $diskWrite = (int)($last['diskwrite'] ?? 0);
                     $netIn = (int)($last['netin'] ?? 0);
                     $netOut = (int)($last['netout'] ?? 0);
-                    $diskReadIops = (float)($last['iowait'] ?? 0);
+                    $iowait = (float)($last['iowait'] ?? 0);
                     $loadAvg = (float)($last['loadavg'] ?? 0);
                     $swapUsed = (int)($last['swapused'] ?? 0);
                     $swapTotal = (int)($last['swaptotal'] ?? 0);
@@ -55,9 +55,10 @@ class MonitoringCollector
                 (int)($node['mem'] ?? 0),
                 (int)($node['maxmem'] ?? 0),
                 $diskRead, $diskWrite,
-                $diskReadIops, $diskWriteIops,
+                0, 0, // IOPS not available from node RRD
                 $netIn, $netOut,
                 $loadAvg, $swapUsed, $swapTotal,
+                $iowait,
             ]);
             $stats['nodes']++;
         }
@@ -69,8 +70,14 @@ class MonitoringCollector
         $guests = $resources['data'] ?? [];
 
         $vmStmt = $db->prepare('INSERT INTO vm_metrics
-            (vmid, node, name, vm_type, ts, status, cpu_pct, cpu_count, mem_used, mem_total, disk_read_bytes, disk_write_bytes, disk_read_iops, disk_write_iops, net_in_bytes, net_out_bytes, uptime, disk_used, disk_total)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+            (vmid, node, name, vm_type, ts, status, cpu_pct, cpu_count, mem_used, mem_total, disk_read_bytes, disk_write_bytes, disk_read_iops, disk_write_iops, net_in_bytes, net_out_bytes, uptime, disk_used, disk_total, iowait)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+
+        // Build a set of online node names for RRD lookups
+        $onlineNodes = [];
+        foreach ($nodes as $n) {
+            if (($n['status'] ?? '') === 'online') $onlineNodes[$n['node']] = true;
+        }
 
         foreach ($guests as $guest) {
             if (!empty($guest['template'])) continue;
@@ -78,16 +85,34 @@ class MonitoringCollector
             if (!$vmid) continue;
 
             $type = ($guest['type'] ?? 'qemu') === 'lxc' ? 'lxc' : 'qemu';
-            $node = $guest['node'] ?? '';
+            $guestNode = $guest['node'] ?? '';
             $status = $guest['status'] ?? 'unknown';
 
             $diskRead = (int)($guest['diskread'] ?? 0);
             $diskWrite = (int)($guest['diskwrite'] ?? 0);
             $netIn = (int)($guest['netin'] ?? 0);
             $netOut = (int)($guest['netout'] ?? 0);
+            $diskReadIops = 0.0;
+            $diskWriteIops = 0.0;
+            $vmIowait = 0.0;
+
+            // Fetch per-VM RRD for iowait (running guests on online nodes)
+            // VM RRD provides: diskread/diskwrite (bytes/s), netin/netout (bytes/s), iowait (LXC only)
+            if ($status === 'running' && $guestNode && isset($onlineNodes[$guestNode])) {
+                try {
+                    $rrd = $api->getGuestRRDData($guestNode, $type, $vmid, 'hour', ['connect_timeout' => 2, 'timeout' => 3]);
+                    $rrdData = $rrd['data'] ?? [];
+                    if (!empty($rrdData)) {
+                        $last = end($rrdData);
+                        $vmIowait = (float)($last['iowait'] ?? 0);
+                    }
+                } catch (\Exception $e) {
+                    // RRD not available — iowait stays 0
+                }
+            }
 
             $vmStmt->execute([
-                $vmid, $node,
+                $vmid, $guestNode,
                 $guest['name'] ?? "VM $vmid",
                 $type, $now, $status,
                 (float)($guest['cpu'] ?? 0),
@@ -95,11 +120,12 @@ class MonitoringCollector
                 (int)($guest['mem'] ?? 0),
                 (int)($guest['maxmem'] ?? 0),
                 $diskRead, $diskWrite,
-                0, 0, // iops not available from cluster resources
+                $diskReadIops, $diskWriteIops,
                 $netIn, $netOut,
                 (int)($guest['uptime'] ?? 0),
                 (int)($guest['disk'] ?? 0),
                 (int)($guest['maxdisk'] ?? 0),
+                $vmIowait,
             ]);
             $stats['vms']++;
         }
@@ -128,7 +154,7 @@ class MonitoringCollector
         $db = Database::connection();
         $interval = self::parseTimerange($timerange);
 
-        $stmt = $db->prepare("SELECT ts, cpu_pct, mem_used, mem_total, disk_read_bytes, disk_write_bytes, disk_read_iops, disk_write_iops, net_in_bytes, net_out_bytes, load_avg, swap_used, swap_total
+        $stmt = $db->prepare("SELECT ts, cpu_pct, mem_used, mem_total, disk_read_bytes, disk_write_bytes, disk_read_iops, disk_write_iops, net_in_bytes, net_out_bytes, load_avg, swap_used, swap_total, iowait
             FROM node_metrics WHERE node = ? AND ts >= NOW() - ?::interval ORDER BY ts");
         $stmt->execute([$node, $interval]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -148,7 +174,7 @@ class MonitoringCollector
         $db = Database::connection();
         $interval = self::parseTimerange($timerange);
 
-        $stmt = $db->prepare("SELECT ts, status, cpu_pct, cpu_count, mem_used, mem_total, disk_read_bytes, disk_write_bytes, disk_read_iops, disk_write_iops, net_in_bytes, net_out_bytes, uptime, disk_used, disk_total
+        $stmt = $db->prepare("SELECT ts, status, cpu_pct, cpu_count, mem_used, mem_total, disk_read_bytes, disk_write_bytes, disk_read_iops, disk_write_iops, net_in_bytes, net_out_bytes, uptime, disk_used, disk_total, iowait
             FROM vm_metrics WHERE vmid = ? AND ts >= NOW() - ?::interval ORDER BY ts");
         $stmt->execute([$vmid, $interval]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -339,7 +365,7 @@ class MonitoringCollector
 
         $numericFields = ['cpu_pct', 'mem_used', 'mem_total', 'disk_read_bytes', 'disk_write_bytes',
             'disk_read_iops', 'disk_write_iops', 'net_in_bytes', 'net_out_bytes',
-            'load_avg', 'swap_used', 'swap_total', 'disk_used', 'disk_total'];
+            'load_avg', 'swap_used', 'swap_total', 'disk_used', 'disk_total', 'iowait'];
 
         $result = [];
         for ($i = 0; $i < count($rows); $i++) {

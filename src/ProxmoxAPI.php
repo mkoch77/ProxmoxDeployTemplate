@@ -35,7 +35,10 @@ class ProxmoxAPI
         return "https://{$host}:{$this->port}/api2/json";
     }
 
-    private function request(string $method, string $path, array $params = []): array
+    /**
+     * @param array $options  Optional overrides: 'connect_timeout', 'timeout'
+     */
+    private function request(string $method, string $path, array $params = [], array $options = []): array
     {
         // Validate path segments to prevent injection via node/VM names
         if (preg_match('#[^a-zA-Z0-9/_\-.:+@!]#', $path)) {
@@ -43,6 +46,8 @@ class ProxmoxAPI
         }
 
         $lastError = null;
+        $connectTimeout = $options['connect_timeout'] ?? 2;
+        $totalTimeout   = $options['timeout'] ?? 8;
 
         AppLogger::debug('api', "Proxmox API {$method} {$path}", ['params' => array_keys($params)]);
 
@@ -54,8 +59,8 @@ class ProxmoxAPI
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_SSL_VERIFYPEER => $this->verifySSL,
                 CURLOPT_SSL_VERIFYHOST => $this->verifySSL ? 2 : 0,
-                CURLOPT_CONNECTTIMEOUT => 2,
-                CURLOPT_TIMEOUT        => 8,
+                CURLOPT_CONNECTTIMEOUT => $connectTimeout,
+                CURLOPT_TIMEOUT        => $totalTimeout,
                 CURLOPT_HTTPHEADER     => [
                     'Authorization: PVEAPIToken=' . $this->tokenId . '=' . $this->tokenSecret,
                 ],
@@ -121,25 +126,28 @@ class ProxmoxAPI
         throw $lastError ?? new \RuntimeException('No Proxmox hosts configured');
     }
 
-    public function get(string $path, array $params = []): array
+    public function get(string $path, array $params = [], array $options = []): array
     {
-        return $this->request('GET', $path, $params);
+        return $this->request('GET', $path, $params, $options);
     }
 
-    public function post(string $path, array $params = []): array
+    public function post(string $path, array $params = [], array $options = []): array
     {
-        return $this->request('POST', $path, $params);
+        return $this->request('POST', $path, $params, $options);
     }
 
-    public function put(string $path, array $params = []): array
+    public function put(string $path, array $params = [], array $options = []): array
     {
-        return $this->request('PUT', $path, $params);
+        return $this->request('PUT', $path, $params, $options);
     }
 
-    public function delete(string $path, array $params = []): array
+    public function delete(string $path, array $params = [], array $options = []): array
     {
-        return $this->request('DELETE', $path, $params);
+        return $this->request('DELETE', $path, $params, $options);
     }
+
+    /** Short timeout options for non-critical health/status checks */
+    private const QUICK_OPTS = ['connect_timeout' => 2, 'timeout' => 4];
 
     // --- Nodes ---
 
@@ -148,14 +156,19 @@ class ProxmoxAPI
         return $this->get('/nodes');
     }
 
-    public function getNodeStatus(string $node): array
+    public function getNodeStatus(string $node, array $options = []): array
     {
-        return $this->get("/nodes/{$node}/status");
+        return $this->get("/nodes/{$node}/status", [], $options);
     }
 
-    public function getNodeRRDData(string $node, string $timeframe = 'hour'): array
+    public function getNodeRRDData(string $node, string $timeframe = 'hour', array $options = []): array
     {
-        return $this->get("/nodes/{$node}/rrddata", ['timeframe' => $timeframe]);
+        return $this->get("/nodes/{$node}/rrddata", ['timeframe' => $timeframe], $options);
+    }
+
+    public function getGuestRRDData(string $node, string $type, int $vmid, string $timeframe = 'hour', array $options = []): array
+    {
+        return $this->get("/nodes/{$node}/{$type}/{$vmid}/rrddata", ['timeframe' => $timeframe], $options);
     }
 
     // --- Cluster Resources ---
@@ -215,9 +228,9 @@ class ProxmoxAPI
 
     // --- Guest Configuration ---
 
-    public function getGuestConfig(string $node, string $type, int $vmid): array
+    public function getGuestConfig(string $node, string $type, int $vmid, array $options = []): array
     {
-        return $this->get("/nodes/{$node}/{$type}/{$vmid}/config");
+        return $this->get("/nodes/{$node}/{$type}/{$vmid}/config", [], $options);
     }
 
     public function setGuestConfig(string $node, string $type, int $vmid, array $config): array

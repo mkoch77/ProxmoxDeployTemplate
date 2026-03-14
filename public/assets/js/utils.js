@@ -7,6 +7,14 @@ const Utils = {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     },
 
+    formatRate(bytesPerSec) {
+        if (!bytesPerSec || bytesPerSec < 1) return '0 B/s';
+        const k = 1024;
+        const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+        const i = Math.min(Math.floor(Math.log(bytesPerSec) / Math.log(k)), sizes.length - 1);
+        return parseFloat((bytesPerSec / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    },
+
     formatUptime(seconds) {
         if (!seconds) return '-';
         const d = Math.floor(seconds / 86400);

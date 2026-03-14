@@ -1,5 +1,6 @@
 const API = {
     csrfToken: document.querySelector('meta[name="csrf-token"]')?.content || '',
+    _controllers: {},  // keyed AbortControllers for deduplication
 
     async request(url, options = {}) {
         const silent = options.silent || false;
@@ -48,6 +49,21 @@ const API = {
             }
             throw err;
         }
+    },
+
+    /**
+     * Abort-aware GET: cancels any previous in-flight request with the same key.
+     * Use for polling endpoints to prevent request pile-up when backend is slow.
+     */
+    getSilentAbortable(key, url, params = {}) {
+        if (this._controllers[key]) this._controllers[key].abort();
+        const controller = new AbortController();
+        this._controllers[key] = controller;
+        const query = new URLSearchParams(params).toString();
+        const fullUrl = query ? `${url}?${query}` : url;
+        return this.request(fullUrl, { silent: true, signal: controller.signal }).finally(() => {
+            if (this._controllers[key] === controller) delete this._controllers[key];
+        });
     },
 
     getSilent(url, params = {}) {
@@ -242,7 +258,7 @@ const API = {
     uploadCustomImage(formData) {
         return fetch('api/custom-images.php', {
             method: 'POST',
-            headers: { 'X-CSRF-Token': this._csrfToken || document.querySelector('meta[name=csrf-token]')?.content || '' },
+            headers: { 'X-CSRF-Token': this.csrfToken },
             body: formData,
         }).then(r => r.json()).then(d => { if (!d.success) throw new Error(d.error || 'Upload failed'); return d.data; });
     },
@@ -250,7 +266,7 @@ const API = {
     deleteCustomImage(id, deleteFile = false) {
         return fetch(`api/custom-images.php?id=${id}${deleteFile ? '&delete_file=1' : ''}`, {
             method: 'DELETE',
-            headers: { 'X-CSRF-Token': this._csrfToken || document.querySelector('meta[name=csrf-token]')?.content || '' },
+            headers: { 'X-CSRF-Token': this.csrfToken },
         }).then(r => r.json()).then(d => { if (!d.success) throw new Error(d.error || 'Delete failed'); return d.data; });
     },
 

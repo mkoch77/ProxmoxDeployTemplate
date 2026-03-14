@@ -141,8 +141,23 @@ const App = {
     },
 
     async checkClusterHealth() {
+        if (this._healthLoading) return;
+        this._healthLoading = true;
         try {
-            const data = await API.getSilent('api/cluster-health.php');
+            // Fetch all data sources in parallel
+            const [data, vmAlerts, rs] = await Promise.all([
+                API.getSilentAbortable('app-health', 'api/cluster-health.php'),
+                Permissions.has('monitoring.view')
+                    ? API.getSilent('api/monitoring.php', { action: 'vm-alerts' }).catch(() => null)
+                    : null,
+                Permissions.has('monitoring.view')
+                    ? API.getSilent('api/monitoring-rightsizing.php').catch(() => null)
+                    : null,
+            ]);
+            // Cache health data for checkForUpdates()
+            this._lastHealthData = data.nodes || [];
+            this._lastHealthTime = Date.now();
+
             const warnings = [];
             const infos = [];
 
@@ -221,55 +236,48 @@ const App = {
             }
 
             // ── VM-level CPU/RAM alerts (sustained 5 min) ────────────
-            if (Permissions.has('monitoring.view')) {
-                try {
-                    const vmAlerts = await API.getSilent('api/monitoring.php', { action: 'vm-alerts' });
-                    for (const a of (vmAlerts?.alerts || [])) {
-                        const label = a.vm_type === 'lxc' ? 'CT' : 'VM';
-                        const name = a.name || String(a.vmid);
-                        if (a.cpu) {
-                            warnings.push({
-                                level: a.cpu.level,
-                                msg: `${label} <strong>${Utils.escapeHtml(name)}</strong> (${a.vmid}) CPU ${a.cpu.level === 'danger' ? 'critically ' : ''}high (${a.cpu.pct}%)`,
-                                cat: 'vm-resource'
-                            });
-                        }
-                        if (a.ram) {
-                            warnings.push({
-                                level: a.ram.level,
-                                msg: `${label} <strong>${Utils.escapeHtml(name)}</strong> (${a.vmid}) RAM ${a.ram.level === 'danger' ? 'critically ' : ''}high (${a.ram.pct}%)`,
-                                cat: 'vm-resource'
-                            });
-                        }
+            if (vmAlerts) {
+                for (const a of (vmAlerts.alerts || [])) {
+                    const label = a.vm_type === 'lxc' ? 'CT' : 'VM';
+                    const name = a.name || String(a.vmid);
+                    if (a.cpu) {
+                        warnings.push({
+                            level: a.cpu.level,
+                            msg: `${label} <strong>${Utils.escapeHtml(name)}</strong> (${a.vmid}) CPU ${a.cpu.level === 'danger' ? 'critically ' : ''}high (${a.cpu.pct}%)`,
+                            cat: 'vm-resource'
+                        });
                     }
-                } catch (_) {}
+                    if (a.ram) {
+                        warnings.push({
+                            level: a.ram.level,
+                            msg: `${label} <strong>${Utils.escapeHtml(name)}</strong> (${a.vmid}) RAM ${a.ram.level === 'danger' ? 'critically ' : ''}high (${a.ram.pct}%)`,
+                            cat: 'vm-resource'
+                        });
+                    }
+                }
             }
 
             // ── Info: Right-sizing suggestions ───────────────────────
-            if (Permissions.has('monitoring.view')) {
-                try {
-                    const rs = await API.getSilent('api/monitoring-rightsizing.php');
-                    const recs = rs?.recommendations || [];
-                    if (recs.length > 0) {
-                        const critical = recs.filter(r => r.severity === 'critical' || r.severity === 'undersized').length;
-                        const oversized = recs.filter(r => r.severity === 'oversized').length;
-                        let msg = `<strong>${recs.length}</strong> right-sizing suggestion${recs.length !== 1 ? 's' : ''}`;
-                        if (critical > 0) msg += ` (${critical} undersized)`;
-                        if (oversized > 0) msg += ` (${oversized} oversized)`;
-                        const key = 'rightsizing:' + msg;
-                        // If suggestions changed since last dismiss, un-dismiss
-                        if (this._lastRightsizingKey && this._lastRightsizingKey !== key) {
-                            for (const dk of this._dismissedInfos) {
-                                if (dk.startsWith('rightsizing:')) this._dismissedInfos.delete(dk);
-                            }
-                            if (typeof Health !== 'undefined') Health._dismissedVmids.clear();
+            if (rs) {
+                const recs = rs.recommendations || [];
+                if (recs.length > 0) {
+                    const critical = recs.filter(r => r.severity === 'critical' || r.severity === 'undersized').length;
+                    const oversized = recs.filter(r => r.severity === 'oversized').length;
+                    let msg = `<strong>${recs.length}</strong> right-sizing suggestion${recs.length !== 1 ? 's' : ''}`;
+                    if (critical > 0) msg += ` (${critical} undersized)`;
+                    if (oversized > 0) msg += ` (${oversized} oversized)`;
+                    const key = 'rightsizing:' + msg;
+                    if (this._lastRightsizingKey && this._lastRightsizingKey !== key) {
+                        for (const dk of this._dismissedInfos) {
+                            if (dk.startsWith('rightsizing:')) this._dismissedInfos.delete(dk);
                         }
-                        this._lastRightsizingKey = key;
-                        infos.push({ level: 'info', msg, cat: 'rightsizing', link: '#health' });
-                    } else {
-                        this._lastRightsizingKey = null;
+                        if (typeof Health !== 'undefined') Health._dismissedVmids.clear();
                     }
-                } catch (_) {}
+                    this._lastRightsizingKey = key;
+                    infos.push({ level: 'info', msg, cat: 'rightsizing', link: '#health' });
+                } else {
+                    this._lastRightsizingKey = null;
+                }
             }
 
             // Host updates are shown via the dedicated topbar icon (no longer in info panel)
@@ -320,7 +328,9 @@ const App = {
                     infoCnt.textContent = activeInfos.length;
                 }
             }
-        } catch (_) { /* silent */ }
+        } catch (_) { /* silent */ } finally {
+            this._healthLoading = false;
+        }
     },
 
     showClusterWarnings(filter) {
@@ -535,10 +545,18 @@ const App = {
 
     async checkForUpdates() {
         if (!Permissions.has('cluster.update') || !window.APP_USER?.ssh_enabled) return;
-
+        if (this._updatesLoading) return;
+        this._updatesLoading = true;
         try {
-            const data = await API.getSilent('api/cluster-health.php');
-            const onlineNodes = (data.nodes || []).filter(n => n.status === 'online');
+            // Use cached health data if recent (< 2 min), otherwise fetch
+            let nodes;
+            if (this._lastHealthData && (Date.now() - this._lastHealthTime < 120000)) {
+                nodes = this._lastHealthData;
+            } else {
+                const data = await API.getSilent('api/cluster-health.php');
+                nodes = data.nodes || [];
+            }
+            const onlineNodes = nodes.filter(n => n.status === 'online');
             const counts = {};
             let totalUpdates = 0;
 
@@ -568,12 +586,9 @@ const App = {
                     btn.classList.add('d-none');
                 }
             }
-
-            // Refresh info button if health check has already run
-            if (this._warnings || this._infos) {
-                this.checkClusterHealth();
-            }
-        } catch (_) { /* silent */ }
+        } catch (_) { /* silent */ } finally {
+            this._updatesLoading = false;
+        }
     },
 
     async logout() {

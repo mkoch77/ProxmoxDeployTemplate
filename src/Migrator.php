@@ -78,6 +78,7 @@ class Migrator
            28 => self::migration028(),
            29 => self::migration029(),
            30 => self::migration030(),
+           31 => self::migration031(),
         ];
     }
 
@@ -703,6 +704,14 @@ class Migrator
                 encrypted_value TEXT NOT NULL,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+        ";
+    }
+
+    private static function migration031(): string
+    {
+        return "
+            ALTER TABLE node_metrics ADD COLUMN IF NOT EXISTS iowait REAL NOT NULL DEFAULT 0;
+            ALTER TABLE vm_metrics ADD COLUMN IF NOT EXISTS iowait REAL NOT NULL DEFAULT 0;
         ";
     }
 

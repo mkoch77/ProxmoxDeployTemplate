@@ -369,9 +369,13 @@ $perms = $user['permissions'];
                                 <label class="form-label">Storage *</label>
                                 <select class="form-select" id="ci-storage"><option value="">Loading…</option></select>
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-md-3">
                                 <label class="form-label">Bridge *</label>
                                 <select class="form-select" id="ci-bridge"><option value="">Loading…</option></select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">VLAN</label>
+                                <input type="number" class="form-control" id="ci-vlan" placeholder="—" min="1" max="4094">
                             </div>
                         </div>
                         <div class="row g-2 mt-1">

@@ -252,6 +252,16 @@ const Settings = {
                 </div>
             </div>
 
+            ${d.database ? `
+            <div class="stats-section">
+                <h5 class="stats-section-title"><i class="bi bi-database me-2"></i>Database</h5>
+                <div class="stats-grid">
+                    ${statCard('database', 'DB Size', d.database.size ? fmtBytes(d.database.size) : 'N/A', '')}
+                    ${statCard('table', 'Tables', d.database.tables != null ? d.database.tables : 'N/A', '')}
+                </div>
+            </div>
+            ` : ''}
+
             <div class="text-muted small mt-3 text-end">
                 <button class="btn btn-sm btn-outline-secondary" onclick="Settings._statsData=null;Settings.loadStatsData()">
                     <i class="bi bi-arrow-clockwise me-1"></i>Refresh

@@ -83,8 +83,8 @@ if ($method === 'POST') {
     }
 
     // Safety check: refuse to update if VMs/CTs are still running on this node
+    $api = Helpers::createAPI();
     try {
-        $api = Helpers::createAPI();
         $guests = \App\MaintenanceManager::getNodeGuests($api, $node);
         if (!empty($guests)) {
             $vmids = array_map(fn($g) => $g['vmid'] ?? '?', $guests);
@@ -97,27 +97,10 @@ if ($method === 'POST') {
         AppLogger::warning('system', 'Could not verify guest status before update', [
             'node' => $node, 'error' => $e->getMessage(),
         ]);
-        // Don't block update if API check fails — let operator decide
     }
 
-    // Resolve SSH host: env override → cluster status IP → node name fallback
-    $envKey  = 'SSH_HOST_' . strtoupper(str_replace('-', '_', $node));
-    $sshHost = \App\Config::get($envKey, '');
-    if (!$sshHost) {
-        $sshHost = $node;
-        try {
-            $api    = Helpers::createAPI();
-            $status = $api->getClusterStatus();
-            foreach ($status['data'] ?? [] as $entry) {
-                if (($entry['type'] ?? '') === 'node' &&
-                    strtolower($entry['name'] ?? '') === strtolower($node) &&
-                    !empty($entry['ip'])) {
-                    $sshHost = $entry['ip'];
-                    break;
-                }
-            }
-        } catch (\Exception $e) { /* fall back to node name */ }
-    }
+    // Resolve SSH host (reuse existing API instance)
+    $sshHost = Helpers::resolveNodeSshHost($api, $node);
 
     $userId = Auth::check()['id'] ?? null;
     AppLogger::info('system', 'Node update started', ['node' => $node], $userId);

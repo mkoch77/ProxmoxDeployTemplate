@@ -797,6 +797,7 @@ const Templates = {
 
         const ipType = document.querySelector('input[name="ci-ip-type"]:checked')?.value || 'dhcp';
 
+        const ciVlan = document.getElementById('ci-vlan').value;
         const params = {
             image_id:        this._ciImageId,
             vmid:            parseInt(document.getElementById('ci-vmid').value),
@@ -817,6 +818,7 @@ const Templates = {
             ci_packages:     document.getElementById('ci-packages').value,
             ci_runcmd:       document.getElementById('ci-runcmd').value,
         };
+        if (ciVlan) params.net_vlan = parseInt(ciVlan);
 
         if (ipType === 'static') {
             params.ci_ip = document.getElementById('ci-ip').value.trim();
@@ -1814,11 +1816,15 @@ const Templates = {
                                     <option value="">Select node first</option>
                                 </select>
                             </div>
-                            <div class="col-md-4">
+                            <div class="col-md-3">
                                 <label class="form-label">Network Bridge</label>
                                 <select class="form-select" id="win-bridge" required>
                                     <option value="">Select node first</option>
                                 </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label">VLAN</label>
+                                <input type="number" class="form-control" id="win-vlan" placeholder="—" min="1" max="4094">
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">CPU Cores</label>
@@ -1910,6 +1916,7 @@ const Templates = {
         event.preventDefault();
         if (!Utils.sshEnabled()) { Toast.error('Windows deployment requires SSH.'); return; }
 
+        const winVlan = document.getElementById('win-vlan').value;
         const params = {
             image_id:    this._winDeployImage.id,
             vmid:        parseInt(document.getElementById('win-vmid').value),
@@ -1922,6 +1929,7 @@ const Templates = {
             disk_size:   parseInt(document.getElementById('win-disk').value),
             tags:        document.getElementById('win-tags').value.trim(),
         };
+        if (winVlan) params.net_vlan = parseInt(winVlan);
 
         if (!params.node) { Toast.error('Please select a node'); return; }
         if (!params.storage) { Toast.error('Please select a storage'); return; }

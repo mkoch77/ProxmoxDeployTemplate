@@ -224,7 +224,7 @@ const Monitoring = {
             ], { label: 'MB/s' });
 
             this.createChart('chart-node-iowait', labels, [
-                { label: 'I/O Wait %', data: m.map(r => ((r.disk_read_iops || 0) * 100).toFixed(1)), borderColor: '#fd7e14', backgroundColor: 'rgba(253,126,20,0.1)', fill: true },
+                { label: 'I/O Wait %', data: m.map(r => ((r.iowait || r.disk_read_iops || 0) * 100).toFixed(1)), borderColor: '#fd7e14', backgroundColor: 'rgba(253,126,20,0.1)', fill: true },
             ], { max: 100 });
 
             this.createChart('chart-node-load', labels, [
@@ -272,6 +272,9 @@ const Monitoring = {
                 </div></div></div>
                 <div class="col-md-6"><div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)"><div class="card-body p-2">
                     <h6 class="mb-1">Disk Space</h6><div style="position:relative;height:200px"><canvas id="chart-vm-diskspace"></canvas></div>
+                </div></div></div>
+                <div class="col-md-6"><div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)"><div class="card-body p-2">
+                    <h6 class="mb-1">I/O Wait</h6><div style="position:relative;height:200px"><canvas id="chart-vm-iowait"></canvas></div>
                 </div></div></div>
             </div>
         `;
@@ -321,6 +324,11 @@ const Monitoring = {
                     { label: 'Used', data: m.map(() => 0), borderColor: '#e83e8c' },
                 ], { label: 'GB' });
             }
+
+            // I/O Wait (available for LXC containers)
+            this.createChart('chart-vm-iowait', labels, [
+                { label: 'I/O Wait %', data: m.map(r => ((parseFloat(r.iowait) || 0) * 100).toFixed(1)), borderColor: '#fd7e14', backgroundColor: 'rgba(253,126,20,0.1)', fill: true },
+            ], { max: 100 });
         } catch (e) {}
     },
 

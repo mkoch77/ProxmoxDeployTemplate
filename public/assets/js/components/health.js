@@ -49,16 +49,20 @@ const Health = {
     },
 
     async loadData(silent = false) {
+        if (this._loading) return;
+        this._loading = true;
         try {
             const data = silent
-                ? await API.getSilent('api/cluster-health.php')
+                ? await API.getSilentAbortable('cluster-health', 'api/cluster-health.php')
                 : await API.getClusterHealth();
             this.data = data;
             this.updateView();
             this.loadNodeVersions();
             this.loadRightSizing(silent);
         } catch (err) {
-            if (!silent) Toast.error('Failed to load cluster data');
+            if (!silent && err?.name !== 'AbortError') Toast.error('Failed to load cluster data');
+        } finally {
+            this._loading = false;
         }
     },
 
@@ -278,6 +282,16 @@ const Health = {
                 const iowaitBarEl = document.getElementById(`hn-iowait-bar-${id}`);
                 if (iowaitBarEl) { iowaitBarEl.style.width = `${Math.min(nIowait * 2, 100)}%`; iowaitBarEl.className = `progress-bar ${this.iowaitLevel(nIowait)}`; }
                 setText(`hn-uptime-${id}`, `Uptime: ${Utils.formatUptime(node.uptime || 0)}`);
+                // Swap
+                const swapUsed = node.swapused || 0;
+                const swapTotal = node.swaptotal || 0;
+                const swapPct = swapTotal > 0 ? Math.round(swapUsed / swapTotal * 100) : 0;
+                setText(`hn-swap-val-${id}`, `${Utils.formatBytes(swapUsed)} / ${Utils.formatBytes(swapTotal)}`);
+                setBar(`hn-swap-bar-${id}`, swapPct);
+                // I/O metrics
+                setText(`hn-load-${id}`, (node.loadavg || 0).toFixed(2));
+                setText(`hn-net-${id}`, `${Utils.formatRate(node.netin_rate || 0)} / ${Utils.formatRate(node.netout_rate || 0)}`);
+                setText(`hn-disk-io-${id}`, `${Utils.formatRate(node.diskread_rate || 0)} / ${Utils.formatRate(node.diskwrite_rate || 0)}`);
             }
             return;
         }
@@ -366,7 +380,24 @@ const Health = {
                                     <div class="resource-bar"><div class="progress"><div id="hn-iowait-bar-${id}" class="progress-bar ${this.iowaitLevel(nIow)}" style="width:${Math.min(nIow * 2, 100)}%"></div></div></div>
                                 </div>`;
                             })()}
-                            <div class="mt-3 d-flex justify-content-between align-items-center">
+                            ${(() => {
+                                const swapUsed = node.swapused || 0;
+                                const swapTotal = node.swaptotal || 0;
+                                const swapPct = swapTotal > 0 ? Math.round(swapUsed / swapTotal * 100) : 0;
+                                return swapTotal > 0 ? `<div class="resource-item mt-2">
+                                    <div class="d-flex justify-content-between mb-1">
+                                        <small class="text-muted">Swap</small>
+                                        <small id="hn-swap-val-${id}">${Utils.formatBytes(swapUsed)} / ${Utils.formatBytes(swapTotal)}</small>
+                                    </div>
+                                    <div class="resource-bar"><div class="progress"><div id="hn-swap-bar-${id}" class="progress-bar ${this.levelClass(swapPct)}" style="width:${swapPct}%"></div></div></div>
+                                </div>` : '';
+                            })()}
+                            <div class="mt-2 d-flex justify-content-between small text-muted" id="hn-io-${id}">
+                                <span title="Load Average"><i class="bi bi-speedometer2 me-1"></i><span id="hn-load-${id}">${(node.loadavg || 0).toFixed(2)}</span></span>
+                                <span title="Network I/O"><i class="bi bi-ethernet me-1"></i><span id="hn-net-${id}">${Utils.formatRate(node.netin_rate || 0)} / ${Utils.formatRate(node.netout_rate || 0)}</span></span>
+                                <span title="Disk I/O"><i class="bi bi-hdd me-1"></i><span id="hn-disk-io-${id}">${Utils.formatRate(node.diskread_rate || 0)} / ${Utils.formatRate(node.diskwrite_rate || 0)}</span></span>
+                            </div>
+                            <div class="mt-2 d-flex justify-content-between align-items-center">
                                 <span class="text-muted small"><i class="bi bi-clock me-1"></i><span id="hn-uptime-${id}">Uptime: ${Utils.formatUptime(node.uptime || 0)}</span></span>
                                 <span class="text-muted small"><i class="bi bi-box me-1"></i><span id="node-pve-version-${escapeHtml(id)}">PVE ...</span></span>
                             </div>`;
@@ -508,8 +539,57 @@ const Health = {
                                     : iow <= 15
                                         ? `<span class="badge bg-warning text-dark">${iow.toFixed(1)}% — ${this.iowaitLabel(iow)}</span>`
                                         : `<span class="badge bg-danger">${iow.toFixed(1)}% — ${this.iowaitLabel(iow)}</span>`;
-                                return row('I/O Wait', iowBadge);
+                                const readRate = nodeData?.diskread_rate || 0;
+                                const writeRate = nodeData?.diskwrite_rate || 0;
+                                return row('I/O Wait', iowBadge)
+                                    + row('Disk Read', Utils.formatRate(readRate))
+                                    + row('Disk Write', Utils.formatRate(writeRate));
                             })()}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="col-md-6">
+                    <h6 class="text-muted mb-2">Network</h6>
+                    <table class="table table-sm table-dark mb-0">
+                        <tbody>
+                            ${(() => {
+                                const nodeData = this.data?.nodes?.find(n => n.node === (info.node || ''));
+                                return row('Inbound', Utils.formatRate(nodeData?.netin_rate || 0))
+                                    + row('Outbound', Utils.formatRate(nodeData?.netout_rate || 0));
+                            })()}
+                        </tbody>
+                    </table>
+                </div>
+                ${(() => {
+                    const nodeData = this.data?.nodes?.find(n => n.node === (info.node || ''));
+                    const swapUsed = nodeData?.swapused || 0;
+                    const swapTotal = nodeData?.swaptotal || 0;
+                    if (!swapTotal) return '';
+                    const swapPct = Math.round(swapUsed / swapTotal * 100);
+                    return `<div class="col-md-6">
+                        <h6 class="text-muted mb-2">Swap</h6>
+                        <table class="table table-sm table-dark mb-0">
+                            <tbody>
+                                ${row('Used', Utils.formatBytes(swapUsed) + ' / ' + Utils.formatBytes(swapTotal) + ' (' + swapPct + '%)')}
+                            </tbody>
+                        </table>
+                    </div>`;
+                })()}
+                <div class="col-md-6">
+                    <h6 class="text-muted mb-2">Load Average</h6>
+                    <table class="table table-sm table-dark mb-0">
+                        <tbody>
+                            ${row('Current', (() => {
+                                const nodeData = this.data?.nodes?.find(n => n.node === (info.node || ''));
+                                const load = nodeData?.loadavg || 0;
+                                const cores = cpu.threads || cpu.cores || 1;
+                                const loadBadge = load <= cores * 0.7
+                                    ? `<span class="badge bg-success">${load.toFixed(2)}</span>`
+                                    : load <= cores
+                                        ? `<span class="badge bg-warning text-dark">${load.toFixed(2)}</span>`
+                                        : `<span class="badge bg-danger">${load.toFixed(2)}</span>`;
+                                return loadBadge + ` <small class="text-muted">(${cores} threads)</small>`;
+                            })())}
                         </tbody>
                     </table>
                 </div>

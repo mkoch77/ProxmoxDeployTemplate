@@ -15,8 +15,6 @@ Bootstrap::init();
 Request::requireMethod('GET');
 Auth::requirePermission('cluster.maintenance');
 
-AppLogger::debug('maintenance', 'Fetching maintenance status');
-
 $nodeName = Request::get('node');
 if (!$nodeName || !Helpers::validateNodeName($nodeName)) {
     Response::error('Node parameter required', 400);
@@ -57,29 +55,22 @@ if (in_array($maintNode['status'], ['entering', 'leaving']) && !empty($migration
             // 1. Try Proxmox task status API
             $taskDone = false;
             $taskNode = $mig['source'] ?? $nodeName;
-            AppLogger::info('maintenance', 'Checking migration task status', [
-                'vmid' => $mig['vmid'], 'taskNode' => $taskNode, 'upid' => $mig['upid'],
-            ]);
+            $taskData = null;
             try {
                 $taskStatus = $api->getTaskStatus($taskNode, $mig['upid']);
-                $data = $taskStatus['data'] ?? [];
-                AppLogger::info('maintenance', 'Task status API response', [
-                    'vmid' => $mig['vmid'], 'status' => $data['status'] ?? 'N/A',
-                    'exitstatus' => $data['exitstatus'] ?? 'N/A',
-                ]);
+                $taskData = $taskStatus['data'] ?? [];
 
-                if (($data['status'] ?? '') === 'stopped') {
-                    $mig['status'] = ($data['exitstatus'] ?? '') === 'OK' ? 'completed' : 'error';
+                if (($taskData['status'] ?? '') === 'stopped') {
+                    $mig['status'] = ($taskData['exitstatus'] ?? '') === 'OK' ? 'completed' : 'error';
                     if ($mig['status'] === 'error') {
-                        $mig['error'] = $data['exitstatus'] ?? 'Unknown error';
+                        $mig['error'] = $taskData['exitstatus'] ?? 'Unknown error';
                         $allSuccess = false;
                     }
                     $taskDone = true;
                 }
             } catch (\Exception $e) {
-                AppLogger::warning('maintenance', 'Task status check FAILED', [
-                    'node' => $taskNode, 'vmid' => $mig['vmid'],
-                    'error' => $e->getMessage(), 'upid' => $mig['upid'],
+                AppLogger::debug('maintenance', 'Task status check failed', [
+                    'vmid' => $mig['vmid'], 'error' => $e->getMessage(),
                 ]);
             }
 
@@ -87,48 +78,39 @@ if (in_array($maintNode['status'], ['entering', 'leaving']) && !empty($migration
             if (!$taskDone) {
                 $targetNode = $mig['target'] ?? '';
                 $type = $mig['type'] ?? 'qemu';
-                AppLogger::info('maintenance', 'Fallback: checking if VM is on target node', [
-                    'vmid' => $mig['vmid'], 'target' => $targetNode, 'type' => $type,
-                ]);
                 try {
                     if ($targetNode) {
                         $guestStatus = $api->get("/nodes/{$targetNode}/{$type}/{$mig['vmid']}/status/current");
-                        AppLogger::info('maintenance', 'Fallback guest check result', [
-                            'vmid' => $mig['vmid'], 'target' => $targetNode,
-                            'guest_status' => $guestStatus['data']['status'] ?? 'N/A',
-                        ]);
                         if (!empty($guestStatus['data']['status'])) {
                             $mig['status'] = 'completed';
                             $taskDone = true;
                         }
                     }
                 } catch (\Exception $e2) {
-                    AppLogger::debug('maintenance', 'Fallback guest check failed', [
-                        'vmid' => $mig['vmid'], 'target' => $targetNode, 'error' => $e2->getMessage(),
-                    ]);
+                    // VM not on target yet
                 }
             }
 
             if (!$taskDone) {
-                // Only auto-skip if the Proxmox task is no longer running
+                // Reuse task data from first API call to avoid duplicate request
                 $taskStillActive = false;
-                if (!empty($mig['upid'])) {
+                if ($taskData !== null) {
+                    $taskStillActive = (($taskData['status'] ?? '') === 'running');
+                } elseif (!empty($mig['upid'])) {
+                    // First call failed — retry once
                     try {
                         $taskCheck = $api->getTaskStatus($taskNode, $mig['upid']);
                         $taskStillActive = (($taskCheck['data']['status'] ?? '') === 'running');
                     } catch (\Exception $e) {
-                        // Can't determine task status — assume still active to be safe
-                        $taskStillActive = true;
+                        $taskStillActive = true; // Assume active to be safe
                     }
                 }
 
                 if ($taskStillActive) {
-                    // Task is still running in Proxmox — keep waiting regardless of elapsed time
                     $allDone = false;
                 } elseif (!empty($mig['started_at']) && (time() - strtotime($mig['started_at'])) > $autoSkipMinutes * 60) {
-                    // Task is NOT running but we couldn't detect completion — timeout
                     $mig['status'] = 'timeout';
-                    AppLogger::warning('maintenance', 'Migration auto-skipped after timeout (task no longer active)', [
+                    AppLogger::warning('maintenance', 'Migration auto-skipped after timeout', [
                         'node' => $nodeName, 'vmid' => $mig['vmid'], 'minutes' => $autoSkipMinutes,
                     ]);
                 } else {
@@ -142,12 +124,6 @@ if (in_array($maintNode['status'], ['entering', 'leaving']) && !empty($migration
         $stmt = $db->prepare('UPDATE maintenance_nodes SET migration_tasks = ? WHERE node_name = ?');
         $stmt->execute([json_encode($migrations), $nodeName]);
 
-        // If all done, update status.
-        // Always transition to 'maintenance' even if some migrations failed —
-        // otherwise the node stays stuck in 'entering' and the Exit button never appears.
-        AppLogger::info('maintenance', 'Migration check result', [
-            'node' => $nodeName, 'allDone' => $allDone, 'currentStatus' => $maintNode['status'],
-        ]);
         if ($allDone) {
             if ($maintNode['status'] === 'entering') {
                 $newStatus = 'maintenance';
@@ -157,18 +133,14 @@ if (in_array($maintNode['status'], ['entering', 'leaving']) && !empty($migration
                 AppLogger::info('maintenance', 'Status transitioned to maintenance', ['node' => $nodeName]);
 
                 // Enable Proxmox built-in maintenance mode (blue wrench icon)
-                // Done AFTER migrations to avoid lock conflicts
                 try {
-                    $sshResult = SSH::enableNodeMaintenance($nodeName);
-                    AppLogger::info('maintenance', 'PVE maintenance mode enabled via SSH', ['node' => $nodeName, 'result' => $sshResult]);
+                    SSH::enableNodeMaintenance($nodeName);
                 } catch (\Exception $e) {
                     AppLogger::warning('maintenance', 'Could not enable PVE maintenance mode via SSH', ['node' => $nodeName, 'error' => $e->getMessage()]);
                 }
             } elseif ($maintNode['status'] === 'leaving') {
-                // Back-migrations done, remove maintenance record
                 $stmt = $db->prepare('DELETE FROM maintenance_nodes WHERE node_name = ?');
                 $stmt->execute([$nodeName]);
-                AppLogger::info('maintenance', 'Maintenance record deleted (leaving done)', ['node' => $nodeName]);
                 Response::success([
                     'node' => $nodeName,
                     'status' => 'done',

@@ -43,12 +43,16 @@ if (!$storage || !preg_match('/^[a-zA-Z0-9][a-zA-Z0-9\-_]{0,63}$/', $storage)) R
 $bridge = $body['bridge'] ?? '';
 if (!$bridge || !preg_match('/^[a-zA-Z0-9][a-zA-Z0-9\-_]{0,15}$/', $bridge)) Response::error('Invalid bridge name', 400);
 
+$vlanTag = isset($body['net_vlan']) ? (int)$body['net_vlan'] : 0;
+if ($vlanTag && ($vlanTag < 1 || $vlanTag > 4094)) Response::error('VLAN tag must be between 1 and 4094', 400);
+
 $cores = max(1, min(128, (int)($body['cores'] ?? 2)));
 $memory = max(2048, min(131072, (int)($body['memory'] ?? 4096)));
 $diskSize = max(30, min(10000, (int)($body['disk_size'] ?? 64)));
 
 // Check vCPU capacity on target node
-Helpers::checkNodeCpuCapacity(Helpers::createAPI(), $nodeName, $cores);
+$api = Helpers::createAPI();
+Helpers::checkNodeCpuCapacity($api, $nodeName, $cores);
 
 $isoFile = $image['iso_filename'];
 $tags = preg_replace('/[^a-z0-9\-_;]/', '', strtolower($body['tags'] ?? ''));
@@ -56,7 +60,6 @@ $tags = preg_replace('/[^a-z0-9\-_;]/', '', strtolower($body['tags'] ?? ''));
 // Find which storage holds the ISO
 $isoStorage = 'local'; // fallback
 try {
-    $api = Helpers::createAPI();
     $storages = $api->getStorages($nodeName, 'iso');
     foreach (($storages['data'] ?? []) as $stor) {
         $sid = $stor['storage'] ?? '';
@@ -112,7 +115,7 @@ $lines[] = 'qm create $VMID'
     . ' --name ' . escapeshellarg($name)
     . ' --memory ' . (int)$memory
     . ' --cores ' . (int)$cores
-    . ' --net0 virtio,bridge=' . escapeshellarg($bridge)
+    . ' --net0 virtio,bridge=' . escapeshellarg($bridge) . ($vlanTag ? ',tag=' . $vlanTag : '')
     . ' --ostype win11'
     . ' --cpu host'
     . ' --bios ovmf'

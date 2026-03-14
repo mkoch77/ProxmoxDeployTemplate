@@ -187,8 +187,10 @@ try {
         $totalMemAllocated += $node['mem_allocated'];
 
         if (($node['status'] ?? '') === 'online') {
+            // Use short timeouts — these are nice-to-have enrichment, not critical
+            $quickOpts = ['connect_timeout' => 2, 'timeout' => 4];
             try {
-                $nodeStatus = $api->getNodeStatus($nodeName);
+                $nodeStatus = $api->getNodeStatus($nodeName, $quickOpts);
                 $cpuInfo = $nodeStatus['data']['cpuinfo'] ?? [];
                 $node['cpu_topology'] = [
                     'sockets' => (int)($cpuInfo['sockets'] ?? 1),
@@ -196,7 +198,6 @@ try {
                     'threads' => (int)($cpuInfo['cpus'] ?? ($node['maxcpu'] ?? 1)),
                     'model'   => $cpuInfo['model'] ?? '',
                 ];
-                // NUMA nodes = sockets (each socket is a NUMA domain)
                 $node['numa_nodes'] = (int)($cpuInfo['sockets'] ?? 1);
                 $physCores = $node['cpu_topology']['sockets'] * $node['cpu_topology']['cores'];
                 $node['physical_cores'] = $physCores;
@@ -208,13 +209,20 @@ try {
                 $totalPhysicalCores += $node['maxcpu'] ?? 0;
             }
 
-            // Fetch I/O wait from RRD data
+            // Fetch detailed metrics from RRD data (short timeout)
             try {
-                $rrd = $api->getNodeRRDData($nodeName, 'hour');
+                $rrd = $api->getNodeRRDData($nodeName, 'hour', $quickOpts);
                 $rrdData = $rrd['data'] ?? [];
                 if (!empty($rrdData)) {
                     $last = end($rrdData);
                     $node['iowait'] = round((float)($last['iowait'] ?? 0) * 100, 1);
+                    $node['loadavg'] = round((float)($last['loadavg'] ?? 0), 2);
+                    $node['swapused'] = (int)($last['swapused'] ?? 0);
+                    $node['swaptotal'] = (int)($last['swaptotal'] ?? 0);
+                    $node['netin_rate'] = (float)($last['netin'] ?? 0);
+                    $node['netout_rate'] = (float)($last['netout'] ?? 0);
+                    $node['diskread_rate'] = (float)($last['diskread'] ?? 0);
+                    $node['diskwrite_rate'] = (float)($last['diskwrite'] ?? 0);
                 } else {
                     $node['iowait'] = 0;
                 }
