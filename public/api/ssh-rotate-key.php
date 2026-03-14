@@ -212,12 +212,23 @@ foreach ($nodes as $node) {
 }
 
 // Phase 1 succeeded on all nodes → new key is deployed everywhere → safe to swap local key
+$newKeyContents = file_get_contents($tmpKey);
 rename($tmpKey, $keyPath);
 rename($tmpPub, $pubKeyPath);
 chmod($keyPath, 0600);
 chmod($pubKeyPath, 0644);
 @chown($keyPath, 'www-data');
 @chown($pubKeyPath, 'www-data');
+
+// Update vault with new private key so SSH::loadPrivateKeyContent() picks it up
+if (\App\Vault::isAvailable()) {
+    try {
+        \App\Vault::set('SSH_PRIVATE_KEY', $newKeyContents);
+        AppLogger::info('security', 'Vault updated with rotated SSH private key', null, $userId);
+    } catch (\Exception $e) {
+        AppLogger::warning('security', 'Failed to update SSH key in vault', ['error' => $e->getMessage()], $userId);
+    }
+}
 
 // Remove needs_deploy flag
 @unlink(dirname($keyPath) . '/needs_deploy');

@@ -1732,12 +1732,12 @@ const Templates = {
         if (!sel || !textarea || !sel.value) return;
 
         if (textarea.value.trim() && !confirm('This will replace the current XML content. Continue?')) {
-            sel.value = '';
+            sel.selectedIndex = 0;
             return;
         }
 
         textarea.value = this._getXmlTemplate(sel.value);
-        sel.value = '';
+        // Keep the selected template visible so the user sees what was applied
     },
 
     async saveWindowsImage() {

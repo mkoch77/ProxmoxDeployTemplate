@@ -50,9 +50,30 @@ $diskSize = max(30, min(10000, (int)($body['disk_size'] ?? 64)));
 // Check vCPU capacity on target node
 Helpers::checkNodeCpuCapacity(Helpers::createAPI(), $nodeName, $cores);
 
-$isoStorage = 'local';
 $isoFile = $image['iso_filename'];
 $tags = preg_replace('/[^a-z0-9\-_;]/', '', strtolower($body['tags'] ?? ''));
+
+// Find which storage holds the ISO
+$isoStorage = 'local'; // fallback
+try {
+    $api = Helpers::createAPI();
+    $storages = $api->getStorages($nodeName, 'iso');
+    foreach (($storages['data'] ?? []) as $stor) {
+        $sid = $stor['storage'] ?? '';
+        if (!$sid) continue;
+        try {
+            $contents = $api->get("/nodes/{$nodeName}/storage/{$sid}/content", ['content' => 'iso']);
+            foreach (($contents['data'] ?? []) as $entry) {
+                $volid = $entry['volid'] ?? '';
+                // volid format: "storage:iso/filename.iso"
+                if (str_ends_with($volid, '/' . $isoFile)) {
+                    $isoStorage = $sid;
+                    break 2;
+                }
+            }
+        } catch (\Exception $e) { /* skip this storage */ }
+    }
+} catch (\Exception $e) { /* fallback to 'local' */ }
 
 // ── Resolve SSH host ────────────────────────────────────────────────────────
 $envKey  = 'SSH_HOST_' . strtoupper(str_replace('-', '_', $nodeName));
@@ -96,58 +117,59 @@ $lines[] = 'qm create $VMID'
     . ' --cpu host'
     . ' --bios ovmf'
     . ' --machine pc-q35-9.0'
-    . ' --efidisk0 ' . escapeshellarg($storage) . ':1,efitype=4m,pre-enrolled-keys=1'
+    . ' --efidisk0 ' . escapeshellarg($storage) . ':1,efitype=4m,pre-enrolled-keys=0'
     . ' --tpmstate0 ' . escapeshellarg($storage) . ':1,version=v2.0'
     . ' --agent enabled=1';
 $lines[] = '';
 
 // Step 2: Configure hardware
 $lines[] = "echo '==> [2/5] Configuring hardware...'";
-$lines[] = 'if [ ! -f ' . escapeshellarg('/var/lib/vz/template/iso/' . $isoFile) . ' ]; then echo "ERROR: ISO not found on this node. Distribute the image first via Custom Images."; exit 1; fi';
+$lines[] = 'ISO_PATH=$(pvesm path ' . escapeshellarg($isoStorage . ':iso/' . $isoFile) . ' 2>/dev/null)';
+$lines[] = 'if [ -z "$ISO_PATH" ] || [ ! -f "$ISO_PATH" ]; then echo "ERROR: ISO not found on storage ' . escapeshellarg($isoStorage) . '. Distribute the image first via Custom Images."; exit 1; fi';
 $lines[] = 'qm set $VMID --scsihw virtio-scsi-pci --scsi0 ' . escapeshellarg($storage) . ':' . (int)$diskSize . ',discard=on,ssd=1';
 $lines[] = 'qm set $VMID --ide2 ' . escapeshellarg($isoStorage . ':iso/' . $isoFile) . ',media=cdrom';
-$lines[] = 'qm set $VMID --boot order=ide2';
+$lines[] = 'qm set $VMID --boot order="ide2;scsi0"';
 
 // VirtIO drivers ISO (if available)
 $lines[] = '';
 $lines[] = "echo '==> [3/5] Mounting VirtIO drivers...'";
-$lines[] = '# Try to find VirtIO ISO on the node';
-$lines[] = 'VIRTIO_ISO=$(find /var/lib/vz/template/iso/ -iname "virtio-win*.iso" 2>/dev/null | head -1)';
+$lines[] = '# Try to find VirtIO ISO on the same storage';
+$lines[] = 'ISO_STORE_PATH=$(pvesm path ' . escapeshellarg($isoStorage . ':iso/dummy') . ' 2>/dev/null | sed "s|/dummy$||")';
+$lines[] = 'VIRTIO_ISO=$(find "$ISO_STORE_PATH" /var/lib/vz/template/iso/ -iname "virtio-win*.iso" 2>/dev/null | head -1)';
 $lines[] = 'if [ -n "$VIRTIO_ISO" ]; then';
 $lines[] = '  VIRTIO_BASENAME=$(basename "$VIRTIO_ISO")';
 $lines[] = '  qm set $VMID --ide0 ' . escapeshellarg($isoStorage) . ':iso/"$VIRTIO_BASENAME",media=cdrom';
 $lines[] = '  echo "    VirtIO ISO: $VIRTIO_BASENAME"';
 $lines[] = 'else';
-$lines[] = '  echo "    WARNING: No VirtIO ISO found in /var/lib/vz/template/iso/"';
+$lines[] = '  echo "    WARNING: No VirtIO ISO found on storage ' . $isoStorage . '"';
 $lines[] = '  echo "    Download from: https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso"';
 $lines[] = 'fi';
 
-// Step 4: Create and mount floppy with autounattend.xml
+// Step 4: Create and mount autounattend ISO
 $lines[] = '';
 $lines[] = "echo '==> [4/5] Preparing unattended install...'";
 
 if ($image['autounattend_xml']) {
-    $floppyDir = '/tmp/pve_win_' . $vmid . '_floppy';
-    $floppyImg = '/tmp/pve_win_' . $vmid . '_floppy.img';
+    $unattendDir = '/tmp/pve_win_' . $vmid . '_unattend';
+    $unattendIso = '/tmp/pve_win_' . $vmid . '_unattend.iso';
 
-    $lines[] = 'mkdir -p ' . escapeshellarg($floppyDir);
+    $lines[] = 'mkdir -p ' . escapeshellarg($unattendDir);
 
     // Write autounattend.xml
     $xmlContent = $image['autounattend_xml'];
     // Inject product key if provided
     if ($image['product_key']) {
-        // Replace placeholder or inject key
         if (str_contains($xmlContent, '{{PRODUCT_KEY}}')) {
             $xmlContent = str_replace('{{PRODUCT_KEY}}', $image['product_key'], $xmlContent);
         }
     }
-    $lines[] = 'cat > ' . escapeshellarg($floppyDir . '/autounattend.xml') . " << 'WIN_XML_EOF'";
+    $lines[] = 'cat > ' . escapeshellarg($unattendDir . '/autounattend.xml') . " << 'WIN_XML_EOF'";
     $lines[] = $xmlContent;
     $lines[] = 'WIN_XML_EOF';
 
     // Create a post-install script to install QEMU guest agent
     if ($image['install_guest_tools']) {
-        $lines[] = 'cat > ' . escapeshellarg($floppyDir . '/install-guest-agent.cmd') . " << 'WIN_CMD_EOF'";
+        $lines[] = 'cat > ' . escapeshellarg($unattendDir . '/install-guest-agent.cmd') . " << 'WIN_CMD_EOF'";
         $lines[] = '@echo off';
         $lines[] = 'echo Installing QEMU Guest Agent...';
         $lines[] = 'for %%d in (D E F G) do (';
@@ -161,21 +183,16 @@ if ($image['autounattend_xml']) {
         $lines[] = 'WIN_CMD_EOF';
     }
 
-    // Create floppy image
-    $lines[] = 'apt-get install -y dosfstools >/dev/null 2>&1 || true';
-    $lines[] = 'dd if=/dev/zero of=' . escapeshellarg($floppyImg) . ' bs=1440K count=1 2>/dev/null';
-    $lines[] = 'mkfs.fat -F 12 ' . escapeshellarg($floppyImg);
-    $lines[] = 'mcopy -i ' . escapeshellarg($floppyImg) . ' ' . escapeshellarg($floppyDir . '/autounattend.xml') . ' ::';
-    if ($image['install_guest_tools']) {
-        $lines[] = 'mcopy -i ' . escapeshellarg($floppyImg) . ' ' . escapeshellarg($floppyDir . '/install-guest-agent.cmd') . ' ::';
-    }
+    // Create ISO image with autounattend files
+    $lines[] = 'apt-get install -y genisoimage >/dev/null 2>&1 || true';
+    $lines[] = 'genisoimage -J -r -o ' . escapeshellarg($unattendIso) . ' ' . escapeshellarg($unattendDir) . ' 2>/dev/null';
 
-    // Copy floppy to Proxmox snippets and mount
-    $lines[] = 'mkdir -p /var/lib/vz/template/iso/';
-    $lines[] = 'cp ' . escapeshellarg($floppyImg) . ' /var/lib/vz/template/iso/win_floppy_' . $vmid . '.img';
-    $lines[] = 'qm set $VMID --floppy0 ' . escapeshellarg($isoStorage . ':iso/win_floppy_' . $vmid . '.img');
-    $lines[] = 'rm -rf ' . escapeshellarg($floppyDir) . ' ' . escapeshellarg($floppyImg);
-    $lines[] = "echo '    Autounattend.xml injected via floppy'";
+    // Copy ISO to local storage (always directory-based, works reliably) and mount as CD-ROM
+    $lines[] = 'mkdir -p /var/lib/vz/template/iso';
+    $lines[] = 'cp ' . escapeshellarg($unattendIso) . ' /var/lib/vz/template/iso/win_unattend_' . $vmid . '.iso';
+    $lines[] = 'qm set $VMID --sata0 local:iso/win_unattend_' . $vmid . '.iso,media=cdrom';
+    $lines[] = 'rm -rf ' . escapeshellarg($unattendDir) . ' ' . escapeshellarg($unattendIso);
+    $lines[] = "echo '    Autounattend.xml injected via ISO'";
 } else {
     $lines[] = "echo '    No autounattend.xml configured — manual installation required'";
 }
@@ -188,6 +205,10 @@ if ($tags) {
 $lines[] = '';
 $lines[] = "echo '==> [5/5] Starting VM...'";
 $lines[] = 'qm start $VMID';
+$lines[] = "echo '    Waiting for UEFI boot prompt...'";
+$lines[] = 'sleep 3';
+$lines[] = '# Send keystrokes to pass "Press any key to boot from CD" prompt';
+$lines[] = 'for i in 1 2 3 4 5; do qm sendkey $VMID ret; sleep 1; done';
 $lines[] = "echo ''";
 if ($image['autounattend_xml']) {
     $lines[] = 'echo "==> Done! VM $VMID (' . addslashes($name) . ') is booting into Windows unattended setup."';

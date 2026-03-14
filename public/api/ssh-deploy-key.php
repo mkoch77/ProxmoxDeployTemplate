@@ -120,7 +120,7 @@ $failedNodes = array_filter($results, fn($r) => !$r['success']);
 if (!empty($failedNodes) && $needsPassword && !$oneTimePassword) {
     // Auth failed without password — prompt user
     AppLogger::warning('security', 'SSH key deployment needs password', ['failed_nodes' => array_column($failedNodes, 'node')], $userId);
-    Response::error('SSH authentication failed. Enter the root password to deploy the key.', 401, ['needs_password' => true]);
+    Response::error('SSH authentication failed. Enter the root password to deploy the key.', 422, ['needs_password' => true]);
 } elseif (!empty($failedNodes)) {
     AppLogger::warning('security', 'SSH key deployment had failures', ['failed_nodes' => array_column($failedNodes, 'node')], $userId);
 } else {

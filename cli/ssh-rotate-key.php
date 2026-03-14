@@ -211,12 +211,23 @@ foreach ($nodes as $node) {
 }
 
 // ── Phase 3: Replace local key files ─────────────────────────────────────────
+$newKeyContents = file_get_contents($tmpKey);
 rename($tmpKey, $keyPath);
 rename($tmpPub, $pubKeyPath);
 chmod($keyPath, 0600);
 chmod($pubKeyPath, 0644);
 chown($keyPath, 'www-data');
 chown($pubKeyPath, 'www-data');
+
+// Update vault with new private key so SSH::loadPrivateKeyContent() picks it up
+if (\App\Vault::isAvailable()) {
+    try {
+        \App\Vault::set('SSH_PRIVATE_KEY', $newKeyContents);
+        echo date('Y-m-d H:i:s') . " Vault updated with new SSH private key.\n";
+    } catch (\Exception $e) {
+        echo date('Y-m-d H:i:s') . " WARNING: Failed to update vault: " . $e->getMessage() . "\n";
+    }
+}
 
 // Remove the needs_deploy flag if present (rotation handles deployment)
 $flagFile = dirname($keyPath) . '/needs_deploy';
