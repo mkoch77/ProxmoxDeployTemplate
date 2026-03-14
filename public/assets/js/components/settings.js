@@ -52,6 +52,16 @@ const Settings = {
                         <i class="bi bi-key-fill me-1"></i>SSH Keys
                     </button>
                 </li>` : ''}
+                ${Permissions.has('backup.manage') ? `<li class="nav-item" role="presentation">
+                    <button class="nav-link" data-tab="backup" onclick="Settings.switchTab('backup')">
+                        <i class="bi bi-cloud-arrow-up-fill me-1"></i>Backup
+                    </button>
+                </li>` : ''}
+                ${Permissions.has('settings.manage') ? `<li class="nav-item" role="presentation">
+                    <button class="nav-link" data-tab="app-config" onclick="Settings.switchTab('app-config')">
+                        <i class="bi bi-sliders me-1"></i>Configuration
+                    </button>
+                </li>` : ''}
                 ${Permissions.has('users.manage') ? `<li class="nav-item" role="presentation">
                     <button class="nav-link" data-tab="vault" onclick="Settings.switchTab('vault')">
                         <i class="bi bi-shield-lock-fill me-1"></i>Vault
@@ -77,6 +87,7 @@ const Settings = {
             this.renderMonitoringTab(container);
         } else if (tab === 'loadbalancer') {
             this.renderLoadbalancerTab(container);
+            this.loadLoadbalancerData();
         } else if (tab === 'logs') {
             this.renderLogsTab(container);
             this.loadLogs();
@@ -86,6 +97,12 @@ const Settings = {
         } else if (tab === 'ssh') {
             this.renderSshTab(container);
             this.loadSshData();
+        } else if (tab === 'backup') {
+            this.renderBackupTab(container);
+            this.loadBackupData();
+        } else if (tab === 'app-config') {
+            this.renderAppConfigTab(container);
+            this.loadAppConfigData();
         } else if (tab === 'vault') {
             this.renderVaultTab(container);
             this.loadVaultData();
@@ -454,7 +471,8 @@ const Settings = {
             max_concurrent: parseInt(document.getElementById('set-lb-max-concurrent')?.value || '3'),
         };
         try {
-            await API.updateLoadbalancerSettings(settings);
+            const result = await API.updateLoadbalancerSettings(settings);
+            this._lbData = { ...this._lbData, settings: result };
             Toast.success('Loadbalancer settings saved');
         } catch (err) {
             Toast.error('Failed to save loadbalancer settings');
@@ -1440,20 +1458,174 @@ const Settings = {
 
     _vaultData: null,
 
+    // ── App Configuration Tab ─────────────────────────────────────────
+
+    _appConfigData: null,
+
+    renderAppConfigTab(container) {
+        container.innerHTML = `
+            <div class="stat-card mb-4">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0"><i class="bi bi-sliders me-2"></i>Application Configuration</h5>
+                </div>
+                <p class="text-muted small mb-3">
+                    Non-secret settings stored in plaintext. Secrets (tokens, passwords, keys) are in the <strong>Vault</strong> tab.
+                </p>
+                <div id="app-config-table">
+                    <div class="text-center py-3"><span class="spinner-border spinner-border-sm text-secondary"></span></div>
+                </div>
+            </div>
+        `;
+    },
+
+    async loadAppConfigData() {
+        const tableEl = document.getElementById('app-config-table');
+        if (!tableEl) return;
+
+        try {
+            const data = await API.get('api/app-settings.php');
+            this._appConfigData = data;
+            const esc = Utils.escapeHtml;
+            const entries = data.entries || [];
+
+            // Group by group field
+            const grouped = {};
+            for (const e of entries) {
+                const g = e.group || 'Other';
+                if (!grouped[g]) grouped[g] = [];
+                grouped[g].push(e);
+            }
+
+            let html = '';
+            for (const [group, items] of Object.entries(grouped)) {
+                html += `<h6 class="mt-3 mb-2 text-muted small text-uppercase">${esc(group)}</h6>`;
+                html += `<div class="guest-table mb-2"><table class="table table-dark table-hover table-sm mb-0"><tbody>`;
+                for (const e of items) {
+                    const sourceBadge = e.source === 'database'
+                        ? '<span class="badge bg-success"><i class="bi bi-database"></i> DB</span>'
+                        : e.source === 'env'
+                            ? '<span class="badge bg-warning text-dark"><i class="bi bi-file-earmark-text"></i> .env</span>'
+                            : '<span class="badge bg-secondary"><i class="bi bi-sliders"></i> Default</span>';
+
+                    let valueDisplay;
+                    if (e.type === 'boolean') {
+                        const checked = e.value === 'true' || e.value === '1' || e.value === 'yes';
+                        valueDisplay = checked
+                            ? '<span class="text-success">true</span>'
+                            : '<span class="text-muted">false</span>';
+                    } else if (e.value) {
+                        const isDefault = e.source === 'default' && e.value === e.default;
+                        valueDisplay = isDefault
+                            ? `<span class="text-muted">${esc(e.value)}</span>`
+                            : `<code class="small">${esc(e.value)}</code>`;
+                    } else {
+                        valueDisplay = '<span class="text-muted small">—</span>';
+                    }
+
+                    html += `<tr>
+                        <td style="width:200px">
+                            <code class="small">${esc(e.key)}</code>
+                            <br><small class="text-muted">${esc(e.label)}</small>
+                        </td>
+                        <td>${valueDisplay}</td>
+                        <td style="width:80px">${sourceBadge}</td>
+                        <td style="width:60px">
+                            <button class="btn btn-outline-light btn-sm py-0 px-2" onclick="Settings.appConfigEdit('${esc(e.key)}')" title="Edit">
+                                <i class="bi bi-pencil-fill" style="font-size:0.75rem"></i>
+                            </button>
+                        </td>
+                    </tr>`;
+                }
+                html += `</tbody></table></div>`;
+            }
+
+            tableEl.innerHTML = html;
+        } catch (err) {
+            tableEl.innerHTML = `<div class="alert alert-danger">${Utils.escapeHtml(err.message)}</div>`;
+        }
+    },
+
+    appConfigEdit(key) {
+        const entries = this._appConfigData?.entries || [];
+        const entry = entries.find(e => e.key === key);
+        if (!entry) return;
+
+        const modal = document.createElement('div');
+        modal.className = 'modal fade show d-block';
+        modal.style.background = 'rgba(0,0,0,0.6)';
+
+        let inputHtml;
+        if (entry.type === 'boolean') {
+            const checked = entry.value === 'true' || entry.value === '1' || entry.value === 'yes';
+            inputHtml = `<div class="form-check form-switch mt-2">
+                <input type="checkbox" class="form-check-input" id="app-config-edit-value" ${checked ? 'checked' : ''}>
+                <label class="form-check-label" for="app-config-edit-value">Enabled</label>
+            </div>`;
+        } else {
+            inputHtml = `<input type="${entry.type === 'number' ? 'number' : entry.type === 'email' ? 'email' : 'text'}"
+                class="form-control bg-dark text-light border-secondary" id="app-config-edit-value"
+                value="${Utils.escapeHtml(entry.value || '')}"
+                placeholder="${Utils.escapeHtml(entry.placeholder || '')}">`;
+        }
+
+        modal.innerHTML = `
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content bg-dark text-light border-secondary">
+                    <div class="modal-header border-secondary">
+                        <h5 class="modal-title"><i class="bi bi-sliders me-2"></i>Edit Setting</h5>
+                        <button type="button" class="btn-close btn-close-white" onclick="this.closest('.modal').remove()"></button>
+                    </div>
+                    <div class="modal-body">
+                        <label class="form-label"><code>${Utils.escapeHtml(key)}</code></label>
+                        <p class="text-muted small mb-2">${Utils.escapeHtml(entry.description || '')}</p>
+                        ${inputHtml}
+                    </div>
+                    <div class="modal-footer border-secondary">
+                        <button class="btn btn-secondary btn-sm" onclick="this.closest('.modal').remove()">Cancel</button>
+                        <button class="btn btn-primary btn-sm" onclick="Settings.appConfigSave('${Utils.escapeHtml(key)}', '${entry.type}', this.closest('.modal'))">
+                            <i class="bi bi-check-lg me-1"></i>Save
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+        document.body.appendChild(modal);
+        const input = modal.querySelector('#app-config-edit-value');
+        if (input && input.type !== 'checkbox') input.focus();
+    },
+
+    async appConfigSave(key, type, modal) {
+        const input = modal.querySelector('#app-config-edit-value');
+        let value;
+        if (type === 'boolean') {
+            value = input.checked ? 'true' : 'false';
+        } else {
+            value = input.value.trim();
+        }
+
+        try {
+            await API.post('api/app-settings.php', {
+                action: 'save',
+                settings: { [key]: value },
+            });
+            modal.remove();
+            Toast.success(`${key} saved`);
+            this.loadAppConfigData();
+        } catch (err) {
+            Toast.error(err.message);
+        }
+    },
+
+    // ── Vault Tab ─────────────────────────────────────────────────────
+
     renderVaultTab(container) {
         container.innerHTML = `
             <div class="stat-card mb-4">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <h5 class="mb-0"><i class="bi bi-shield-lock me-2"></i>Secret Vault</h5>
-                    <div class="d-flex gap-2">
-                        <button class="btn btn-outline-primary btn-sm" onclick="Settings.vaultMigrate()" id="vault-migrate-btn">
-                            <i class="bi bi-box-arrow-in-down me-1"></i>Import from .env
-                        </button>
-                    </div>
                 </div>
                 <p class="text-muted small mb-3">
-                    Secrets are encrypted with AES-256-GCM using the ENCRYPTION_KEY (Docker Secret).
-                    Only database credentials remain in .env — the master key is stored as a Docker Secret in <code>secrets/encryption_key.txt</code>.
+                    Secrets (tokens, passwords, keys) are encrypted with AES-256-GCM using the ENCRYPTION_KEY (Docker Secret).
+                    Non-secret settings (hosts, ports, etc.) are in the <strong>Configuration</strong> tab.
                 </p>
                 <div id="vault-status" class="mb-3"></div>
                 <div id="vault-table"></div>
@@ -1489,13 +1661,13 @@ const Settings = {
                     <span class="text-muted small">${data.total_in_vault} / ${data.entries.length} secrets in vault</span>
                 </div>`;
 
-            // Group keys
+            // Group keys (secrets only — settings are in Configuration tab)
             const groups = {
-                'Proxmox API': ['PROXMOX_HOST', 'PROXMOX_PORT', 'PROXMOX_VERIFY_SSL', 'PROXMOX_FALLBACK_HOSTS', 'PROXMOX_TOKEN_ID', 'PROXMOX_TOKEN_SECRET'],
+                'Proxmox API': ['PROXMOX_TOKEN_ID', 'PROXMOX_TOKEN_SECRET'],
                 'Application': ['APP_SECRET'],
-                'SSH': ['SSH_ENABLED', 'SSH_PORT', 'SSH_USER', 'SSH_PRIVATE_KEY', 'SSH_KEY_PATH', 'SSH_PASSWORD'],
+                'SSH': ['SSH_USER', 'SSH_PRIVATE_KEY', 'SSH_KEY_PATH', 'SSH_PASSWORD'],
                 'Entra ID / Azure AD': ['ENTRAID_TENANT_ID', 'ENTRAID_CLIENT_ID', 'ENTRAID_CLIENT_SECRET', 'ENTRAID_REDIRECT_URI'],
-                'Other': ['CLOUD_DISTROS', 'DOMAIN', 'LETSENCRYPT_EMAIL'],
+                'Backup': ['BACKUP_REMOTE_PASSWORD', 'BACKUP_REMOTE_KEY', 'BACKUP_ENCRYPTION_KEY'],
             };
 
             const entryMap = {};
@@ -1611,21 +1783,480 @@ const Settings = {
         }
     },
 
-    async vaultMigrate() {
-        const btn = document.getElementById('vault-migrate-btn');
-        if (!btn) return;
+    // ── Backup Tab ────────────────────────────────────────────────────
 
-        if (!confirm('Import all secrets from .env into the encrypted vault? Existing vault entries will not be overwritten.')) return;
+    _backupData: null,
+
+    renderBackupTab(container) {
+        container.innerHTML = `
+            <div class="row g-4">
+                <div class="col-12">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0"><i class="bi bi-cloud-arrow-up me-2"></i>Backup & Restore</h5>
+                        <button class="btn btn-primary" onclick="Settings.createBackup(this)" id="btn-create-backup">
+                            <i class="bi bi-plus-circle me-1"></i>Create Backup
+                        </button>
+                    </div>
+                </div>
+
+                <div class="col-lg-8">
+                    <div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)">
+                        <div class="card-body">
+                            <h6 class="mb-3">Local Backups</h6>
+                            <div id="backup-local-list">
+                                <div class="text-center py-3"><span class="spinner-border spinner-border-sm text-secondary"></span></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card mt-3" style="background:var(--card-bg);border:1px solid var(--border-color)" id="backup-remote-section">
+                        <div class="card-body">
+                            <h6 class="mb-3">Remote Backups</h6>
+                            <div id="backup-remote-list">
+                                <div class="text-muted small">Remote not configured</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card mt-3" style="background:var(--card-bg);border:1px solid var(--border-color)">
+                        <div class="card-body">
+                            <h6 class="mb-3">History</h6>
+                            <div id="backup-history">
+                                <div class="text-center py-3"><span class="spinner-border spinner-border-sm text-secondary"></span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-4">
+                    <div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)">
+                        <div class="card-body">
+                            <h6 class="mb-3"><i class="bi bi-gear me-1"></i>Remote Storage (SFTP)</h6>
+                            <div id="backup-config-form">
+                                <div class="text-center py-3"><span class="spinner-border spinner-border-sm text-secondary"></span></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card mt-3" style="background:var(--card-bg);border:1px solid var(--border-color)">
+                        <div class="card-body">
+                            <h6 class="mb-3"><i class="bi bi-clock me-1"></i>Scheduled Backup</h6>
+                            <div id="backup-schedule-form">
+                                <div class="text-center py-3"><span class="spinner-border spinner-border-sm text-secondary"></span></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card mt-3" style="background:var(--card-bg);border:1px solid var(--border-color)">
+                        <div class="card-body">
+                            <h6 class="mb-3"><i class="bi bi-shield-lock me-1"></i>Encryption</h6>
+                            <div id="backup-encryption-form">
+                                <div class="text-center py-3"><span class="spinner-border spinner-border-sm text-secondary"></span></div>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="btn btn-primary w-100 mt-3" onclick="Settings.saveBackupConfig(this)">
+                        <i class="bi bi-check-lg me-1"></i>Save All Settings
+                    </button>
+                    <div class="card mt-3" style="background:var(--card-bg);border:1px solid var(--border-color)">
+                        <div class="card-body">
+                            <h6 class="mb-3"><i class="bi bi-info-circle me-1"></i>Backup Contents</h6>
+                            <ul class="list-unstyled small text-muted mb-0">
+                                <li class="mb-1"><i class="bi bi-database me-1"></i>PostgreSQL database dump</li>
+                                <li class="mb-1"><i class="bi bi-shield-lock me-1"></i>Encrypted vault entries</li>
+                                <li class="mb-1"><i class="bi bi-graph-up me-1"></i>Monitoring data (metrics)</li>
+                                <li class="mb-1"><i class="bi bi-file-earmark-code me-1"></i>Environment configuration</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    async loadBackupData() {
+        try {
+            const [listData, history] = await Promise.all([
+                API.get('api/backup.php', { action: 'list' }),
+                API.get('api/backup.php', { action: 'history' }),
+            ]);
+            this._backupData = listData;
+            this.renderLocalBackups(listData.local || []);
+            this.renderRemoteBackups(listData.remote || [], listData.config);
+            this.renderBackupConfig(listData.config);
+            this.renderBackupSchedule(listData.config);
+            this.renderBackupEncryption(listData.config);
+            this.renderBackupHistory(history);
+        } catch (e) {
+            Toast.error('Failed to load backup data');
+        }
+    },
+
+    renderLocalBackups(backups) {
+        const el = document.getElementById('backup-local-list');
+        if (!el) return;
+        if (!backups.length) {
+            el.innerHTML = '<div class="text-muted small">No local backups found</div>';
+            return;
+        }
+        const remoteEnabled = this._backupData?.config?.remote_enabled;
+        el.innerHTML = `
+            <div class="table-responsive">
+                <table class="table table-sm table-dark table-hover align-middle mb-0">
+                    <thead><tr><th>Filename</th><th>Size</th><th>Date</th><th></th></tr></thead>
+                    <tbody>
+                        ${backups.map(b => `<tr>
+                            <td><i class="bi bi-file-earmark-zip me-1"></i>${escapeHtml(b.filename)}${b.encrypted ? ' <i class="bi bi-lock-fill text-info" title="Encrypted"></i>' : ''}</td>
+                            <td>${Utils.formatBytes(b.size)}</td>
+                            <td class="text-muted small">${escapeHtml(b.created_at)}</td>
+                            <td class="text-end text-nowrap">
+                                <a href="api/backup.php?action=download&filename=${encodeURIComponent(b.filename)}" class="btn btn-sm btn-outline-primary me-1" title="Download"><i class="bi bi-download"></i></a>
+                                ${remoteEnabled ? `<button class="btn btn-sm btn-outline-info me-1" title="Upload to remote" onclick="Settings.uploadBackupToRemote('${escapeHtml(b.filename)}', this)"><i class="bi bi-cloud-upload"></i></button>` : ''}
+                                <button class="btn btn-sm btn-outline-warning me-1" title="Restore" onclick="Settings.restoreBackup('${escapeHtml(b.filename)}')"><i class="bi bi-arrow-counterclockwise"></i></button>
+                                <button class="btn btn-sm btn-outline-danger" title="Delete" onclick="Settings.deleteLocalBackup('${escapeHtml(b.filename)}')"><i class="bi bi-trash"></i></button>
+                            </td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    },
+
+    renderRemoteBackups(backups, config) {
+        const section = document.getElementById('backup-remote-section');
+        const el = document.getElementById('backup-remote-list');
+        if (!el || !section) return;
+        if (!config?.remote_enabled) {
+            section.style.display = 'none';
+            return;
+        }
+        section.style.display = '';
+        if (!backups.length) {
+            el.innerHTML = '<div class="text-muted small">No remote backups found</div>';
+            return;
+        }
+        el.innerHTML = `
+            <div class="table-responsive">
+                <table class="table table-sm table-dark table-hover align-middle mb-0">
+                    <thead><tr><th>Filename</th><th>Size</th><th>Date</th><th></th></tr></thead>
+                    <tbody>
+                        ${backups.map(b => `<tr>
+                            <td><i class="bi bi-cloud me-1"></i>${escapeHtml(b.filename)}${b.encrypted ? ' <i class="bi bi-lock-fill text-info" title="Encrypted"></i>' : ''}</td>
+                            <td>${Utils.formatBytes(b.size)}</td>
+                            <td class="text-muted small">${escapeHtml(b.created_at)}</td>
+                            <td class="text-end text-nowrap">
+                                <button class="btn btn-sm btn-outline-primary me-1" title="Download to local" onclick="Settings.downloadFromRemote('${escapeHtml(b.filename)}', this)"><i class="bi bi-cloud-download"></i></button>
+                                <button class="btn btn-sm btn-outline-warning me-1" title="Restore" onclick="Settings.restoreFromRemote('${escapeHtml(b.filename)}', this)"><i class="bi bi-arrow-counterclockwise"></i></button>
+                                <button class="btn btn-sm btn-outline-danger" title="Delete" onclick="Settings.deleteRemoteBackup('${escapeHtml(b.filename)}')"><i class="bi bi-trash"></i></button>
+                            </td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    },
+
+    renderBackupConfig(config) {
+        const el = document.getElementById('backup-config-form');
+        if (!el) return;
+        el.innerHTML = `
+            <div class="form-check form-switch mb-3">
+                <input type="checkbox" class="form-check-input" id="backup-remote-enabled" ${config.remote_enabled ? 'checked' : ''}>
+                <label class="form-check-label" for="backup-remote-enabled">Enable Remote Backup</label>
+            </div>
+            <div id="backup-remote-fields" ${config.remote_enabled ? '' : 'style="display:none"'}>
+                <div class="mb-2">
+                    <label class="form-label small">Host</label>
+                    <input type="text" class="form-control form-control-sm" id="backup-remote-host" value="${escapeHtml(config.remote_host || '')}" placeholder="backup.example.com">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">Port</label>
+                    <input type="number" class="form-control form-control-sm" id="backup-remote-port" value="${config.remote_port || 22}">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">Username</label>
+                    <input type="text" class="form-control form-control-sm" id="backup-remote-user" value="${escapeHtml(config.remote_user || '')}" placeholder="backup">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">Password</label>
+                    <input type="password" class="form-control form-control-sm" id="backup-remote-password" placeholder="${config.has_password ? '(unchanged)' : 'Enter password'}">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">SSH Private Key</label>
+                    <textarea class="form-control form-control-sm" id="backup-remote-key" rows="3" placeholder="${config.has_key ? '(unchanged)' : 'Paste private key...'}" style="font-family:monospace;font-size:0.75rem"></textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label small">Remote Path</label>
+                    <input type="text" class="form-control form-control-sm" id="backup-remote-path" value="${escapeHtml(config.remote_path || '/backups')}">
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-info flex-fill" onclick="Settings.testRemoteBackup(this)">
+                        <i class="bi bi-plug me-1"></i>Test Connection
+                    </button>
+                </div>
+            </div>
+        `;
+
+        document.getElementById('backup-remote-enabled').addEventListener('change', function() {
+            document.getElementById('backup-remote-fields').style.display = this.checked ? '' : 'none';
+        });
+    },
+
+    renderBackupSchedule(config) {
+        const el = document.getElementById('backup-schedule-form');
+        if (!el) return;
+        el.innerHTML = `
+            <div class="form-check form-switch mb-3">
+                <input type="checkbox" class="form-check-input" id="backup-auto-enabled" ${config.auto_backup_enabled ? 'checked' : ''}>
+                <label class="form-check-label" for="backup-auto-enabled">Enable Daily Backup</label>
+            </div>
+            <div id="backup-schedule-fields" ${config.auto_backup_enabled ? '' : 'style="display:none"'}>
+                <div class="mb-2">
+                    <label class="form-label small">Backup Time</label>
+                    <input type="time" class="form-control form-control-sm" id="backup-time" value="${escapeHtml(config.backup_time || '02:00')}">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label small">Keep last N backups</label>
+                    <input type="number" class="form-control form-control-sm" id="backup-retention" value="${config.backup_retention || 30}" min="1" max="365">
+                </div>
+                <div class="text-muted small">Older backups are automatically deleted after each scheduled run.</div>
+            </div>
+        `;
+        document.getElementById('backup-auto-enabled').addEventListener('change', function() {
+            document.getElementById('backup-schedule-fields').style.display = this.checked ? '' : 'none';
+        });
+    },
+
+    renderBackupEncryption(config) {
+        const el = document.getElementById('backup-encryption-form');
+        if (!el) return;
+        el.innerHTML = `
+            <div class="form-check form-switch mb-3">
+                <input type="checkbox" class="form-check-input" id="backup-encrypted" ${config.backup_encrypted ? 'checked' : ''}>
+                <label class="form-check-label" for="backup-encrypted">Encrypt Backups</label>
+            </div>
+            <div class="mb-2">
+                ${config.has_encryption_key
+                    ? '<span class="text-success small"><i class="bi bi-check-circle me-1"></i>Encryption key active</span>'
+                    : '<span class="text-warning small"><i class="bi bi-info-circle me-1"></i>Key will be auto-generated on first backup</span>'}
+            </div>
+            <button class="btn btn-sm btn-outline-light w-100 mb-2" onclick="Settings.showEncryptionKey(this)">
+                <i class="bi bi-eye me-1"></i>Show Encryption Key
+            </button>
+            <div id="backup-encryption-key-display"></div>
+            <div class="text-muted small mt-2">AES-256-GCM. Diesen Key sicher aufbewahren — ohne ihn k${String.fromCharCode(246)}nnen verschl${String.fromCharCode(252)}sselte Backups nicht wiederhergestellt werden.</div>
+        `;
+    },
+
+    async showEncryptionKey(btn) {
+        const display = document.getElementById('backup-encryption-key-display');
+        if (!display) return;
+        btn.disabled = true;
+        try {
+            const data = await API.get('api/backup.php', { action: 'encryption-key' });
+            if (!data.key) {
+                display.innerHTML = '<div class="text-muted small">No key set yet — will be generated on first backup.</div>';
+                return;
+            }
+            display.innerHTML = `
+                <div class="input-group input-group-sm">
+                    <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary font-monospace"
+                        value="${Utils.escapeHtml(data.key)}" readonly id="backup-enc-key-input" style="font-size:0.7rem">
+                    <button class="btn btn-outline-light" onclick="Settings.copyEncryptionKey()" title="Copy">
+                        <i class="bi bi-clipboard"></i>
+                    </button>
+                </div>
+                ${!data.valid ? '<div class="text-danger small mt-1"><i class="bi bi-exclamation-triangle me-1"></i>Key is invalid (expected 64 hex characters)</div>' : ''}
+            `;
+        } catch (e) {
+            display.innerHTML = `<div class="text-danger small">${Utils.escapeHtml(e.message)}</div>`;
+        } finally {
+            btn.disabled = false;
+        }
+    },
+
+    copyEncryptionKey() {
+        const input = document.getElementById('backup-enc-key-input');
+        if (!input) return;
+        navigator.clipboard.writeText(input.value).then(() => {
+            Toast.success('Encryption key copied to clipboard');
+        }).catch(() => {
+            input.select();
+            document.execCommand('copy');
+            Toast.success('Encryption key copied');
+        });
+    },
+
+    renderBackupHistory(history) {
+        const el = document.getElementById('backup-history');
+        if (!el) return;
+        if (!history || !history.length) {
+            el.innerHTML = '<div class="text-muted small">No backup history</div>';
+            return;
+        }
+        el.innerHTML = `
+            <div class="table-responsive">
+                <table class="table table-sm table-dark align-middle mb-0">
+                    <thead><tr><th>File</th><th>Location</th><th>Size</th><th>Status</th><th>By</th><th>Date</th></tr></thead>
+                    <tbody>
+                        ${history.slice(0, 20).map(h => `<tr>
+                            <td class="small">${escapeHtml(h.filename)}</td>
+                            <td><span class="badge ${h.location === 'remote' ? 'bg-info' : 'bg-secondary'}">${h.location}</span></td>
+                            <td class="small">${Utils.formatBytes(h.size_bytes)}</td>
+                            <td><span class="badge ${h.status === 'completed' ? 'bg-success' : 'bg-danger'}">${h.status}</span></td>
+                            <td class="text-muted small">${escapeHtml(h.created_by_name || '-')}</td>
+                            <td class="text-muted small">${escapeHtml(h.created_at)}</td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    },
+
+    async createBackup(btn) {
+        if (!confirm('Create a new backup? This includes the database, vault, and monitoring data.')) return;
+        const orig = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Creating...';
+        try {
+            const result = await API.post('api/backup.php', { action: 'create' });
+            let msg = `Backup created: ${result.filename} (${Utils.formatBytes(result.size)})`;
+            if (result.remote_uploaded) msg += ' — also uploaded to remote';
+            Toast.success(msg);
+            this.loadBackupData();
+        } catch (e) {
+            Toast.error(e.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = orig;
+        }
+    },
+
+    async restoreBackup(filename) {
+        if (!confirm(`CAUTION: Restore backup "${filename}"?\n\nThis will OVERWRITE the current database and settings. This action cannot be undone.\n\nContinue?`)) return;
+        if (!confirm('Are you absolutely sure? All current data will be replaced.')) return;
+        try {
+            await API.post('api/backup.php', { action: 'restore', filename, confirm: true });
+            Toast.success('Backup restored successfully. Reloading...');
+            setTimeout(() => location.reload(), 2000);
+        } catch (e) {
+            Toast.error(e.message);
+        }
+    },
+
+    async deleteLocalBackup(filename) {
+        if (!confirm(`Delete local backup "${filename}"?`)) return;
+        try {
+            await API.post('api/backup.php', { action: 'delete', filename });
+            Toast.success('Backup deleted');
+            this.loadBackupData();
+        } catch (e) {
+            Toast.error(e.message);
+        }
+    },
+
+    async uploadBackupToRemote(filename, btn) {
+        const orig = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+        try {
+            await API.post('api/backup.php', { action: 'upload-remote', filename });
+            Toast.success('Backup uploaded to remote');
+            this.loadBackupData();
+        } catch (e) {
+            Toast.error(e.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = orig;
+        }
+    },
+
+    async downloadFromRemote(filename, btn) {
+        const orig = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+        try {
+            await API.post('api/backup.php', { action: 'download-remote', filename });
+            Toast.success('Backup downloaded from remote');
+            this.loadBackupData();
+        } catch (e) {
+            Toast.error(e.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = orig;
+        }
+    },
+
+    async restoreFromRemote(filename, btn) {
+        const orig = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+        try {
+            // First download, then restore
+            await API.post('api/backup.php', { action: 'download-remote', filename });
+            btn.innerHTML = orig;
+            btn.disabled = false;
+            this.restoreBackup(filename);
+        } catch (e) {
+            Toast.error(e.message);
+            btn.disabled = false;
+            btn.innerHTML = orig;
+        }
+    },
+
+    async deleteRemoteBackup(filename) {
+        if (!confirm(`Delete remote backup "${filename}"?`)) return;
+        try {
+            await API.post('api/backup.php', { action: 'delete-remote', filename });
+            Toast.success('Remote backup deleted');
+            this.loadBackupData();
+        } catch (e) {
+            Toast.error(e.message);
+        }
+    },
+
+    async saveBackupConfig(btn) {
+        const data = {
+            action: 'config',
+            remote_enabled: document.getElementById('backup-remote-enabled')?.checked || false,
+            remote_host: document.getElementById('backup-remote-host')?.value || '',
+            remote_port: parseInt(document.getElementById('backup-remote-port')?.value) || 22,
+            remote_user: document.getElementById('backup-remote-user')?.value || '',
+            remote_path: document.getElementById('backup-remote-path')?.value || '/backups',
+            backup_time: document.getElementById('backup-time')?.value || '02:00',
+            backup_encrypted: document.getElementById('backup-encrypted')?.checked ?? true,
+            auto_backup_enabled: document.getElementById('backup-auto-enabled')?.checked || false,
+            backup_retention: parseInt(document.getElementById('backup-retention')?.value) || 30,
+        };
+        const pw = document.getElementById('backup-remote-password')?.value || '';
+        if (pw) data.remote_password = pw;
+        const key = document.getElementById('backup-remote-key')?.value || '';
+        if (key) data.remote_key = key;
 
         btn.disabled = true;
         try {
-            const data = await API.post('api/vault.php', { action: 'migrate' });
-            Toast.success(data.message || 'Migration complete');
-            this.loadVaultData();
-        } catch (err) {
-            Toast.error(err.message);
+            await API.post('api/backup.php', data);
+            Toast.success('Backup configuration saved');
+            this.loadBackupData();
+        } catch (e) {
+            Toast.error(e.message);
         } finally {
             btn.disabled = false;
+        }
+    },
+
+    async testRemoteBackup(btn) {
+        // Save config first, then test
+        try { await this.saveBackupConfig(btn); } catch (_) {}
+        const orig = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Testing...';
+        try {
+            const result = await API.post('api/backup.php', { action: 'test-remote' });
+            Toast.success(result.message || 'Connection successful');
+        } catch (e) {
+            Toast.error(e.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = orig;
         }
     },
 };

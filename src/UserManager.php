@@ -129,7 +129,7 @@ class UserManager
     public static function getByUsername(string $username): ?array
     {
         $db = Database::connection();
-        $stmt = $db->prepare('SELECT * FROM users WHERE username = ?');
+        $stmt = $db->prepare('SELECT * FROM users WHERE LOWER(username) = LOWER(?)');
         $stmt->execute([$username]);
         return $stmt->fetch() ?: null;
     }

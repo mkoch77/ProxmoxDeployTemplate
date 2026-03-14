@@ -9,6 +9,7 @@ use App\Response;
 use App\Helpers;
 use App\Database;
 use App\AppLogger;
+use App\CephCollector;
 
 Bootstrap::init();
 Request::requireMethod('GET');
@@ -241,8 +242,18 @@ try {
     // Sort nodes alphabetically
     usort($nodes, fn($a, $b) => strcasecmp($a['node'] ?? '', $b['node'] ?? ''));
 
+    // CEPH status (if available)
+    $ceph = null;
+    $onlineNodeNames = array_map(fn($n) => $n['node'], array_filter($nodes, fn($n) => ($n['status'] ?? '') === 'online'));
+    if (!empty($onlineNodeNames)) {
+        $ceph = CephCollector::getStatus($api, $onlineNodeNames);
+    } else {
+        $ceph = ['available' => false];
+    }
+
     Response::success([
         'nodes' => $nodes,
+        'ceph' => $ceph,
         'cluster' => [
             'total_cpu' => $totalMaxCpu > 0 ? round($totalCpu / $totalMaxCpu, 4) : 0,
             'total_maxcpu' => $totalMaxCpu,

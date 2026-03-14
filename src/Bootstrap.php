@@ -60,5 +60,12 @@ class Bootstrap
         } catch (\Throwable $e) {
             // Vault not ready yet — skip silently
         }
+
+        // Auto-migrate non-secret settings from vault/env to app_settings table
+        try {
+            AppSettings::migrateFromVaultAndEnv();
+        } catch (\Throwable $e) {
+            // Table not ready yet — skip silently
+        }
     }
 }

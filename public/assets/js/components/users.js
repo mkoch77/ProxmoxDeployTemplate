@@ -260,10 +260,7 @@ const Users = {
                 ${roleChecks}
             </div>
             <div class="mb-3">
-                <label class="form-label d-flex align-items-center gap-2">
-                    Permission Overrides
-                    <span class="badge bg-secondary" style="font-size:0.68rem;font-weight:normal">overrides role defaults per function</span>
-                </label>
+                <label class="form-label">Permissions</label>
                 <div style="border:1px solid var(--border-color);border-radius:6px;overflow:hidden">
                     ${featureRows}
                 </div>
@@ -288,13 +285,28 @@ const Users = {
         new bootstrap.Modal(document.getElementById('userModal')).show();
     },
 
-    // Returns the current state of a feature given existing overrides
-    getFeatureState(feature, overrides) {
+    // Returns what the role grants for a feature (without overrides)
+    getRoleState(feature, userRoleIds) {
         const allPerms = [...feature.ro_perms, ...feature.rw_perms];
-        if (allPerms.length === 0) return 'default';
+        const grantedByRole = new Set();
+        for (const roleId of userRoleIds) {
+            for (const p of (this.rolePermissions[roleId] || [])) {
+                if (allPerms.includes(p)) grantedByRole.add(p);
+            }
+        }
+        if (allPerms.length > 0 && allPerms.every(p => grantedByRole.has(p))) return 'rw';
+        if (feature.ro_perms.length > 0 && feature.ro_perms.every(p => grantedByRole.has(p))
+            && feature.rw_perms.length > 0 && !feature.rw_perms.some(p => grantedByRole.has(p))) return 'ro';
+        if (feature.ro_perms.length === 0 && feature.rw_perms.some(p => grantedByRole.has(p))) return 'rw';
+        return 'deny';
+    },
 
+    // Returns the effective state: overrides take precedence over role
+    getEffectiveState(feature, overrides, userRoleIds) {
+        const allPerms = [...feature.ro_perms, ...feature.rw_perms];
         const hasAnyOverride = allPerms.some(p => p in overrides);
-        if (!hasAnyOverride) return 'default';
+
+        if (!hasAnyOverride) return this.getRoleState(feature, userRoleIds);
 
         const allGranted = allPerms.every(p => overrides[p] === true);
         if (allGranted) return 'rw';
@@ -302,55 +314,37 @@ const Users = {
         const allDenied = allPerms.every(p => overrides[p] === false);
         if (allDenied) return 'deny';
 
-        // RO: ro_perms granted, rw_perms denied
         if (feature.ro_perms.length > 0 && feature.rw_perms.length > 0) {
             const roGranted = feature.ro_perms.every(p => overrides[p] === true);
             const rwDenied  = feature.rw_perms.every(p => overrides[p] === false);
             if (roGranted && rwDenied) return 'ro';
         }
 
-        return 'default';
-    },
-
-    // Returns true if the user's roles provide any permission in this feature
-    roleHasFeature(feature, userRoleIds) {
-        const allPerms = [...feature.ro_perms, ...feature.rw_perms];
-        for (const roleId of userRoleIds) {
-            const rolePerms = this.rolePermissions[roleId] || [];
-            if (allPerms.some(p => rolePerms.includes(p))) return true;
-        }
-        return false;
+        return this.getRoleState(feature, userRoleIds);
     },
 
     renderFeatureRow(feature, overrides, userRoleIds) {
-        const state = this.getFeatureState(feature, overrides);
+        const state = this.getEffectiveState(feature, overrides, userRoleIds);
         const hasRO = feature.ro_perms.length > 0 && feature.rw_perms.length > 0;
-        const fromRole = this.roleHasFeature(feature, userRoleIds);
 
-        const roleHint = `<small class="text-muted ms-auto me-2" style="font-size:0.72rem">
-            Role: ${fromRole ? '<span class="text-success">✓</span>' : '<span class="text-muted">–</span>'}
-        </small>`;
+        const btn = (s, label, cls, disabled = false) =>
+            `<button type="button" class="btn btn-sm ${cls} ${state === s ? 'active' : ''}" data-state="${s}" ${disabled ? 'disabled' : ''} style="min-width:40px">${label}</button>`;
 
-        const btn = (s, label, cls) =>
-            `<button type="button" class="btn btn-sm ${cls} ${state === s ? 'active' : ''}" data-state="${s}">${label}</button>`;
-
-        const buttons = hasRO
-            ? `${btn('default', 'Default', 'btn-outline-secondary')}${btn('ro', 'Read Only', 'btn-outline-info')}${btn('rw', 'Full', 'btn-outline-success')}${btn('deny', 'Deny', 'btn-outline-danger')}`
-            : `${btn('default', 'Default', 'btn-outline-secondary')}${btn('rw', 'Granted', 'btn-outline-success')}${btn('deny', 'Deny', 'btn-outline-danger')}`;
+        const buttons = `${btn('rw', 'RW', 'btn-outline-success')}${btn('ro', 'RO', 'btn-outline-info', !hasRO)}${btn('deny', 'NO', 'btn-outline-danger')}`;
 
         return `
-            <div class="d-flex align-items-center gap-2 px-3 py-2" style="border-bottom:1px solid var(--border-color)" data-feature="${feature.id}">
+            <div class="d-flex align-items-center gap-2 px-3 py-2" style="border-bottom:1px solid var(--border-color)" data-feature="${feature.id}" data-role-state="${this.getRoleState(feature, userRoleIds)}">
                 <i class="bi ${feature.icon} text-muted" style="width:16px;flex-shrink:0"></i>
                 <span class="small" style="min-width:160px">${feature.label}</span>
-                ${roleHint}
-                <div class="btn-group btn-group-sm perm-feature-btns" role="group" data-feature="${feature.id}">
+                <div class="btn-group btn-group-sm perm-feature-btns ms-auto" role="group" data-feature="${feature.id}">
                     ${buttons}
                 </div>
             </div>
         `;
     },
 
-    // Collects permission override dict from the feature button groups
+    // Collects permission override dict from the feature button groups.
+    // Only writes overrides when the selected state differs from the role default.
     collectPermissionOverrides() {
         const overrides = {};
         document.querySelectorAll('[data-feature].d-flex').forEach(row => {
@@ -359,8 +353,11 @@ const Users = {
             if (!feature) return;
 
             const activeBtn = row.querySelector('.perm-feature-btns button.active');
-            const state = activeBtn?.dataset.state || 'default';
-            if (state === 'default') return;
+            const state = activeBtn?.dataset.state || 'deny';
+            const roleState = row.dataset.roleState || 'deny';
+
+            // No override needed if selection matches role default
+            if (state === roleState) return;
 
             const allPerms = [...feature.ro_perms, ...feature.rw_perms];
 

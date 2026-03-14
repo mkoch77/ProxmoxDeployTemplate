@@ -15,6 +15,14 @@ const Utils = {
         return parseFloat((bytesPerSec / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     },
 
+    formatNumber(n) {
+        if (n == null || isNaN(n)) return '0';
+        if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+        if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+        if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+        return Math.round(n).toString();
+    },
+
     formatUptime(seconds) {
         if (!seconds) return '-';
         const d = Math.floor(seconds / 86400);
@@ -186,12 +194,15 @@ const ResourceTooltip = {
     _cache: new Map(),
     _timer: null,
     _abortCtrl: null,
+    _anchorEl: null,
+    _safetyTimer: null,
 
     _getEl() {
         if (!this._el) {
             const div = document.createElement('div');
             div.id = 'resource-tooltip';
             div.className = 'resource-tooltip';
+            div.addEventListener('mouseleave', () => this.hide());
             document.body.appendChild(div);
             this._el = div;
         }
@@ -210,6 +221,8 @@ const ResourceTooltip = {
 
     showVm(el, vmid, status) {
         if (status !== 'running') return;
+        this._anchorEl = el;
+        this._startSafety();
         this._timer = setTimeout(() => this._loadVm(el, vmid), 300);
     },
 
@@ -259,6 +272,8 @@ const ResourceTooltip = {
     },
 
     showNode(el, nodeName) {
+        this._anchorEl = el;
+        this._startSafety();
         this._timer = setTimeout(() => this._loadNode(el, nodeName), 300);
     },
 
@@ -334,8 +349,21 @@ const ResourceTooltip = {
     hide() {
         clearTimeout(this._timer);
         this._timer = null;
+        clearInterval(this._safetyTimer);
+        this._safetyTimer = null;
+        this._anchorEl = null;
         if (this._el) {
             this._el.classList.remove('visible');
         }
+    },
+
+    _startSafety() {
+        clearInterval(this._safetyTimer);
+        this._safetyTimer = setInterval(() => {
+            // Hide if anchor element was removed from DOM (e.g. page re-render)
+            if (this._anchorEl && !document.body.contains(this._anchorEl)) {
+                this.hide();
+            }
+        }, 500);
     }
 };

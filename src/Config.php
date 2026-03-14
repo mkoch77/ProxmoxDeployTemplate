@@ -47,14 +47,27 @@ class Config
     }
 
     /**
-     * Load vault secrets and overlay them on top of .env / env vars.
-     * Called lazily on first get() that hits a vault-eligible key.
+     * Load vault secrets and app_settings on top of .env / env vars.
+     * Called lazily on first get() that hits a vault-eligible or settings key.
      */
     private static function loadVault(): void
     {
         if (self::$vaultLoaded) return;
         self::$vaultLoaded = true;
 
+        // Load plaintext app_settings first
+        try {
+            $appSettings = AppSettings::getAll();
+            foreach ($appSettings as $key => $value) {
+                if ($value !== '') {
+                    self::$config[$key] = $value;
+                }
+            }
+        } catch (\Exception $e) {
+            // Table may not exist yet
+        }
+
+        // Vault secrets override everything
         try {
             if (!Vault::isAvailable()) return;
 
@@ -102,5 +115,6 @@ class Config
         self::$config = null;
         self::$vaultLoaded = false;
         Vault::clearCache();
+        AppSettings::clearCache();
     }
 }

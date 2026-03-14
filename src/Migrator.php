@@ -79,6 +79,10 @@ class Migrator
            29 => self::migration029(),
            30 => self::migration030(),
            31 => self::migration031(),
+           32 => self::migration032(),
+           33 => self::migration033(),
+           34 => self::migration034(),
+           35 => self::migration035(),
         ];
     }
 
@@ -715,6 +719,81 @@ class Migrator
         ";
     }
 
+    private static function migration032(): string
+    {
+        return "
+            ALTER TABLE users DROP CONSTRAINT IF EXISTS users_username_key;
+            CREATE UNIQUE INDEX IF NOT EXISTS users_username_ci_unique ON users (LOWER(username));
+        ";
+    }
+
+    private static function migration033(): string
+    {
+        return "
+            CREATE TABLE IF NOT EXISTS backup_config (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                remote_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                remote_host VARCHAR(255) NOT NULL DEFAULT '',
+                remote_port INTEGER NOT NULL DEFAULT 22,
+                remote_user VARCHAR(255) NOT NULL DEFAULT '',
+                remote_path VARCHAR(500) NOT NULL DEFAULT '/backups',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            INSERT INTO backup_config (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+            CREATE TABLE IF NOT EXISTS backup_history (
+                id SERIAL PRIMARY KEY,
+                filename VARCHAR(500) NOT NULL,
+                location VARCHAR(20) NOT NULL DEFAULT 'local',
+                size_bytes BIGINT NOT NULL DEFAULT 0,
+                status VARCHAR(20) NOT NULL DEFAULT 'completed',
+                error_message TEXT DEFAULT NULL,
+                created_by INTEGER REFERENCES users(id),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_backup_history_created ON backup_history(created_at DESC);
+
+            INSERT INTO permissions (key, description) VALUES
+                ('backup.manage', 'Manage application backups and restore')
+            ON CONFLICT (key) DO NOTHING;
+
+            INSERT INTO role_permissions (role_id, permission_id)
+            SELECT r.id, p.id FROM roles r, permissions p
+            WHERE r.name = 'admin' AND p.key = 'backup.manage'
+            AND NOT EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role_id = r.id AND rp.permission_id = p.id);
+        ";
+    }
+
+    private static function migration034(): string
+    {
+        return "
+            ALTER TABLE backup_config ADD COLUMN IF NOT EXISTS backup_time VARCHAR(5) NOT NULL DEFAULT '02:00';
+            ALTER TABLE backup_config ADD COLUMN IF NOT EXISTS backup_encrypted BOOLEAN NOT NULL DEFAULT TRUE;
+            ALTER TABLE backup_config ADD COLUMN IF NOT EXISTS auto_backup_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+            ALTER TABLE backup_config ADD COLUMN IF NOT EXISTS backup_retention INTEGER NOT NULL DEFAULT 30;
+        ";
+    }
+
+    private static function migration035(): string
+    {
+        return "
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key VARCHAR(255) PRIMARY KEY,
+                value TEXT NOT NULL DEFAULT '',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            INSERT INTO permissions (key, description) VALUES
+                ('settings.manage', 'Manage application settings')
+            ON CONFLICT (key) DO NOTHING;
+
+            INSERT INTO role_permissions (role_id, permission_id)
+            SELECT r.id, p.id FROM roles r, permissions p
+            WHERE r.name = 'admin' AND p.key = 'settings.manage'
+            AND NOT EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role_id = r.id AND rp.permission_id = p.id);
+        ";
+    }
+
     /**
      * Seed default service templates after migrations.
      * Checks both existing templates AND deleted_builtins to avoid re-inserting
@@ -778,77 +857,14 @@ class Migrator
                     'systemctl start apache2',
                     'systemctl start mysql',
                     'ufw allow in "Apache Full"',
-                    'mysql -e "ALTER USER \'root\'@\'localhost\' IDENTIFIED WITH mysql_native_password BY \'changeme\'; FLUSH PRIVILEGES;"',
+                    'MYSQL_ROOT_PW=$(openssl rand -base64 24)',
+                    'mysql -e "ALTER USER \'root\'@\'localhost\' IDENTIFIED WITH mysql_native_password BY \'${MYSQL_ROOT_PW}\'; FLUSH PRIVILEGES;"',
+                    'echo "MySQL root password: ${MYSQL_ROOT_PW}" > /root/credentials.txt',
+                    'chmod 600 /root/credentials.txt',
                     'echo "<?php phpinfo(); ?>" > /var/www/html/info.php',
                     'systemctl restart apache2',
                 ]),
                 'tags' => 'lamp;webserver',
-            ],
-            [
-                'name' => 'Nextcloud Server',
-                'description' => 'Nextcloud with Apache, MariaDB & PHP 8.2 on Debian 12 — private cloud storage',
-                'base_image' => 'debian-12',
-                'icon' => 'bi-cloud',
-                'color' => '#0082c9',
-                'cores' => 2, 'memory' => 4096, 'disk_size' => 50,
-                'packages' => implode("\n", [
-                    'apache2', 'mariadb-server',
-                    'php', 'php-gd', 'php-mysql', 'php-curl', 'php-mbstring',
-                    'php-intl', 'php-gmp', 'php-bcmath', 'php-xml', 'php-zip',
-                    'php-imagick', 'php-apcu', 'php-redis', 'php-bz2',
-                    'libapache2-mod-php',
-                    'redis-server', 'unzip', 'curl', 'sudo',
-                ]),
-                'runcmd' => implode("\n", [
-                    'systemctl enable apache2 mariadb redis-server',
-                    'systemctl start apache2 mariadb redis-server',
-                    // MariaDB: create nextcloud database and user
-                    'mysql -e "CREATE DATABASE IF NOT EXISTS nextcloud CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;"',
-                    'mysql -e "CREATE USER IF NOT EXISTS \'nextcloud\'@\'localhost\' IDENTIFIED BY \'changeme\';"',
-                    'mysql -e "GRANT ALL PRIVILEGES ON nextcloud.* TO \'nextcloud\'@\'localhost\'; FLUSH PRIVILEGES;"',
-                    // Download and install Nextcloud
-                    'curl -sL https://download.nextcloud.com/server/releases/latest.zip -o /tmp/nextcloud.zip',
-                    'unzip -q /tmp/nextcloud.zip -d /var/www/',
-                    'chown -R www-data:www-data /var/www/nextcloud',
-                    'rm /tmp/nextcloud.zip',
-                    // Create data directory
-                    'mkdir -p /var/www/nextcloud/data',
-                    'chown www-data:www-data /var/www/nextcloud/data',
-                    // Apache config
-                    'cat > /etc/apache2/sites-available/nextcloud.conf << \'APACHEEOF\'
-<VirtualHost *:80>
-    DocumentRoot /var/www/nextcloud
-    <Directory /var/www/nextcloud>
-        Require all granted
-        AllowOverride All
-        Options FollowSymLinks MultiViews
-        <IfModule mod_dav.c>
-            Dav off
-        </IfModule>
-    </Directory>
-</VirtualHost>
-APACHEEOF',
-                    'a2ensite nextcloud.conf',
-                    'a2dissite 000-default.conf',
-                    'a2enmod rewrite headers env dir mime',
-                    // PHP tuning
-                    'sed -i "s/memory_limit = .*/memory_limit = 512M/" /etc/php/8.2/apache2/php.ini',
-                    'sed -i "s/upload_max_filesize = .*/upload_max_filesize = 1024M/" /etc/php/8.2/apache2/php.ini',
-                    'sed -i "s/post_max_size = .*/post_max_size = 1024M/" /etc/php/8.2/apache2/php.ini',
-                    'sed -i "s/max_execution_time = .*/max_execution_time = 300/" /etc/php/8.2/apache2/php.ini',
-                    // Restart Apache
-                    'systemctl restart apache2',
-                    // Run Nextcloud CLI installer
-                    'sudo -u www-data php /var/www/nextcloud/occ maintenance:install --database "mysql" --database-name "nextcloud" --database-user "nextcloud" --database-pass "changeme" --admin-user "admin" --admin-pass "changeme"',
-                    // Set trusted domain to all (user should restrict later)
-                    'sudo -u www-data php /var/www/nextcloud/occ config:system:set trusted_domains 1 --value="*"',
-                    // Enable Redis memcache
-                    'sudo -u www-data php /var/www/nextcloud/occ config:system:set memcache.local --value="\\OC\\Memcache\\APCu"',
-                    'sudo -u www-data php /var/www/nextcloud/occ config:system:set memcache.locking --value="\\OC\\Memcache\\Redis"',
-                    'sudo -u www-data php /var/www/nextcloud/occ config:system:set redis host --value="localhost"',
-                    'sudo -u www-data php /var/www/nextcloud/occ config:system:set redis port --value="6379" --type=integer',
-                ]),
-                'tags' => 'nextcloud;cloud;storage',
             ],
         ];
     }

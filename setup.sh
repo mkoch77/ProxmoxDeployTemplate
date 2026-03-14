@@ -315,23 +315,29 @@ fi
 # ── .env schreiben ────────────────────────────────────────────────────────────
 cat > "$ENV_FILE" <<EOF
 # ProxmoxDeploy — generiert von setup.sh am $(date '+%Y-%m-%d %H:%M:%S')
-# Secrets liegen in secrets/ (Docker Secrets) und in der verschlüsselten Vault.
-# Vault-Secrets verwalten: Settings > Vault
+#
+# Secrets:       Settings > Vault (AES-256-GCM verschlüsselt)
+# Einstellungen: Settings > Configuration (Plaintext in DB)
+# Docker Secret: secrets/encryption_key.txt (Master-Key)
+#
+# Die folgenden Werte werden beim ersten Start automatisch in die Datenbank
+# migriert (Secrets → Vault, Einstellungen → Configuration).
+# Danach kann diese Datei auf die DB- und Port-Einträge reduziert werden.
 
 # ── PostgreSQL (Passwort liegt in secrets/db_password.txt) ──────────────────
 DB_NAME=${DB_NAME}
 DB_USER=${DB_USER}
 
-# ── Ports ───────────────────────────────────────────────────────────────────
+# ── Docker Compose Ports (nur hier, da vor App-Start benötigt) ─────────────
 HTTP_PORT=${HTTP_PORT}
 HTTPS_PORT=${HTTPS_PORT}
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Die folgenden Werte werden beim ersten Start in die verschlüsselte Vault
-# migriert und können danach aus dieser Datei entfernt werden.
+# Initiale Werte — werden beim ersten Start automatisch in DB migriert.
+# Nach der Migration können alle Zeilen unterhalb dieser Linie gelöscht werden.
 # ══════════════════════════════════════════════════════════════════════════════
 
-# ── Proxmox API ─────────────────────────────────────────────────────────────
+# ── Proxmox API (Secrets → Vault, Host/Port → Configuration) ────────────────
 PROXMOX_HOST=${PROXMOX_HOST}
 PROXMOX_PORT=${PROXMOX_PORT}
 PROXMOX_VERIFY_SSL=${PROXMOX_VERIFY_SSL}
@@ -339,20 +345,20 @@ PROXMOX_FALLBACK_HOSTS=${PROXMOX_FALLBACK_HOSTS}
 PROXMOX_TOKEN_ID=${PROXMOX_TOKEN_ID}
 PROXMOX_TOKEN_SECRET=${PROXMOX_TOKEN_SECRET}
 
-# ── App ─────────────────────────────────────────────────────────────────────
+# ── App (Secret → Vault) ───────────────────────────────────────────────────
 APP_SECRET=${APP_SECRET}
 
-# ── SSH ─────────────────────────────────────────────────────────────────────
+# ── SSH (Credentials → Vault, Enabled/Port → Configuration) ────────────────
 SSH_ENABLED=${SSH_ENABLED}
 SSH_PORT=${SSH_PORT}
 SSH_USER=${SSH_USER}
 SSH_KEY_PATH=/var/www/html/data/.ssh/id_ed25519
 SSH_PASSWORD=${SSH_PASSWORD}
 
-# ── Cloud Images ────────────────────────────────────────────────────────────
+# ── Cloud Images (→ Configuration) ─────────────────────────────────────────
 CLOUD_DISTROS=${CLOUD_DISTROS}
 
-# ── Let's Encrypt (leer = deaktiviert) ─────────────────────────────────────
+# ── Let's Encrypt (→ Configuration, leer = deaktiviert) ────────────────────
 DOMAIN=${DOMAIN}
 LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
 
@@ -361,7 +367,7 @@ ADMIN_USER=${ADMIN_USER}
 ADMIN_PASSWORD=${ADMIN_PASSWORD}
 ADMIN_SSH_PUBKEY=${ADMIN_SSH_PUBKEY}
 
-# ── Entra ID / Azure AD (leer = deaktiviert) ──────────────────────────────
+# ── Entra ID / Azure AD (Secrets → Vault, leer = deaktiviert) ──────────────
 ENTRAID_TENANT_ID=${ENTRAID_TENANT_ID}
 ENTRAID_CLIENT_ID=${ENTRAID_CLIENT_ID}
 ENTRAID_CLIENT_SECRET=${ENTRAID_CLIENT_SECRET}

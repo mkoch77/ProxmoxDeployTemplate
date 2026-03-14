@@ -9,3 +9,6 @@
 
 # Rotate SSH key every 4 hours (generate new key, deploy to nodes, remove old key)
 0 */4 * * * www-data . /etc/docker-env.sh; /usr/local/bin/php /var/www/html/cli/ssh-rotate-key.php >> /var/www/html/data/ssh-rotate.log 2>&1
+
+# Scheduled backup — checks every minute if it's time for the daily backup
+* * * * * www-data . /etc/docker-env.sh; /usr/local/bin/php /var/www/html/cli/backup-run.php >> /var/www/html/data/backup.log 2>&1

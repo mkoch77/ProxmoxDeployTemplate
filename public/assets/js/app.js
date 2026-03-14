@@ -70,6 +70,9 @@ const App = {
             page = 'dashboard';
         }
 
+        // Hide any lingering tooltips
+        ResourceTooltip.hide();
+
         // Destroy current page
         if (this.currentPage && this.pages[this.currentPage]?.destroy) {
             this.pages[this.currentPage].destroy();
@@ -232,6 +235,19 @@ const App = {
                     } else if (pct >= 85) {
                         warnings.push({ level: 'warning', msg: `Storage <strong>${Utils.escapeHtml(s.storage)}</strong> almost full (${pct}%)`, cat: 'storage' });
                     }
+                }
+            }
+
+            // CEPH health warnings
+            if (data.ceph && data.ceph.available) {
+                if (data.ceph.health === 'HEALTH_ERR') {
+                    warnings.push({ level: 'danger', msg: 'CEPH cluster health: <strong>ERROR</strong>', cat: 'ceph' });
+                } else if (data.ceph.health === 'HEALTH_WARN') {
+                    warnings.push({ level: 'warning', msg: 'CEPH cluster health: <strong>WARNING</strong>', cat: 'ceph' });
+                }
+                const osds = data.ceph.osds || {};
+                if (osds.total > 0 && osds.up < osds.total) {
+                    warnings.push({ level: osds.up < osds.total / 2 ? 'danger' : 'warning', msg: `CEPH: ${osds.total - osds.up} OSD(s) down (${osds.up}/${osds.total} up)`, cat: 'ceph' });
                 }
             }
 

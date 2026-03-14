@@ -6,6 +6,7 @@ const Monitoring = {
     _currentTarget: null,
     _timerange: '1h',
     _smoothing: 0,
+    _cephAvailable: null,
 
     init() {
         this.render();
@@ -48,6 +49,13 @@ const Monitoring = {
     async loadOverview() {
         try {
             this._overview = await API.get('api/monitoring.php', { action: 'overview' });
+            // Check CEPH availability in background
+            if (this._cephAvailable === null) {
+                API.getSilent('api/ceph.php', { action: 'status' }).then(d => {
+                    this._cephAvailable = d && d.available;
+                    this.renderNav();
+                }).catch(() => { this._cephAvailable = false; });
+            }
             this.renderNav();
             this.showOverview();
         } catch (e) {
@@ -101,8 +109,165 @@ const Monitoring = {
                         `).join('')}
                     </ul>
                 </div>
+                ${this._cephAvailable ? `
+                <button class="btn btn-sm ${this._currentView === 'ceph' ? 'btn-warning' : 'btn-outline-secondary'}"
+                    onclick="Monitoring.showCeph()">
+                    <i class="bi bi-device-ssd-fill me-1"></i>CEPH
+                </button>` : ''}
             </div>
         `;
+    },
+
+    async showCeph() {
+        this._currentView = 'ceph';
+        this._currentTarget = null;
+        this.renderNav();
+        this.clearCharts();
+        if (this._interval) clearInterval(this._interval);
+
+        const content = document.getElementById('mon-content');
+        content.innerHTML = '<div class="text-center py-4"><span class="spinner-border text-secondary"></span></div>';
+
+        try {
+            const data = await API.get('api/ceph.php', { action: 'status' });
+            if (!data || !data.available) {
+                content.innerHTML = '<div class="alert alert-info">CEPH is not available on this cluster.</div>';
+                return;
+            }
+
+            const perf = data.performance || {};
+            const cap = data.capacity || {};
+            const usedPct = cap.total > 0 ? Math.round((cap.used / cap.total) * 100) : 0;
+            const osds = data.osds_detail || [];
+            const pools = data.pools || [];
+            const o = data.osds || {};
+
+            content.innerHTML = `
+                <div class="row g-3 mb-4">
+                    <div class="col-6 col-lg-3">
+                        <div class="stat-card stat-card-centered">
+                            <div class="stat-icon" style="color:var(--text-secondary)"><i class="bi bi-heart-pulse"></i></div>
+                            <div class="stat-value">${Health.cephHealthBadge(data.health)}</div>
+                            <div class="stat-label">Health</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg-3">
+                        <div class="stat-card stat-card-centered">
+                            <div class="stat-icon" style="color:var(--text-secondary)"><i class="bi bi-hdd-fill"></i></div>
+                            <div class="stat-value">${o.up}/${o.total}</div>
+                            <div class="stat-label">OSDs Up (${o.in} in)</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg-3">
+                        <div class="stat-card stat-card-centered">
+                            <div class="stat-icon" style="color:var(--text-secondary)"><i class="bi bi-speedometer2"></i></div>
+                            <div class="stat-value">${Utils.formatNumber(perf.read_ops + perf.write_ops)}</div>
+                            <div class="stat-label">IOPS</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-lg-3">
+                        <div class="stat-card stat-card-centered">
+                            <div class="stat-icon" style="color:var(--text-secondary)"><i class="bi bi-arrow-left-right"></i></div>
+                            <div class="stat-value">${Utils.formatRate(perf.read_bytes + perf.write_bytes)}</div>
+                            <div class="stat-label">Throughput</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6">
+                        <div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)">
+                            <div class="card-body">
+                                <h6 class="mb-3"><i class="bi bi-pie-chart me-1"></i>Capacity</h6>
+                                <div class="d-flex justify-content-between mb-1">
+                                    <small>Used: ${Utils.formatBytes(cap.used)}</small>
+                                    <small>Total: ${Utils.formatBytes(cap.total)}</small>
+                                </div>
+                                <div class="resource-bar"><div class="progress" style="height:20px"><div class="progress-bar ${Health.levelClass(usedPct)}" style="width:${usedPct}%">${usedPct}%</div></div></div>
+                                <div class="mt-2 d-flex gap-4 text-muted small">
+                                    <span>Available: ${Utils.formatBytes(cap.available)}</span>
+                                    <span>Objects: ${Utils.formatNumber(data.objects || 0)}</span>
+                                    <span>PGs: ${data.pgs?.total || 0}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)">
+                            <div class="card-body">
+                                <h6 class="mb-3"><i class="bi bi-activity me-1"></i>Performance</h6>
+                                <table class="table table-sm table-dark mb-0">
+                                    <tbody>
+                                        <tr><td class="text-muted">Read IOPS</td><td>${Utils.formatNumber(perf.read_ops)}/s</td></tr>
+                                        <tr><td class="text-muted">Write IOPS</td><td>${Utils.formatNumber(perf.write_ops)}/s</td></tr>
+                                        <tr><td class="text-muted">Read Throughput</td><td>${Utils.formatRate(perf.read_bytes)}</td></tr>
+                                        <tr><td class="text-muted">Write Throughput</td><td>${Utils.formatRate(perf.write_bytes)}</td></tr>
+                                        <tr><td class="text-muted">Monitors</td><td>${data.monitors}</td></tr>
+                                        <tr><td class="text-muted">MDS</td><td>${data.mds?.up || 0} up / ${data.mds?.in || 0} in</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                ${osds.length ? `
+                <div class="card mb-4" style="background:var(--card-bg);border:1px solid var(--border-color)">
+                    <div class="card-body">
+                        <h6 class="mb-3"><i class="bi bi-hdd-fill me-1"></i>OSDs (${osds.length})</h6>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-dark table-hover align-middle mb-0">
+                                <thead><tr><th>ID</th><th>Host</th><th>Class</th><th>Status</th><th>Weight</th></tr></thead>
+                                <tbody>
+                                    ${osds.map(d => `<tr>
+                                        <td><strong>${d.name || 'osd.' + d.id}</strong></td>
+                                        <td>${Utils.escapeHtml(d.host || '-')}</td>
+                                        <td><span class="badge bg-secondary">${Utils.escapeHtml(d.device_class || '-')}</span></td>
+                                        <td><span class="badge ${d.status === 'up' ? 'bg-success' : 'bg-danger'}">${d.status || 'unknown'}</span></td>
+                                        <td>${d.crush_weight?.toFixed(4) || '-'}</td>
+                                    </tr>`).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>` : ''}
+
+                ${pools.length ? `
+                <div class="card mb-4" style="background:var(--card-bg);border:1px solid var(--border-color)">
+                    <div class="card-body">
+                        <h6 class="mb-3"><i class="bi bi-stack me-1"></i>Pools (${pools.length})</h6>
+                        <div class="table-responsive">
+                            <table class="table table-sm table-dark table-hover align-middle mb-0">
+                                <thead><tr><th>Name</th><th>Type</th><th>Size</th><th>PGs</th><th>Used</th><th>Usage</th></tr></thead>
+                                <tbody>
+                                    ${pools.map(p => `<tr>
+                                        <td><strong>${Utils.escapeHtml(p.name)}</strong></td>
+                                        <td><span class="badge bg-secondary">${Utils.escapeHtml(p.crush_rule_name || p.type || '-')}</span></td>
+                                        <td>${p.size}x</td>
+                                        <td>${p.pg_num}</td>
+                                        <td>${Utils.formatBytes(p.bytes_used)}</td>
+                                        <td>${p.percent_used}%</td>
+                                    </tr>`).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>` : ''}
+
+                ${(data.warnings || []).length ? `
+                <div class="card mb-4" style="background:var(--card-bg);border:1px solid var(--border-color)">
+                    <div class="card-body">
+                        <h6 class="mb-3 text-warning"><i class="bi bi-exclamation-triangle me-1"></i>Warnings</h6>
+                        ${data.warnings.map(w => `<div class="small ${w.severity === 'HEALTH_ERR' ? 'text-danger' : 'text-warning'} mb-1"><i class="bi bi-exclamation-circle me-1"></i>${Utils.escapeHtml(w.message)}</div>`).join('')}
+                    </div>
+                </div>` : ''}
+            `;
+
+            // Auto-refresh every 30s
+            this._interval = setInterval(() => this.showCeph(), 30000);
+        } catch (e) {
+            content.innerHTML = `<div class="alert alert-danger">${Utils.escapeHtml(e.message)}</div>`;
+        }
     },
 
     showOverview() {

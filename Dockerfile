@@ -50,8 +50,8 @@ COPY . .
 # Install PHP dependencies (no dev packages)
 RUN composer install --no-dev --no-interaction --optimize-autoloader
 
-# Create data directory for SSH keys and custom images
-RUN mkdir -p data data/images \
+# Create data directory for SSH keys, custom images and backups
+RUN mkdir -p data data/images data/backups \
     && chown -R www-data:www-data /var/www/html \
     && chmod -R 755 /var/www/html \
     && chmod 750 /var/www/html/data

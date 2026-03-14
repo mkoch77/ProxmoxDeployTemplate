@@ -12,7 +12,7 @@ class Auth
     public static function login(string $username, string $password): ?array
     {
         $db = Database::connection();
-        $stmt = $db->prepare('SELECT * FROM users WHERE username = ? AND auth_provider = ? AND is_active = 1');
+        $stmt = $db->prepare('SELECT * FROM users WHERE LOWER(username) = LOWER(?) AND auth_provider = ? AND is_active = 1');
         $stmt->execute([$username, 'local']);
         $user = $stmt->fetch();
 

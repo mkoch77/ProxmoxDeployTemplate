@@ -121,8 +121,15 @@ $lines[] = 'qm create $VMID'
     . ' --bios ovmf'
     . ' --machine pc-q35-9.0'
     . ' --efidisk0 ' . escapeshellarg($storage) . ':1,efitype=4m,pre-enrolled-keys=0'
-    . ' --tpmstate0 ' . escapeshellarg($storage) . ':1,version=v2.0'
     . ' --agent enabled=1';
+$lines[] = '';
+
+// TPM 2.0: try to add, skip on failure (swtpm can fail on NFS/shared storage)
+$lines[] = 'echo "    Adding TPM 2.0..."';
+$lines[] = 'if ! qm set $VMID --tpmstate0 ' . escapeshellarg($storage) . ':1,version=v2.0 2>/dev/null; then';
+$lines[] = '  echo "    WARNING: TPM 2.0 could not be added (swtpm init failed — common on shared/NFS storage)."';
+$lines[] = '  echo "    The VM will work without TPM. Windows 11 requires TPM, Windows Server does not."';
+$lines[] = 'fi';
 $lines[] = '';
 
 // Step 2: Configure hardware
@@ -208,10 +215,14 @@ if ($tags) {
 $lines[] = '';
 $lines[] = "echo '==> [5/5] Starting VM...'";
 $lines[] = 'qm start $VMID';
-$lines[] = "echo '    Waiting for UEFI boot prompt...'";
-$lines[] = 'sleep 3';
-$lines[] = '# Send keystrokes to pass "Press any key to boot from CD" prompt';
-$lines[] = 'for i in 1 2 3 4 5; do qm sendkey $VMID ret; sleep 1; done';
+$lines[] = "echo '    Waiting for UEFI boot...'";
+$lines[] = '# Send keystrokes in background to catch "Press any key to boot from CD" prompt';
+$lines[] = '# UEFI+TPM+EFI disk init can take 10-20s, so keep pressing over a wide window';
+$lines[] = '(for i in $(seq 1 30); do qm sendkey $VMID ret 2>/dev/null; sleep 1; done) &';
+$lines[] = 'SENDKEY_PID=$!';
+$lines[] = 'sleep 15';
+$lines[] = "echo '    Boot keystrokes sent.'";
+$lines[] = 'kill $SENDKEY_PID 2>/dev/null || true';
 $lines[] = "echo ''";
 if ($image['autounattend_xml']) {
     $lines[] = 'echo "==> Done! VM $VMID (' . addslashes($name) . ') is booting into Windows unattended setup."';

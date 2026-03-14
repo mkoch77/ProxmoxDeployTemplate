@@ -3,6 +3,7 @@ const Updater = {
     updateCounts: {},     // node → count of available updates
     updatePackages: {},   // node → array of pending packages
     updateErrors: {},     // node → error message string (if check failed)
+    updateWarnings: {},   // node → array of warning strings
     session: null,
     running: false,
     cancelled: false,
@@ -85,6 +86,7 @@ const Updater = {
             const count    = this.updateCounts[n.node];
             const packages = this.updatePackages[n.node] || [];
             const error    = this.updateErrors[n.node] || '';
+            const warns    = this.updateWarnings[n.node] || [];
             const nodeId   = escapeHtml(n.node);
 
             let countBadge;
@@ -104,6 +106,11 @@ const Updater = {
                 >${count} update${count !== 1 ? 's' : ''}</span>`;
             }
 
+            const warnBadge = warns.length ? `<span class="badge bg-warning text-dark ms-2" style="cursor:pointer"
+                title="Click to show warnings"
+                onclick="event.preventDefault();event.stopPropagation();document.getElementById('warn-${nodeId}').classList.toggle('d-none')"
+><i class="bi bi-exclamation-triangle-fill"></i> no subscription</span>` : '';
+
             const pkgList = packages.length ? `
                 <div id="pkgs-${nodeId}" class="d-none mt-2" style="font-size:0.78rem;max-height:180px;overflow-y:auto">
                     ${packages.map(p => `
@@ -111,6 +118,14 @@ const Updater = {
                             <span class="text-truncate me-2">${escapeHtml(p.name)}</span>
                             <small class="text-muted text-nowrap">${escapeHtml(p.new_version)}</small>
                         </div>`).join('')}
+                </div>` : '';
+
+            const warnDetail = warns.length ? `
+                <div id="warn-${nodeId}" class="d-none mt-2">
+                    ${warns.map(w => `<div class="small text-warning d-flex align-items-start gap-1 mb-1" style="font-size:0.78rem">
+                        <i class="bi bi-exclamation-triangle-fill mt-1 flex-shrink-0"></i>
+                        <span>${escapeHtml(w)}</span>
+                    </div>`).join('')}
                 </div>` : '';
 
             const errorDetail = (count < 0 && error) ? `
@@ -133,8 +148,10 @@ const Updater = {
                                 <i class="bi bi-hdd-rack me-2 text-muted"></i>
                                 <strong>${escapeHtml(n.node)}</strong>
                                 ${countBadge}
+                                ${warnBadge}
                             </label>
                         </div>
+                        ${warnDetail}
                         ${pkgList}
                         ${errorDetail}
                     </div>
@@ -155,12 +172,14 @@ const Updater = {
         await Promise.allSettled(this.nodes.map(async n => {
             try {
                 const r = await API.checkNodeUpdates(n.node);
-                this.updateCounts[n.node]   = r.count ?? 0;
-                this.updatePackages[n.node] = r.packages ?? [];
+                this.updateCounts[n.node]    = r.count ?? 0;
+                this.updatePackages[n.node]  = r.packages ?? [];
+                this.updateWarnings[n.node]  = r.warnings ?? [];
             } catch (e) {
-                this.updateCounts[n.node]   = -1;
-                this.updatePackages[n.node] = [];
-                this.updateErrors[n.node]   = e.message || 'Unknown error';
+                this.updateCounts[n.node]    = -1;
+                this.updatePackages[n.node]  = [];
+                this.updateWarnings[n.node]  = [];
+                this.updateErrors[n.node]    = e.message || 'Unknown error';
             }
         }));
 
@@ -260,7 +279,7 @@ const Updater = {
         this.setNodeStep(node, 'updating');
         await API.updateRollingNode(this.session.id, node, 'updating');
 
-        let updateResult = { success: true, log: '', upgraded: 0 };
+        let updateResult = { success: true, log: '', upgraded: 0, warnings: [] };
         try {
             updateResult = await API.runNodeUpdate(node);
         } catch (err) {
@@ -269,13 +288,13 @@ const Updater = {
                 throw new Error(err.message || 'VMs still running on node — update blocked');
             }
             // SSH/update failure — still exit maintenance so node isn't stuck
-            updateResult = { success: false, log: err.message || 'Update failed', upgraded: 0 };
+            updateResult = { success: false, log: err.message || 'Update failed', upgraded: 0, warnings: [] };
         }
 
         // ── Step 3: Leave Maintenance ─────────────────────────────────
         // Only exit maintenance if we entered it (not if node was already in maintenance)
         if (!alreadyInMaintenance) {
-            this.setNodeStep(node, 'leaving_maintenance', updateResult.log, updateResult.upgraded);
+            this.setNodeStep(node, 'leaving_maintenance', updateResult.log, updateResult.upgraded, null, updateResult.warnings || []);
             await API.updateRollingNode(this.session.id, node, 'leaving_maintenance',
                 updateResult.log, updateResult.upgraded);
 
@@ -292,7 +311,7 @@ const Updater = {
             throw new Error(updateResult.log || 'Update command failed');
         }
 
-        this.setNodeStep(node, 'completed', updateResult.log, updateResult.upgraded);
+        this.setNodeStep(node, 'completed', updateResult.log, updateResult.upgraded, null, updateResult.warnings || []);
         await API.updateRollingNode(this.session.id, node, 'completed',
             updateResult.log, updateResult.upgraded);
     },
@@ -390,7 +409,7 @@ const Updater = {
         return `<span class="badge ${cls}">${spinner}${label}</span>`;
     },
 
-    setNodeStep(node, step, log = null, upgraded = null, error = null) {
+    setNodeStep(node, step, log = null, upgraded = null, error = null, warnings = null) {
         const badgeEl = document.getElementById(`updater-badge-${node}`);
         if (badgeEl) badgeEl.innerHTML = this.stepBadge(step);
 
@@ -402,9 +421,17 @@ const Updater = {
             return;
         }
 
+        const warnHtml = (warnings && warnings.length) ? warnings.map(w =>
+            `<div class="d-flex align-items-start gap-1 mt-1" style="font-size:0.78rem">
+                <i class="bi bi-exclamation-triangle-fill text-warning mt-1 flex-shrink-0"></i>
+                <small class="text-warning">${escapeHtml(w)}</small>
+            </div>`
+        ).join('') : '';
+
         if (step === 'completed' && log) {
             const upgradeInfo = upgraded !== null ? `<span class="badge bg-success ms-2">${upgraded} package${upgraded !== 1 ? 's' : ''} upgraded</span>` : '';
             logEl.innerHTML = `
+                ${warnHtml}
                 <div class="d-flex align-items-center gap-2 mt-1">
                     <i class="bi bi-check-circle-fill text-success"></i>
                     <small class="text-success">Update successful</small>

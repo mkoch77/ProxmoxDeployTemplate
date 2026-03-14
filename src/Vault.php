@@ -22,16 +22,14 @@ class Vault
     /**
      * Keys that should be stored in the vault (moved from .env).
      */
+    /**
+     * Keys that contain actual secrets and must be stored encrypted.
+     * Non-secret settings (PROXMOX_HOST, SSH_PORT, etc.) are in AppSettings.
+     */
     public const VAULT_KEYS = [
-        'PROXMOX_HOST',
-        'PROXMOX_PORT',
-        'PROXMOX_VERIFY_SSL',
-        'PROXMOX_FALLBACK_HOSTS',
         'PROXMOX_TOKEN_ID',
         'PROXMOX_TOKEN_SECRET',
         'APP_SECRET',
-        'SSH_ENABLED',
-        'SSH_PORT',
         'SSH_USER',
         'SSH_KEY_PATH',
         'SSH_PRIVATE_KEY',
@@ -40,9 +38,9 @@ class Vault
         'ENTRAID_CLIENT_ID',
         'ENTRAID_CLIENT_SECRET',
         'ENTRAID_REDIRECT_URI',
-        'CLOUD_DISTROS',
-        'DOMAIN',
-        'LETSENCRYPT_EMAIL',
+        'BACKUP_REMOTE_PASSWORD',
+        'BACKUP_REMOTE_KEY',
+        'BACKUP_ENCRYPTION_KEY',
     ];
 
     /**

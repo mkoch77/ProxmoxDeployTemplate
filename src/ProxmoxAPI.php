@@ -452,6 +452,28 @@ class ProxmoxAPI
         return $this->get("/nodes/{$node}/qemu/{$vmid}/agent/exec-status", ['pid' => $pid]);
     }
 
+    // --- CEPH ---
+
+    public function getCephStatus(string $node, array $options = []): array
+    {
+        return $this->get("/nodes/{$node}/ceph/status", [], $options);
+    }
+
+    public function getCephOsd(string $node, array $options = []): array
+    {
+        return $this->get("/nodes/{$node}/ceph/osd", [], $options);
+    }
+
+    public function getCephMon(string $node, array $options = []): array
+    {
+        return $this->get("/nodes/{$node}/ceph/mon", [], $options);
+    }
+
+    public function getCephPools(string $node, array $options = []): array
+    {
+        return $this->get("/nodes/{$node}/ceph/pools", [], $options);
+    }
+
     // --- Migration ---
 
     public function migrateGuest(string $node, string $type, int $vmid, string $target, bool $online = true): array

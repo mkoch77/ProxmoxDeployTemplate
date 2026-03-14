@@ -39,6 +39,7 @@ const Health = {
                 <h2><i class="bi bi-hdd-rack-fill"></i> Nodes</h2>
             </div>
             <div id="health-nodes" class="row g-3 mb-4"></div>
+            <div id="health-ceph" class="mb-4"></div>
             <div class="section-header mt-4">
                 <h2><i class="bi bi-device-hdd-fill"></i> Storage Pools</h2>
             </div>
@@ -83,6 +84,7 @@ const Health = {
     updateView() {
         if (!this.data) return;
         this.renderClusterStats();
+        this.renderCeph();
         this.renderNodes();
         this.renderStorage();
         this.renderHA();
@@ -232,6 +234,106 @@ const Health = {
                     <div class="stat-value" id="hcs-iowait-val">${iowaitDisplay}%</div>
                     <div class="stat-label">I/O Wait (avg)</div>
                     <div class="resource-bar mt-2"><div class="progress"><div id="hcs-iowait-bar" class="progress-bar ${this.iowaitLevel(avgIowait)}" style="width:${Math.min(avgIowait * 2, 100)}%"></div></div></div>
+                </div>
+            </div>
+        `;
+    },
+
+    cephHealthBadge(health) {
+        const map = {
+            'HEALTH_OK': ['bg-success', 'Healthy'],
+            'HEALTH_WARN': ['bg-warning text-dark', 'Warning'],
+            'HEALTH_ERR': ['bg-danger', 'Error'],
+        };
+        const [cls, label] = map[health] || ['bg-secondary', health || 'Unknown'];
+        return `<span class="badge ${cls}">${label}</span>`;
+    },
+
+    renderCeph() {
+        const container = document.getElementById('health-ceph');
+        if (!container) return;
+        const ceph = this.data.ceph;
+        if (!ceph || !ceph.available) {
+            container.innerHTML = '';
+            return;
+        }
+
+        const o = ceph.osds || {};
+        const cap = ceph.capacity || {};
+        const perf = ceph.performance || {};
+        const usedPct = cap.total > 0 ? Math.round((cap.used / cap.total) * 100) : 0;
+
+        // PG state summary
+        const pgStates = (ceph.pgs?.states || []).map(s =>
+            `<span class="badge ${s.state.includes('active+clean') ? 'bg-success' : s.state.includes('active') ? 'bg-info' : 'bg-warning text-dark'} me-1 mb-1">${s.count} ${escapeHtml(s.state)}</span>`
+        ).join('');
+
+        // Warnings
+        const warnHtml = (ceph.warnings || []).map(w =>
+            `<div class="small ${w.severity === 'HEALTH_ERR' ? 'text-danger' : 'text-warning'}"><i class="bi bi-exclamation-triangle me-1"></i>${escapeHtml(w.message)}</div>`
+        ).join('');
+
+        container.innerHTML = `
+            <div class="section-header mt-4">
+                <h2><i class="bi bi-device-ssd-fill"></i> CEPH Storage</h2>
+            </div>
+            <div class="row g-3">
+                <div class="col-md-6 col-xl-3">
+                    <div class="stat-card">
+                        <div class="stat-icon" style="color:var(--text-secondary)"><i class="bi bi-heart-pulse"></i></div>
+                        <div class="stat-value">${this.cephHealthBadge(ceph.health)}</div>
+                        <div class="stat-label">CEPH Health</div>
+                    </div>
+                </div>
+                <div class="col-md-6 col-xl-3">
+                    <div class="stat-card">
+                        <div class="stat-icon" style="color:var(--text-secondary)"><i class="bi bi-hdd-fill"></i></div>
+                        <div class="stat-value">${o.up}/${o.total} <small class="text-muted" style="font-size:0.6em">up</small></div>
+                        <div class="stat-label">OSDs (${o.in} in)</div>
+                    </div>
+                </div>
+                <div class="col-md-6 col-xl-3">
+                    <div class="stat-card">
+                        <div class="stat-icon" style="color:var(--text-secondary)"><i class="bi bi-speedometer2"></i></div>
+                        <div class="stat-value">${Utils.formatNumber(perf.read_ops + perf.write_ops)}</div>
+                        <div class="stat-label">IOPS (R: ${Utils.formatNumber(perf.read_ops)} / W: ${Utils.formatNumber(perf.write_ops)})</div>
+                    </div>
+                </div>
+                <div class="col-md-6 col-xl-3">
+                    <div class="stat-card">
+                        <div class="stat-icon" style="color:var(--text-secondary)"><i class="bi bi-arrow-left-right"></i></div>
+                        <div class="stat-value">${Utils.formatRate(perf.read_bytes + perf.write_bytes)}</div>
+                        <div class="stat-label">Throughput (R: ${Utils.formatRate(perf.read_bytes)} / W: ${Utils.formatRate(perf.write_bytes)})</div>
+                    </div>
+                </div>
+            </div>
+            <div class="row g-3 mt-1">
+                <div class="col-md-6">
+                    <div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)">
+                        <div class="card-body">
+                            <h6 class="text-muted mb-2">Capacity</h6>
+                            <div class="d-flex justify-content-between mb-1">
+                                <small>Used: ${Utils.formatBytes(cap.used)}</small>
+                                <small>Total: ${Utils.formatBytes(cap.total)}</small>
+                            </div>
+                            <div class="resource-bar"><div class="progress"><div class="progress-bar ${this.levelClass(usedPct)}" style="width:${usedPct}%"></div></div></div>
+                            <div class="text-end"><small class="text-muted">${usedPct}% used — ${Utils.formatBytes(cap.available)} free</small></div>
+                            <div class="mt-2">
+                                <small class="text-muted">Objects: ${Utils.formatNumber(ceph.objects || 0)}</small>
+                                <small class="text-muted ms-3">Monitors: ${ceph.monitors}</small>
+                                <small class="text-muted ms-3">PGs: ${ceph.pgs?.total || 0}</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)">
+                        <div class="card-body">
+                            <h6 class="text-muted mb-2">Placement Groups</h6>
+                            <div class="mb-2">${pgStates || '<span class="text-muted small">No PG data</span>'}</div>
+                            ${warnHtml ? `<h6 class="text-muted mb-1 mt-3">Warnings</h6>${warnHtml}` : ''}
+                        </div>
+                    </div>
                 </div>
             </div>
         `;

@@ -20,7 +20,10 @@ class Database
                 $pass = trim(file_get_contents('/tmp/db_password'));
             }
             if (empty($pass)) {
-                $pass = 'changeme';
+                throw new \RuntimeException(
+                    'DB_PASSWORD is not set. Provide it via environment variable, '
+                    . 'Docker secret (secrets/db_password.txt), or /tmp/db_password.'
+                );
             }
 
             $dsn = "pgsql:host={$host};port={$port};dbname={$name}";
