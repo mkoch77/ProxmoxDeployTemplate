@@ -99,6 +99,41 @@ fi
 echo -e "\n${BOLD}ProxmoxDeploy — Ersteinrichtung${RESET}"
 echo -e "Alle Pflichtfelder sind ${RED}*${RESET} markiert. Leere Eingabe übernimmt den Standardwert.\n"
 
+# ── Backup-Wiederherstellung ─────────────────────────────────────────────────
+RESTORE_BACKUP=""
+RESTORE_BACKUP_KEY=""
+
+if ask_yn "Aus einem lokalen Backup wiederherstellen?"; then
+    echo
+    echo -e "  ${YELLOW}Hinweis:${RESET} Das Backup wird nach dem Start des Docker-Stacks eingespielt."
+    echo -e "  DB-Zugangsdaten und Ports werden trotzdem benötigt.\n"
+
+    while true; do
+        ask RESTORE_BACKUP "* Pfad zur Backup-Datei (.tar.gz oder .tar.gz.enc)"
+        # Expand ~ to home
+        RESTORE_BACKUP="${RESTORE_BACKUP/#\~/$HOME}"
+        if [[ -f "$RESTORE_BACKUP" ]]; then
+            echo -e "${GREEN}  → Datei gefunden ($(du -h "$RESTORE_BACKUP" | cut -f1))${RESET}"
+            break
+        fi
+        echo -e "${RED}  Datei nicht gefunden: ${RESTORE_BACKUP}${RESET}"
+    done
+
+    if [[ "$RESTORE_BACKUP" == *.enc ]]; then
+        echo -e "\n  Backup ist verschlüsselt. Encryption Key wird benötigt (64 Hex-Zeichen)."
+        echo -e "  ${YELLOW}Hinweis:${RESET} Den Key findest du unter Settings → Backup → Show Encryption Key."
+        while true; do
+            ask_secret RESTORE_BACKUP_KEY "* Backup Encryption Key"
+            if [[ ${#RESTORE_BACKUP_KEY} -eq 64 ]] && echo "$RESTORE_BACKUP_KEY" | grep -qP '^[0-9a-fA-F]{64}$'; then
+                echo -e "${GREEN}  → Key akzeptiert.${RESET}"
+                break
+            fi
+            echo -e "${RED}  Ungültiger Key — muss genau 64 Hex-Zeichen sein.${RESET}"
+        done
+    fi
+    echo
+fi
+
 # ── 1. Proxmox ────────────────────────────────────────────────────────────────
 header "1 / 7 · Proxmox Verbindung"
 
@@ -382,13 +417,63 @@ echo
 if ask_yn "Docker-Stack jetzt starten? (docker compose up --build -d)" "j"; then
     echo
     cd "$SCRIPT_DIR"
+
+    # Copy backup file into data/backups/ before starting (needed for restore)
+    if [[ -n "$RESTORE_BACKUP" ]]; then
+        mkdir -p "$SCRIPT_DIR/data/backups"
+        BACKUP_FILENAME="$(basename "$RESTORE_BACKUP")"
+        cp "$RESTORE_BACKUP" "$SCRIPT_DIR/data/backups/$BACKUP_FILENAME"
+        echo -e "${GREEN}  → Backup kopiert nach data/backups/${RESET}"
+    fi
+
     docker compose up --build -d
     echo -e "\n${GREEN}✔  Stack gestartet.${RESET}"
+
+    # Restore backup if requested
+    if [[ -n "$RESTORE_BACKUP" ]]; then
+        echo -e "\n${CYAN}Warte auf Container-Start...${RESET}"
+        sleep 5
+
+        # Wait for app container to be healthy
+        for i in {1..30}; do
+            if docker compose exec -T app php -r "echo 'ok';" 2>/dev/null | grep -q ok; then
+                break
+            fi
+            sleep 2
+        done
+
+        echo -e "${CYAN}Stelle Backup wieder her...${RESET}"
+        RESTORE_CMD="php cli/backup-restore.php '${BACKUP_FILENAME}'"
+        if [[ -n "$RESTORE_BACKUP_KEY" ]]; then
+            RESTORE_CMD="$RESTORE_CMD '${RESTORE_BACKUP_KEY}'"
+        fi
+
+        if docker compose exec -T app bash -c "$RESTORE_CMD"; then
+            echo -e "${GREEN}✔  Backup erfolgreich wiederhergestellt!${RESET}"
+            echo -e "   ${YELLOW}Hinweis:${RESET} Admin-Account und Einstellungen stammen jetzt aus dem Backup."
+            echo -e "   Die in diesem Setup eingegebenen Credentials wurden überschrieben."
+        else
+            echo -e "${RED}✗  Backup-Wiederherstellung fehlgeschlagen.${RESET}"
+            echo -e "   Prüfe die Logs: ${YELLOW}docker compose logs app${RESET}"
+        fi
+    fi
+
     echo -e "   App erreichbar unter: ${CYAN}http://localhost:${HTTP_PORT}${RESET}"
     echo -e "   Logs: ${YELLOW}docker compose logs -f app${RESET}"
 else
     echo -e "\n${YELLOW}Start übersprungen.${RESET} Manuell starten mit:"
     echo -e "   ${CYAN}docker compose up --build -d${RESET}"
+    if [[ -n "$RESTORE_BACKUP" ]]; then
+        BACKUP_FILENAME="$(basename "$RESTORE_BACKUP")"
+        echo -e "\n   ${YELLOW}Backup-Wiederherstellung:${RESET}"
+        echo -e "   1. ${CYAN}mkdir -p data/backups && cp ${RESTORE_BACKUP} data/backups/${RESET}"
+        echo -e "   2. ${CYAN}docker compose up --build -d${RESET}"
+        if [[ -n "$RESTORE_BACKUP_KEY" ]]; then
+            echo -e "   3. ${CYAN}docker compose exec app php cli/backup-restore.php '${BACKUP_FILENAME}' '<encryption-key>'${RESET}"
+        else
+            echo -e "   3. ${CYAN}docker compose exec app php cli/backup-restore.php '${BACKUP_FILENAME}'${RESET}"
+        fi
+    fi
 fi
 
 echo

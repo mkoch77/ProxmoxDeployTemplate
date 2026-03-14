@@ -1499,7 +1499,7 @@ const Settings = {
             let html = '';
             for (const [group, items] of Object.entries(grouped)) {
                 html += `<h6 class="mt-3 mb-2 text-muted small text-uppercase">${esc(group)}</h6>`;
-                html += `<div class="guest-table mb-2"><table class="table table-dark table-hover table-sm mb-0"><tbody>`;
+                html += `<div class="guest-table mb-2"><table class="table table-dark table-hover table-sm mb-0" style="table-layout:fixed"><colgroup><col style="width:30%"><col style="width:auto"><col style="width:80px"><col style="width:50px"></colgroup><tbody>`;
                 for (const e of items) {
                     const sourceBadge = e.source === 'database'
                         ? '<span class="badge bg-success"><i class="bi bi-database"></i> DB</span>'
@@ -1523,13 +1523,13 @@ const Settings = {
                     }
 
                     html += `<tr>
-                        <td style="width:200px">
+                        <td>
                             <code class="small">${esc(e.key)}</code>
                             <br><small class="text-muted">${esc(e.label)}</small>
                         </td>
-                        <td>${valueDisplay}</td>
-                        <td style="width:80px">${sourceBadge}</td>
-                        <td style="width:60px">
+                        <td style="overflow:hidden;text-overflow:ellipsis">${valueDisplay}</td>
+                        <td>${sourceBadge}</td>
+                        <td>
                             <button class="btn btn-outline-light btn-sm py-0 px-2" onclick="Settings.appConfigEdit('${esc(e.key)}')" title="Edit">
                                 <i class="bi bi-pencil-fill" style="font-size:0.75rem"></i>
                             </button>
@@ -1909,7 +1909,6 @@ const Settings = {
                             <td class="text-muted small">${escapeHtml(b.created_at)}</td>
                             <td class="text-end text-nowrap">
                                 <a href="api/backup.php?action=download&filename=${encodeURIComponent(b.filename)}" class="btn btn-sm btn-outline-primary me-1" title="Download"><i class="bi bi-download"></i></a>
-                                ${remoteEnabled ? `<button class="btn btn-sm btn-outline-info me-1" title="Upload to remote" onclick="Settings.uploadBackupToRemote('${escapeHtml(b.filename)}', this)"><i class="bi bi-cloud-upload"></i></button>` : ''}
                                 <button class="btn btn-sm btn-outline-warning me-1" title="Restore" onclick="Settings.restoreBackup('${escapeHtml(b.filename)}')"><i class="bi bi-arrow-counterclockwise"></i></button>
                                 <button class="btn btn-sm btn-outline-danger" title="Delete" onclick="Settings.deleteLocalBackup('${escapeHtml(b.filename)}')"><i class="bi bi-trash"></i></button>
                             </td>
