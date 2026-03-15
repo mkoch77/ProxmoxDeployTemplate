@@ -1,6 +1,5 @@
 .env
 secrets/
-config/config.php
 vendor/
 .idea/
 .vscode/

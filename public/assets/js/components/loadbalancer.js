@@ -15,7 +15,7 @@ const Loadbalancer = {
 
     startAutoRefresh() {
         this.stopAutoRefresh();
-        this.refreshInterval = setInterval(() => this.loadData(), 15000);
+        this.refreshInterval = setInterval(() => this.loadData(), 30000);
     },
 
     stopAutoRefresh() {

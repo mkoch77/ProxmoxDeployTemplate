@@ -771,7 +771,6 @@ const Settings = {
                 } else {
                     Toast.success(`${ok} migration${ok !== 1 ? 's' : ''} started`);
                 }
-                console.log('Affinity resolve results:', details);
             }
             // Reload after a short delay to show updated state
             setTimeout(() => this.loadAffinityData(), 3000);

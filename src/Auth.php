@@ -82,13 +82,20 @@ class Auth
     {
         $sessionId = $_COOKIE[self::COOKIE_NAME] ?? null;
         if (!$sessionId) {
-            AppLogger::debug('auth', 'No session cookie found');
             return null;
+        }
+
+        // Cache auth result in PHP session to avoid 3 DB queries per request
+        $cacheKey = 'auth_' . substr(hash('sha256', $sessionId), 0, 16);
+        if (isset($_SESSION[$cacheKey]) && ($_SESSION[$cacheKey]['_cached_at'] ?? 0) > time() - 60) {
+            return $_SESSION[$cacheKey]['data'];
         }
 
         $db = Database::connection();
         $stmt = $db->prepare('
-            SELECT us.*, u.username, u.display_name, u.email, u.auth_provider, u.is_active, u.ssh_public_keys, u.default_storage
+            SELECT us.user_id, us.expires_at,
+                   u.username, u.display_name, u.email, u.auth_provider, u.is_active,
+                   u.ssh_public_keys, u.default_storage
             FROM user_sessions us
             JOIN users u ON u.id = us.user_id
             WHERE us.id = ? AND us.expires_at > NOW()
@@ -97,14 +104,12 @@ class Auth
         $session = $stmt->fetch();
 
         if (!$session || !$session['is_active']) {
-            AppLogger::debug('auth', 'Invalid or expired session', ['session_id_prefix' => substr($sessionId, 0, 8)]);
+            unset($_SESSION[$cacheKey]);
             self::clearSessionCookie();
             return null;
         }
 
-        AppLogger::debug('auth', 'Session validated', ['user_id' => $session['user_id'], 'username' => $session['username']]);
-
-        return [
+        $result = [
             'id' => $session['user_id'],
             'username' => $session['username'],
             'display_name' => $session['display_name'],
@@ -115,6 +120,11 @@ class Auth
             'permissions' => self::getUserPermissions($session['user_id']),
             'roles' => self::getUserRoles($session['user_id']),
         ];
+
+        // Cache for 60 seconds
+        $_SESSION[$cacheKey] = ['data' => $result, '_cached_at' => time()];
+
+        return $result;
     }
 
     public static function requireAuth(): array

@@ -30,10 +30,33 @@ try {
         $guests = array_values(array_filter($guests, fn($g) => $g['type'] === $typeFilter));
     }
 
-    // Quick mode: skip per-guest config enrichment (used by 10s dashboard refresh)
+    // Attach cached IPs and ostype from database
+    $db = \App\Database::connection();
+    $ipMap = [];
+    $osCache = [];
+    $hasOstype = true;
+    try {
+        $ipRows = $db->query('SELECT vmid, node, ips, ostype FROM guest_ips')->fetchAll(PDO::FETCH_ASSOC);
+    } catch (\Exception $e) {
+        // ostype column may not exist yet (migration 036)
+        $hasOstype = false;
+        $ipRows = $db->query('SELECT vmid, node, ips FROM guest_ips')->fetchAll(PDO::FETCH_ASSOC);
+    }
+    foreach ($ipRows as $row) {
+        $key = $row['vmid'] . '-' . $row['node'];
+        $ipMap[$key] = json_decode($row['ips'], true) ?: [];
+        if (!empty($row['ostype'] ?? null)) $osCache[$key] = $row['ostype'];
+    }
+    foreach ($guests as &$guest) {
+        $key = $guest['vmid'] . '-' . $guest['node'];
+        $guest['ips'] = $ipMap[$key] ?? [];
+        $guest['ostype'] = $osCache[$key] ?? null;
+    }
+    unset($guest);
+
+    // Enrich OS type from Proxmox API in background (not in quick mode)
     $quick = Request::get('quick');
     if (!$quick) {
-        // Build set of online nodes to avoid calling getGuestConfig on unreachable nodes
         $onlineNodes = [];
         try {
             $nodesResult = $api->getNodes();
@@ -42,37 +65,31 @@ try {
                     $onlineNodes[$n['node']] = true;
                 }
             }
-        } catch (\Exception $e) { /* fall through — will skip config enrichment */ }
+        } catch (\Exception $e) {}
 
-        // Enrich with OS type from guest config (online nodes only, short timeout)
         $quickOpts = ['connect_timeout' => 2, 'timeout' => 3];
+        $ostypeUpdates = [];
         foreach ($guests as &$guest) {
-            if (!isset($onlineNodes[$guest['node']])) {
-                $guest['ostype'] = null;
-                continue;
-            }
+            if (!isset($onlineNodes[$guest['node']])) continue;
             try {
                 $config = $api->getGuestConfig($guest['node'], $guest['type'], (int)$guest['vmid'], $quickOpts);
-                $guest['ostype'] = $config['data']['ostype'] ?? null;
-            } catch (\Exception $e) {
-                $guest['ostype'] = null;
-            }
+                $ostype = $config['data']['ostype'] ?? null;
+                if ($ostype) {
+                    $guest['ostype'] = $ostype;
+                    $ostypeUpdates[] = [(int)$guest['vmid'], $guest['node'], $ostype];
+                }
+            } catch (\Exception $e) {}
         }
         unset($guest);
-    }
 
-    // Attach cached IPs from database
-    $db = \App\Database::connection();
-    $ipRows = $db->query('SELECT vmid, node, ips FROM guest_ips')->fetchAll(PDO::FETCH_ASSOC);
-    $ipMap = [];
-    foreach ($ipRows as $row) {
-        $ipMap[$row['vmid'] . '-' . $row['node']] = json_decode($row['ips'], true) ?: [];
+        // Persist ostype cache to DB (if column exists)
+        if ($hasOstype && !empty($ostypeUpdates)) {
+            $stmt = $db->prepare('UPDATE guest_ips SET ostype = ? WHERE vmid = ? AND node = ?');
+            foreach ($ostypeUpdates as [$vmid, $node, $os]) {
+                $stmt->execute([$os, $vmid, $node]);
+            }
+        }
     }
-    foreach ($guests as &$guest) {
-        $key = $guest['vmid'] . '-' . $guest['node'];
-        $guest['ips'] = $ipMap[$key] ?? [];
-    }
-    unset($guest);
 
     Response::success($guests);
 } catch (\Exception $e) {

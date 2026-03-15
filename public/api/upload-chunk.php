@@ -74,6 +74,7 @@ if ($chunkData === false) {
 // For first chunk, create new file; for subsequent, append
 if ($chunkIndex === 0) {
     file_put_contents($tmpFile, $chunkData, LOCK_EX);
+    chmod($tmpFile, 0600);
     AppLogger::debug('deploy', 'Chunked upload started', [
         'upload_id' => $uploadId, 'filename' => $safeName,
         'total_chunks' => $totalChunks, 'chunk_size' => strlen($chunkData),

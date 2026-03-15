@@ -176,13 +176,40 @@ class Vault
         return $plaintext;
     }
 
+    private static ?array $rawRows = null;
+
     /**
-     * Get a single value from the vault.
+     * Get a single value from the vault (lazy decrypt).
      */
     public static function get(string $key): ?string
     {
-        $all = self::getAll();
-        return $all[$key] ?? null;
+        // Return from cache if already decrypted
+        if (self::$cache !== null && array_key_exists($key, self::$cache)) {
+            return self::$cache[$key];
+        }
+
+        // Load raw encrypted rows once
+        if (self::$rawRows === null) {
+            try {
+                $db = Database::connection();
+                self::$rawRows = $db->query('SELECT key, encrypted_value FROM vault')
+                    ->fetchAll(PDO::FETCH_KEY_PAIR);
+            } catch (\Exception $e) {
+                self::$rawRows = [];
+            }
+            if (self::$cache === null) self::$cache = [];
+        }
+
+        if (!isset(self::$rawRows[$key])) return null;
+
+        // Decrypt only the requested key
+        try {
+            $value = self::decrypt(self::$rawRows[$key]);
+            self::$cache[$key] = $value;
+            return $value;
+        } catch (\Exception $e) {
+            return null;
+        }
     }
 
     /**
@@ -190,23 +217,31 @@ class Vault
      */
     public static function getAll(): array
     {
-        if (self::$cache !== null) return self::$cache;
-
-        try {
-            $db = Database::connection();
-            $rows = $db->query('SELECT key, encrypted_value FROM vault')->fetchAll(PDO::FETCH_ASSOC);
-        } catch (\Exception $e) {
-            self::$cache = [];
-            return [];
+        if (self::$rawRows !== null && self::$cache !== null
+            && count(self::$cache) === count(self::$rawRows)) {
+            return self::$cache;
         }
 
-        $result = [];
-        foreach ($rows as $row) {
+        // Load raw rows if not yet loaded
+        if (self::$rawRows === null) {
             try {
-                $result[$row['key']] = self::decrypt($row['encrypted_value']);
+                $db = Database::connection();
+                self::$rawRows = $db->query('SELECT key, encrypted_value FROM vault')
+                    ->fetchAll(PDO::FETCH_KEY_PAIR);
+            } catch (\Exception $e) {
+                self::$rawRows = [];
+                self::$cache = [];
+                return [];
+            }
+        }
+
+        $result = self::$cache ?? [];
+        foreach (self::$rawRows as $k => $enc) {
+            if (array_key_exists($k, $result)) continue; // already decrypted
+            try {
+                $result[$k] = self::decrypt($enc);
             } catch (\Exception $e) {
                 // Skip entries that can't be decrypted (wrong key?)
-                AppLogger::warning('vault', "Failed to decrypt vault key '{$row['key']}': " . $e->getMessage());
             }
         }
 
@@ -227,8 +262,7 @@ class Vault
             ON CONFLICT (key) DO UPDATE SET encrypted_value = EXCLUDED.encrypted_value, updated_at = CURRENT_TIMESTAMP');
         $stmt->execute([$key, $encrypted]);
 
-        // Invalidate cache
-        self::$cache = null;
+        self::clearCache();
     }
 
     /**
@@ -253,7 +287,7 @@ class Vault
             throw $e;
         }
 
-        self::$cache = null;
+        self::clearCache();
     }
 
     /**
@@ -264,7 +298,7 @@ class Vault
         $db = Database::connection();
         $stmt = $db->prepare('DELETE FROM vault WHERE key = ?');
         $stmt->execute([$key]);
-        self::$cache = null;
+        self::clearCache();
     }
 
     /**
@@ -338,7 +372,7 @@ class Vault
             $count++;
         }
 
-        self::$cache = null;
+        self::clearCache();
         return $count;
     }
 
@@ -348,5 +382,6 @@ class Vault
     public static function clearCache(): void
     {
         self::$cache = null;
+        self::$rawRows = null;
     }
 }

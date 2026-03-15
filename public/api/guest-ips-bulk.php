@@ -7,15 +7,13 @@ use App\Auth;
 use App\Request;
 use App\Response;
 use App\Helpers;
-use App\AppLogger;
 use App\Config;
 use App\SSH;
 
 Bootstrap::init();
 Request::requireMethod('POST');
+Request::validateCsrf();
 Auth::requireAuth();
-
-AppLogger::debug('api', 'Fetching guest IPs (bulk)');
 
 $body = json_decode(file_get_contents('php://input'), true) ?: [];
 $guests = $body['guests'] ?? [];
@@ -43,6 +41,7 @@ try {
     // Collect node SSH hosts for ARP fallback (resolved once per node)
     $nodeHosts = [];
     $arpCaches = []; // ARP table cache per node
+    $ipBatch = [];
 
     foreach ($guests as $g) {
         $node = $g['node'] ?? '';
@@ -200,11 +199,19 @@ try {
             'source' => $ipSource,
         ];
 
-        // Persist to DB
+        $ipBatch[] = [$vmid, $node, json_encode($uniqueIps)];
+    }
+
+    // Batch persist all IPs in single transaction
+    if (!empty($ipBatch)) {
         $db = \App\Database::connection();
+        $db->beginTransaction();
         $stmt = $db->prepare('INSERT INTO guest_ips (vmid, node, ips, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT (vmid, node) DO UPDATE SET ips = EXCLUDED.ips, updated_at = CURRENT_TIMESTAMP');
-        $stmt->execute([$vmid, $node, json_encode($uniqueIps)]);
+        foreach ($ipBatch as $row) {
+            $stmt->execute($row);
+        }
+        $db->commit();
     }
 
     Response::success($result);

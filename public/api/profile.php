@@ -24,6 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    \App\Request::validateCsrf();
     $body = json_decode(file_get_contents('php://input'), true) ?? [];
     $sshKeys        = trim($body['ssh_public_keys'] ?? '');
     $defaultStorage = trim($body['default_storage'] ?? '');

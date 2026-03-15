@@ -41,6 +41,10 @@ class AppLogger
 
     public static function debug(string $category, string $message, ?array $context = null, ?int $userId = null): void
     {
+        // Skip debug logs in production to reduce DB write overhead
+        if (getenv('APP_DEBUG') !== 'true' && ($_ENV['APP_DEBUG'] ?? '') !== 'true') {
+            return;
+        }
         self::log('debug', $category, $message, $context, $userId);
     }
 

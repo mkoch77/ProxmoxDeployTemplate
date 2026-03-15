@@ -18,7 +18,7 @@ const Health = {
 
     startAutoRefresh() {
         this.stopAutoRefresh();
-        this.refreshInterval = setInterval(() => this.loadData(true), 15000);
+        this.refreshInterval = setInterval(() => this.loadData(true), 30000);
     },
 
     stopAutoRefresh() {

@@ -80,7 +80,7 @@ if ($vmIp) {
         . ' zypper install -y qemu-guest-agent && systemctl enable --now qemu-guest-agent;'
         . ' else echo "ERROR: No supported package manager found" >&2; exit 1; fi';
     $sessData['direct_command'] = 'export TERM=xterm COLUMNS=200 LINES=50;'
-        . ' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@' . $vmIp
+        . ' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@' . escapeshellarg($vmIp)
         . ' ' . escapeshellarg($installCmd);
 } else {
     $sessData['script_path'] = $scriptPath;
@@ -90,6 +90,7 @@ if ($vmIp) {
 $token    = bin2hex(random_bytes(16));
 $dataFile = sys_get_temp_dir() . '/term_sess_' . $token . '.json';
 file_put_contents($dataFile, json_encode($sessData), LOCK_EX);
+chmod($dataFile, 0600);
 
 AppLogger::info('system', 'Terminal session started', [
     'node' => $nodeName,

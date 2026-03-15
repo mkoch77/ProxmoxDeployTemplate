@@ -12,11 +12,40 @@ const Dashboard = {
     _page: 1,
     _perPage: 50,
 
+    _ostypeLoaded: false,
+
     async init() {
         this.render();
         await this.loadData();
         this.startAutoRefresh();
         this._startIpRefresh();
+        // Enrich ostype in background after initial render
+        if (!this._ostypeLoaded) {
+            this._loadOsTypes();
+        }
+    },
+
+    async _loadOsTypes() {
+        // Only fetch full enrichment if many guests are missing ostype (DB cache empty)
+        if (!this.guests) return;
+        const missing = this.guests.filter(g => !g.ostype).length;
+        if (missing < 3) { this._ostypeLoaded = true; return; }
+        try {
+            const enriched = await API.getSilent('api/guests.php');
+            if (!Array.isArray(enriched)) return;
+            const osMap = {};
+            for (const g of enriched) osMap[`${g.vmid}-${g.node}`] = g.ostype || null;
+            let changed = false;
+            for (const g of this.guests) {
+                const key = `${g.vmid}-${g.node}`;
+                if (osMap[key] && g.ostype !== osMap[key]) {
+                    g.ostype = osMap[key];
+                    changed = true;
+                }
+            }
+            this._ostypeLoaded = true;
+            if (changed) this.updateView();
+        } catch (_) {}
     },
 
     destroy() {
@@ -26,7 +55,7 @@ const Dashboard = {
 
     startAutoRefresh() {
         this.stopAutoRefresh();
-        this.refreshInterval = setInterval(() => this.loadData(true), 10000);
+        this.refreshInterval = setInterval(() => this.loadData(true), 20000);
     },
 
     stopAutoRefresh() {
@@ -54,10 +83,12 @@ const Dashboard = {
         this._loading = true;
         try {
             const fetch = silent ? API.getSilent.bind(API) : API.get.bind(API);
-            const guestParams = silent ? { quick: '1' } : {};
-            const [guests, nodes] = await Promise.all([
-                fetch('api/guests.php', guestParams),
+            // Always use quick mode for fast initial load; ostype enriched in background
+            const [guests, nodes, lb, maint] = await Promise.all([
+                fetch('api/guests.php', { quick: '1' }),
                 fetch('api/nodes.php'),
+                API.getSilent('api/loadbalancer.php').catch(() => null),
+                API.getSilent('api/maintenance.php').catch(() => null),
             ]);
             this.guests = guests;
             this.nodes = nodes;
@@ -70,29 +101,23 @@ const Dashboard = {
                 }
             }
 
-            // Load pending loadbalancer recommendations (non-blocking)
+            // Loadbalancer recommendations
             this.pendingMigrations = {};
-            try {
-                const lb = silent ? await API.getSilent('api/loadbalancer.php') : await API.getLoadbalancer();
-                if (lb.latest_run?.recommendations) {
-                    for (const rec of lb.latest_run.recommendations) {
-                        if (rec.status === 'pending') {
-                            this.pendingMigrations[rec.vmid] = rec.target_node;
-                        }
+            if (lb?.latest_run?.recommendations) {
+                for (const rec of lb.latest_run.recommendations) {
+                    if (rec.status === 'pending') {
+                        this.pendingMigrations[rec.vmid] = rec.target_node;
                     }
                 }
-            } catch (_) { /* LB not available or no permission */ }
+            }
 
-            // Load maintenance nodes so migrate dropdown excludes them
+            // Maintenance nodes
             this.maintenanceNodeNames = new Set();
-            try {
-                const maint = await API.getSilent('api/maintenance.php');
-                if (Array.isArray(maint)) {
-                    for (const row of maint) {
-                        if (row.node_name) this.maintenanceNodeNames.add(row.node_name);
-                    }
+            if (Array.isArray(maint)) {
+                for (const row of maint) {
+                    if (row.node_name) this.maintenanceNodeNames.add(row.node_name);
                 }
-            } catch (_) { /* no permission or not available */ }
+            }
 
             this.updateView();
         } catch (err) {

@@ -245,6 +245,7 @@ file_put_contents($dataFile, json_encode([
     'expires'        => time() + 600,
     'direct_command' => 'echo ' . escapeshellarg($b64Script) . ' | base64 -d | bash',
 ]), LOCK_EX);
+chmod($dataFile, 0600);
 
 AppLogger::info('deploy', "Windows deploy VM {$vmid} ({$name}) on {$nodeName} with {$image['name']}", [
     'iso' => $isoFile, 'cores' => $cores, 'memory' => $memory, 'disk' => $diskSize,

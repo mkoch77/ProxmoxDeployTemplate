@@ -86,6 +86,7 @@ fi
 
 # Export Docker env vars so cron jobs can read them
 printenv | grep -v '^_=' | sed "s/'/'\\\\''/g; s/\([^=]*\)=\(.*\)/export \1='\2'/" > /etc/docker-env.sh
+chmod 600 /etc/docker-env.sh
 
 # Start cron daemon in background
 cron
@@ -131,5 +132,9 @@ fi
         sleep 10
     done
 ) &
+
+# Pre-warm caches and run migrations before accepting requests
+echo "Warming up application..."
+/usr/local/bin/php /var/www/html/cli/warmup.php
 
 exec "$@"

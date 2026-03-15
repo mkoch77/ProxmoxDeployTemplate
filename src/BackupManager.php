@@ -218,23 +218,16 @@ class BackupManager
             mkdir($tmpDir, 0750, true);
 
             // 1. Database dump (includes all tables: monitoring data, settings, etc.)
-            $dbHost = getenv('DB_HOST') ?: 'db';
-            $dbPort = getenv('DB_PORT') ?: '5432';
-            $dbName = getenv('DB_NAME') ?: 'proxmoxdeploy';
-            $dbUser = getenv('DB_USER') ?: 'proxmoxdeploy';
-            $dbPass = getenv('DB_PASSWORD') ?: '';
-            if (empty($dbPass) && is_readable('/tmp/db_password')) {
-                $dbPass = trim(file_get_contents('/tmp/db_password'));
-            }
+            $db = Database::credentials();
 
             $dumpFile = $tmpDir . '/database.sql';
             $cmd = sprintf(
                 'PGPASSWORD=%s pg_dump -h %s -p %s -U %s -Fc %s > %s 2>&1',
-                escapeshellarg($dbPass),
-                escapeshellarg($dbHost),
-                escapeshellarg($dbPort),
-                escapeshellarg($dbUser),
-                escapeshellarg($dbName),
+                escapeshellarg($db['pass']),
+                escapeshellarg($db['host']),
+                escapeshellarg($db['port']),
+                escapeshellarg($db['user']),
+                escapeshellarg($db['name']),
                 escapeshellarg($dumpFile)
             );
             exec($cmd, $output, $exitCode);
@@ -401,22 +394,15 @@ class BackupManager
             // 1. Restore database
             $dumpFile = $tmpDir . '/database.sql';
             if (file_exists($dumpFile)) {
-                $dbHost = getenv('DB_HOST') ?: 'db';
-                $dbPort = getenv('DB_PORT') ?: '5432';
-                $dbName = getenv('DB_NAME') ?: 'proxmoxdeploy';
-                $dbUser = getenv('DB_USER') ?: 'proxmoxdeploy';
-                $dbPass = getenv('DB_PASSWORD') ?: '';
-                if (empty($dbPass) && is_readable('/tmp/db_password')) {
-                    $dbPass = trim(file_get_contents('/tmp/db_password'));
-                }
+                $db = Database::credentials();
 
                 $restoreCmd = sprintf(
                     'PGPASSWORD=%s pg_restore -h %s -p %s -U %s -d %s --clean --if-exists %s 2>&1',
-                    escapeshellarg($dbPass),
-                    escapeshellarg($dbHost),
-                    escapeshellarg($dbPort),
-                    escapeshellarg($dbUser),
-                    escapeshellarg($dbName),
+                    escapeshellarg($db['pass']),
+                    escapeshellarg($db['host']),
+                    escapeshellarg($db['port']),
+                    escapeshellarg($db['user']),
+                    escapeshellarg($db['name']),
                     escapeshellarg($dumpFile)
                 );
                 exec($restoreCmd, $restoreOutput, $restoreExit);

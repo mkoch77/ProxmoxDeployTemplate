@@ -8,17 +8,31 @@ class Database
 {
     private static ?PDO $pdo = null;
 
+    /**
+     * Return DB credentials array: [host, port, name, user, pass].
+     */
+    public static function credentials(): array
+    {
+        $host = getenv('DB_HOST') ?: 'db';
+        $port = getenv('DB_PORT') ?: '5432';
+        $name = getenv('DB_NAME') ?: 'proxmoxdeploy';
+        $user = getenv('DB_USER') ?: 'proxmoxdeploy';
+        $pass = getenv('DB_PASSWORD') ?: '';
+        if (empty($pass) && is_readable('/tmp/db_password')) {
+            $pass = trim(file_get_contents('/tmp/db_password'));
+        }
+        return compact('host', 'port', 'name', 'user', 'pass');
+    }
+
     public static function connection(): PDO
     {
         if (self::$pdo === null) {
-            $host = getenv('DB_HOST') ?: 'db';
-            $port = getenv('DB_PORT') ?: '5432';
-            $name = getenv('DB_NAME') ?: 'proxmoxdeploy';
-            $user = getenv('DB_USER') ?: 'proxmoxdeploy';
-            $pass = getenv('DB_PASSWORD') ?: '';
-            if (empty($pass) && is_readable('/tmp/db_password')) {
-                $pass = trim(file_get_contents('/tmp/db_password'));
-            }
+            $creds = self::credentials();
+            $host = $creds['host'];
+            $port = $creds['port'];
+            $name = $creds['name'];
+            $user = $creds['user'];
+            $pass = $creds['pass'];
             if (empty($pass)) {
                 throw new \RuntimeException(
                     'DB_PASSWORD is not set. Provide it via environment variable, '

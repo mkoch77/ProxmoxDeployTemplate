@@ -556,34 +556,34 @@ $perms = $user['permissions'];
     <!-- Toast Container -->
     <div id="toast-container" class="toast-container position-fixed top-0 end-0 p-3" style="z-index:9999;margin-top:70px;"></div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
-    <script src="assets/js/utils.js?v=<?= $v ?>"></script>
-    <script src="assets/js/components/toast.js?v=<?= $v ?>"></script>
-    <script src="assets/js/permissions.js?v=<?= $v ?>"></script>
-    <script src="assets/js/api.js?v=<?= $v ?>"></script>
-    <script src="assets/js/components/controls.js?v=<?= $v ?>"></script>
-    <script src="assets/js/components/dashboard.js?v=<?= $v ?>"></script>
-    <script src="assets/js/components/templates.js?v=<?= $v ?>"></script>
-    <script src="assets/js/components/deploy.js?v=<?= $v ?>"></script>
-    <script src="assets/js/components/health.js?v=<?= $v ?>"></script>
-    <script src="assets/js/components/maintenance.js?v=<?= $v ?>"></script>
-    <script src="assets/js/components/updater.js?v=<?= $v ?>"></script>
-    <script src="assets/js/components/loadbalancer.js?v=<?= $v ?>"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+    <script defer src="assets/js/utils.js?v=<?= $v ?>"></script>
+    <script defer src="assets/js/components/toast.js?v=<?= $v ?>"></script>
+    <script defer src="assets/js/permissions.js?v=<?= $v ?>"></script>
+    <script defer src="assets/js/api.js?v=<?= $v ?>"></script>
+    <script defer src="assets/js/components/controls.js?v=<?= $v ?>"></script>
+    <script defer src="assets/js/components/dashboard.js?v=<?= $v ?>"></script>
+    <script defer src="assets/js/components/templates.js?v=<?= $v ?>"></script>
+    <script defer src="assets/js/components/deploy.js?v=<?= $v ?>"></script>
+    <script defer src="assets/js/components/health.js?v=<?= $v ?>"></script>
+    <script defer src="assets/js/components/maintenance.js?v=<?= $v ?>"></script>
+    <script defer src="assets/js/components/updater.js?v=<?= $v ?>"></script>
+    <script defer src="assets/js/components/loadbalancer.js?v=<?= $v ?>"></script>
     <?php if (in_array('cluster.health.view', $perms)): ?>
-    <script src="assets/js/vendor/xlsx.mini.min.js?v=<?= $v ?>"></script>
-    <script src="assets/js/components/reports.js?v=<?= $v ?>"></script>
+    <script defer src="assets/js/vendor/xlsx.mini.min.js?v=<?= $v ?>"></script>
+    <script defer src="assets/js/components/reports.js?v=<?= $v ?>"></script>
     <?php endif; ?>
     <?php if (in_array('monitoring.view', $perms)): ?>
-    <script src="assets/js/components/monitoring.js?v=<?= $v ?>"></script>
+    <script defer src="assets/js/components/monitoring.js?v=<?= $v ?>"></script>
     <?php endif; ?>
     <?php if (in_array('admin', $user['roles'] ?? [])): ?>
-    <script src="assets/js/components/settings.js?v=<?= $v ?>"></script>
+    <script defer src="assets/js/components/settings.js?v=<?= $v ?>"></script>
     <?php endif; ?>
-    <script src="assets/js/components/users.js?v=<?= $v ?>"></script>
-    <script src="assets/js/app.js?v=<?= $v ?>"></script>
+    <script defer src="assets/js/components/users.js?v=<?= $v ?>"></script>
+    <script defer src="assets/js/app.js?v=<?= $v ?>"></script>
 </body>
 </html>

@@ -83,6 +83,7 @@ class Migrator
            33 => self::migration033(),
            34 => self::migration034(),
            35 => self::migration035(),
+           36 => self::migration036(),
         ];
     }
 
@@ -792,6 +793,11 @@ class Migrator
             WHERE r.name = 'admin' AND p.key = 'settings.manage'
             AND NOT EXISTS (SELECT 1 FROM role_permissions rp WHERE rp.role_id = r.id AND rp.permission_id = p.id);
         ";
+    }
+
+    private static function migration036(): string
+    {
+        return "ALTER TABLE guest_ips ADD COLUMN IF NOT EXISTS ostype VARCHAR(32) DEFAULT NULL";
     }
 
     /**

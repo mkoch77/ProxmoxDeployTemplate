@@ -216,7 +216,7 @@ class AffinityHelper
                             if ($oZone) $occupiedZones[$oZone] = true;
                         }
 
-                        $targetNode = self::findTargetInZones($nodesWithZone, $sourceNode, $occupiedZones, false, $vmInfo[$vmid]['maxmem'] ?? 0);
+                        $targetNode = self::findTargetInZones($nodesWithZone, $sourceNode, $occupiedZones, $vmInfo[$vmid]['maxmem'] ?? 0);
                         if (!$targetNode) continue;
 
                         $migrations[] = [
@@ -288,7 +288,7 @@ class AffinityHelper
     /**
      * Find a target node in a zone NOT in $occupiedZones.
      */
-    private static function findTargetInZones(array $onlineNodes, string $excludeNode, array $occupiedZones, bool $unused, int $requiredMem): ?string
+    private static function findTargetInZones(array $onlineNodes, string $excludeNode, array $occupiedZones, int $requiredMem): ?string
     {
         $candidates = [];
         foreach ($onlineNodes as $nodeName => $info) {
