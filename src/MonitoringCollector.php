@@ -132,6 +132,52 @@ class MonitoringCollector
 
         AppLogger::debug('monitoring', 'VM metrics collected', ['count' => $stats['vms']]);
 
+        // Collect CEPH metrics (if available)
+        $stats['ceph'] = false;
+        try {
+            $onlineNodeNames = array_keys($onlineNodes);
+            if (!empty($onlineNodeNames)) {
+                $ceph = CephCollector::getStatus($api, $onlineNodeNames);
+                if ($ceph['available'] ?? false) {
+                    $cephStmt = $db->prepare('INSERT INTO ceph_metrics
+                        (ts, health, osds_total, osds_up, osds_in, bytes_total, bytes_used, bytes_available,
+                         read_ops, write_ops, read_bytes, write_bytes, pg_total, objects)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                    $o = $ceph['osds'] ?? [];
+                    $c = $ceph['capacity'] ?? [];
+                    $p = $ceph['performance'] ?? [];
+                    $cephStmt->execute([
+                        $now, $ceph['health'] ?? 'UNKNOWN',
+                        (int)($o['total'] ?? 0), (int)($o['up'] ?? 0), (int)($o['in'] ?? 0),
+                        (int)($c['total'] ?? 0), (int)($c['used'] ?? 0), (int)($c['available'] ?? 0),
+                        (float)($p['read_ops'] ?? 0), (float)($p['write_ops'] ?? 0),
+                        (float)($p['read_bytes'] ?? 0), (float)($p['write_bytes'] ?? 0),
+                        (int)($ceph['pgs']['total'] ?? 0), (int)($ceph['objects'] ?? 0),
+                    ]);
+
+                    // Pool metrics
+                    $pools = CephCollector::getPoolDetails($api, $ceph['queried_node']);
+                    if (!empty($pools)) {
+                        $poolStmt = $db->prepare('INSERT INTO ceph_pool_metrics
+                            (ts, pool_name, bytes_used, percent_used, pg_num) VALUES (?, ?, ?, ?, ?)');
+                        foreach ($pools as $pool) {
+                            $poolStmt->execute([
+                                $now, $pool['name'],
+                                (int)($pool['bytes_used'] ?? 0),
+                                (float)($pool['percent_used'] ?? 0),
+                                (int)($pool['pg_num'] ?? 0),
+                            ]);
+                        }
+                    }
+
+                    $stats['ceph'] = true;
+                    AppLogger::debug('monitoring', 'CEPH metrics collected');
+                }
+            }
+        } catch (\Exception $e) {
+            // CEPH not available — skip silently
+        }
+
         return $stats;
     }
 
@@ -146,7 +192,18 @@ class MonitoringCollector
         $stmt->execute([$days]);
         $vmRows = $stmt->rowCount();
 
-        return ['node_rows' => $nodeRows, 'vm_rows' => $vmRows];
+        $cephRows = 0;
+        $poolRows = 0;
+        try {
+            $stmt = $db->prepare("DELETE FROM ceph_metrics WHERE ts < NOW() - make_interval(days := ?)");
+            $stmt->execute([$days]);
+            $cephRows = $stmt->rowCount();
+            $stmt = $db->prepare("DELETE FROM ceph_pool_metrics WHERE ts < NOW() - make_interval(days := ?)");
+            $stmt->execute([$days]);
+            $poolRows = $stmt->rowCount();
+        } catch (\Exception $e) {}
+
+        return ['node_rows' => $nodeRows, 'vm_rows' => $vmRows, 'ceph_rows' => $cephRows + $poolRows];
     }
 
     public static function getNodeMetrics(string $node, string $timerange = '1h', int $smoothing = 0): array
@@ -349,6 +406,44 @@ class MonitoringCollector
         return $alerts;
     }
 
+    public static function getCephMetrics(string $timerange = '1h', int $smoothing = 0): array
+    {
+        $db = Database::connection();
+        $interval = self::parseTimerange($timerange);
+
+        $stmt = $db->prepare("SELECT ts, health, osds_total, osds_up, osds_in,
+                bytes_total, bytes_used, bytes_available,
+                read_ops, write_ops, read_bytes, write_bytes,
+                pg_total, objects
+            FROM ceph_metrics WHERE ts >= NOW() - ?::interval ORDER BY ts");
+        $stmt->execute([$interval]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if ($smoothing > 1) {
+            $rows = self::applyMovingAverage($rows, $smoothing);
+        }
+
+        return $rows;
+    }
+
+    public static function getCephPoolMetrics(string $timerange = '1h'): array
+    {
+        $db = Database::connection();
+        $interval = self::parseTimerange($timerange);
+
+        $stmt = $db->prepare("SELECT ts, pool_name, bytes_used, percent_used, pg_num
+            FROM ceph_pool_metrics WHERE ts >= NOW() - ?::interval ORDER BY pool_name, ts");
+        $stmt->execute([$interval]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Group by pool name
+        $pools = [];
+        foreach ($rows as $row) {
+            $pools[$row['pool_name']][] = $row;
+        }
+        return $pools;
+    }
+
     private static function parseTimerange(string $range): string
     {
         $map = [
@@ -365,7 +460,10 @@ class MonitoringCollector
 
         $numericFields = ['cpu_pct', 'mem_used', 'mem_total', 'disk_read_bytes', 'disk_write_bytes',
             'disk_read_iops', 'disk_write_iops', 'net_in_bytes', 'net_out_bytes',
-            'load_avg', 'swap_used', 'swap_total', 'disk_used', 'disk_total', 'iowait'];
+            'load_avg', 'swap_used', 'swap_total', 'disk_used', 'disk_total', 'iowait',
+            'read_ops', 'write_ops', 'read_bytes', 'write_bytes',
+            'bytes_total', 'bytes_used', 'bytes_available', 'objects', 'pg_total',
+            'osds_total', 'osds_up', 'osds_in', 'percent_used'];
 
         $result = [];
         for ($i = 0; $i < count($rows); $i++) {

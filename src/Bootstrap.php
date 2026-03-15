@@ -7,7 +7,7 @@ class Bootstrap
     private static bool $initialized = false;
     private const MIGRATION_FLAG = '/tmp/.pdt_migrations_done';
     // Bump this when adding migrations so the flag auto-invalidates
-    public const MIGRATION_VERSION_NUMBER = 36;
+    public const MIGRATION_VERSION_NUMBER = 37;
 
     public static function init(): void
     {

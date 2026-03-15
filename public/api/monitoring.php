@@ -94,6 +94,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         ]);
     }
 
+    if ($action === 'ceph') {
+        $metrics = MonitoringCollector::getCephMetrics($timerange, $smoothing);
+        $pools = MonitoringCollector::getCephPoolMetrics($timerange);
+        Response::success(['metrics' => $metrics, 'pools' => $pools]);
+    }
+
     if ($action === 'vm-alerts') {
         $alerts = MonitoringCollector::getVmAlerts(5);
         Response::success(['alerts' => $alerts]);

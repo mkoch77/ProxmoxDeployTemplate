@@ -175,6 +175,35 @@ const Monitoring = {
                 </div>
 
                 <div class="row g-3 mb-4">
+                    <div class="col-md-6"><div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)"><div class="card-body p-2">
+                        <h6 class="mb-1"><i class="bi bi-speedometer2 me-1"></i>IOPS</h6>
+                        <div style="position:relative;height:200px"><canvas id="chart-ceph-iops"></canvas></div>
+                    </div></div></div>
+                    <div class="col-md-6"><div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)"><div class="card-body p-2">
+                        <h6 class="mb-1"><i class="bi bi-arrow-left-right me-1"></i>Throughput</h6>
+                        <div style="position:relative;height:200px"><canvas id="chart-ceph-throughput"></canvas></div>
+                    </div></div></div>
+                    <div class="col-md-6"><div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)"><div class="card-body p-2">
+                        <h6 class="mb-1"><i class="bi bi-pie-chart me-1"></i>Capacity Usage</h6>
+                        <div style="position:relative;height:200px"><canvas id="chart-ceph-capacity"></canvas></div>
+                    </div></div></div>
+                    <div class="col-md-6"><div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)"><div class="card-body p-2">
+                        <h6 class="mb-1"><i class="bi bi-hdd-fill me-1"></i>OSD Status</h6>
+                        <div style="position:relative;height:200px"><canvas id="chart-ceph-osds"></canvas></div>
+                    </div></div></div>
+                    <div class="col-md-6"><div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)"><div class="card-body p-2">
+                        <h6 class="mb-1"><i class="bi bi-boxes me-1"></i>Objects</h6>
+                        <div style="position:relative;height:200px"><canvas id="chart-ceph-objects"></canvas></div>
+                    </div></div></div>
+                    <div class="col-md-6"><div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)"><div class="card-body p-2">
+                        <h6 class="mb-1"><i class="bi bi-grid-3x3 me-1"></i>Placement Groups</h6>
+                        <div style="position:relative;height:200px"><canvas id="chart-ceph-pgs"></canvas></div>
+                    </div></div></div>
+                </div>
+
+                <div id="ceph-pool-charts" class="row g-3 mb-4"></div>
+
+                <div class="row g-3 mb-4">
                     <div class="col-md-6">
                         <div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)">
                             <div class="card-body">
@@ -263,10 +292,102 @@ const Monitoring = {
                 </div>` : ''}
             `;
 
+            // Load CEPH time-series charts
+            this.loadCephCharts();
+
             // Auto-refresh every 30s
-            this._interval = setInterval(() => this.showCeph(), 30000);
+            this.startAutoRefresh(() => this.showCeph());
         } catch (e) {
             content.innerHTML = `<div class="alert alert-danger">${Utils.escapeHtml(e.message)}</div>`;
+        }
+    },
+
+    async loadCephCharts() {
+        try {
+            const data = await API.getSilent('api/monitoring.php', {
+                action: 'ceph', timerange: this._timerange, smoothing: this._smoothing
+            });
+            const m = data.metrics || [];
+            if (!m.length) return;
+
+            const labels = m.map(r => this.formatTime(r.ts));
+
+            // IOPS chart
+            this.createChart('chart-ceph-iops', labels, [
+                { label: 'Read IOPS', data: m.map(r => parseFloat(r.read_ops).toFixed(1)), borderColor: '#0d6efd' },
+                { label: 'Write IOPS', data: m.map(r => parseFloat(r.write_ops).toFixed(1)), borderColor: '#dc3545' },
+            ], { label: 'ops/s' });
+
+            // Throughput chart
+            this.createChart('chart-ceph-throughput', labels, [
+                { label: 'Read', data: m.map(r => (parseFloat(r.read_bytes) / 1048576).toFixed(2)), borderColor: '#0dcaf0' },
+                { label: 'Write', data: m.map(r => (parseFloat(r.write_bytes) / 1048576).toFixed(2)), borderColor: '#ffc107' },
+            ], { label: 'MB/s' });
+
+            // Capacity chart
+            this.createChart('chart-ceph-capacity', labels, [
+                { label: 'Used', data: m.map(r => (parseInt(r.bytes_used) / 1073741824).toFixed(2)), borderColor: '#e83e8c', backgroundColor: 'rgba(232,62,140,0.1)', fill: true },
+                { label: 'Total', data: m.map(r => (parseInt(r.bytes_total) / 1073741824).toFixed(2)), borderColor: '#6c757d', borderDash: [5, 5] },
+            ], { label: 'GB' });
+
+            // OSD status chart
+            this.createChart('chart-ceph-osds', labels, [
+                { label: 'Total', data: m.map(r => parseInt(r.osds_total)), borderColor: '#6c757d', borderDash: [5, 5] },
+                { label: 'Up', data: m.map(r => parseInt(r.osds_up)), borderColor: '#198754', backgroundColor: 'rgba(25,135,84,0.1)', fill: true },
+                { label: 'In', data: m.map(r => parseInt(r.osds_in)), borderColor: '#0d6efd' },
+            ], { label: 'Count' });
+
+            // Objects chart
+            this.createChart('chart-ceph-objects', labels, [
+                { label: 'Objects', data: m.map(r => parseInt(r.objects)), borderColor: '#6f42c1', backgroundColor: 'rgba(111,66,193,0.1)', fill: true },
+            ], { label: 'Count' });
+
+            // PGs chart
+            this.createChart('chart-ceph-pgs', labels, [
+                { label: 'Placement Groups', data: m.map(r => parseInt(r.pg_total)), borderColor: '#fd7e14', backgroundColor: 'rgba(253,126,20,0.1)', fill: true },
+            ], { label: 'Count' });
+
+            // Pool charts
+            const poolData = data.pools || {};
+            const poolNames = Object.keys(poolData);
+            if (poolNames.length) {
+                const poolColors = ['#0d6efd', '#198754', '#dc3545', '#ffc107', '#0dcaf0', '#6f42c1', '#e83e8c', '#fd7e14', '#20c997', '#6610f2'];
+                const container = document.getElementById('ceph-pool-charts');
+                if (container) {
+                    container.innerHTML = `
+                        <div class="col-md-6"><div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)"><div class="card-body p-2">
+                            <h6 class="mb-1"><i class="bi bi-stack me-1"></i>Pool Usage</h6>
+                            <div style="position:relative;height:200px"><canvas id="chart-ceph-pool-usage"></canvas></div>
+                        </div></div></div>
+                        <div class="col-md-6"><div class="card" style="background:var(--card-bg);border:1px solid var(--border-color)"><div class="card-body p-2">
+                            <h6 class="mb-1"><i class="bi bi-percent me-1"></i>Pool Usage %</h6>
+                            <div style="position:relative;height:200px"><canvas id="chart-ceph-pool-pct"></canvas></div>
+                        </div></div></div>
+                    `;
+
+                    // Find the pool with most data points for labels
+                    const refPool = poolNames.reduce((a, b) => (poolData[a].length >= poolData[b].length ? a : b));
+                    const poolLabels = poolData[refPool].map(r => this.formatTime(r.ts));
+
+                    // Pool usage (bytes) chart
+                    const usageDatasets = poolNames.map((name, i) => ({
+                        label: name,
+                        data: poolData[name].map(r => (parseInt(r.bytes_used) / 1073741824).toFixed(2)),
+                        borderColor: poolColors[i % poolColors.length],
+                    }));
+                    this.createChart('chart-ceph-pool-usage', poolLabels, usageDatasets, { label: 'GB' });
+
+                    // Pool usage % chart
+                    const pctDatasets = poolNames.map((name, i) => ({
+                        label: name,
+                        data: poolData[name].map(r => parseFloat(r.percent_used).toFixed(2)),
+                        borderColor: poolColors[i % poolColors.length],
+                    }));
+                    this.createChart('chart-ceph-pool-pct', poolLabels, pctDatasets, { label: '%', max: 100 });
+                }
+            }
+        } catch (e) {
+            // No historical data yet — charts stay empty
         }
     },
 
@@ -661,6 +782,7 @@ const Monitoring = {
         if (this._currentView === 'overview') this.showOverview();
         else if (this._currentView === 'node') this.showNode(this._currentTarget);
         else if (this._currentView === 'vm') this.showVm(this._currentTarget);
+        else if (this._currentView === 'ceph') this.showCeph();
     },
 
     // --- Utility ---

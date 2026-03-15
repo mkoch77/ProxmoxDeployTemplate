@@ -84,6 +84,7 @@ class Migrator
            34 => self::migration034(),
            35 => self::migration035(),
            36 => self::migration036(),
+           37 => self::migration037(),
         ];
     }
 
@@ -798,6 +799,41 @@ class Migrator
     private static function migration036(): string
     {
         return "ALTER TABLE guest_ips ADD COLUMN IF NOT EXISTS ostype VARCHAR(32) DEFAULT NULL";
+    }
+
+    private static function migration037(): string
+    {
+        return "
+            CREATE TABLE IF NOT EXISTS ceph_metrics (
+                id BIGSERIAL PRIMARY KEY,
+                ts TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                health VARCHAR(20) NOT NULL DEFAULT 'UNKNOWN',
+                osds_total INTEGER NOT NULL DEFAULT 0,
+                osds_up INTEGER NOT NULL DEFAULT 0,
+                osds_in INTEGER NOT NULL DEFAULT 0,
+                bytes_total BIGINT NOT NULL DEFAULT 0,
+                bytes_used BIGINT NOT NULL DEFAULT 0,
+                bytes_available BIGINT NOT NULL DEFAULT 0,
+                read_ops REAL NOT NULL DEFAULT 0,
+                write_ops REAL NOT NULL DEFAULT 0,
+                read_bytes REAL NOT NULL DEFAULT 0,
+                write_bytes REAL NOT NULL DEFAULT 0,
+                pg_total INTEGER NOT NULL DEFAULT 0,
+                objects BIGINT NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_ceph_metrics_ts ON ceph_metrics(ts);
+
+            CREATE TABLE IF NOT EXISTS ceph_pool_metrics (
+                id BIGSERIAL PRIMARY KEY,
+                ts TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                pool_name VARCHAR(255) NOT NULL,
+                bytes_used BIGINT NOT NULL DEFAULT 0,
+                percent_used REAL NOT NULL DEFAULT 0,
+                pg_num INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_ceph_pool_metrics_ts ON ceph_pool_metrics(ts);
+            CREATE INDEX IF NOT EXISTS idx_ceph_pool_metrics_pool_ts ON ceph_pool_metrics(pool_name, ts);
+        ";
     }
 
     /**
