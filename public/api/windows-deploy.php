@@ -57,34 +57,12 @@ Helpers::checkNodeCpuCapacity($api, $nodeName, $cores);
 $isoFile = $image['iso_filename'];
 $tags = preg_replace('/[^a-z0-9\-_;]/', '', strtolower($body['tags'] ?? ''));
 
-// Find which storage holds the ISO
-$isoStorage = 'local'; // fallback
-try {
-    $storages = $api->getStorages($nodeName, 'iso');
-    foreach (($storages['data'] ?? []) as $stor) {
-        $sid = $stor['storage'] ?? '';
-        if (!$sid) continue;
-        try {
-            $contents = $api->get("/nodes/{$nodeName}/storage/{$sid}/content", ['content' => 'iso']);
-            foreach (($contents['data'] ?? []) as $entry) {
-                $volid = $entry['volid'] ?? '';
-                // volid format: "storage:iso/filename.iso"
-                if (str_ends_with($volid, '/' . $isoFile)) {
-                    $isoStorage = $sid;
-                    break 2;
-                }
-            }
-        } catch (\Exception $e) { /* skip this storage */ }
-    }
-} catch (\Exception $e) { /* fallback to 'local' */ }
-
 // ── Resolve SSH host ────────────────────────────────────────────────────────
 $envKey  = 'SSH_HOST_' . strtoupper(str_replace('-', '_', $nodeName));
 $sshHost = Config::get($envKey, '');
 if (!$sshHost) {
     $sshHost = $nodeName;
     try {
-        $api    = Helpers::createAPI();
         $status = $api->getClusterStatus();
         foreach ($status['data'] ?? [] as $entry) {
             if (($entry['type'] ?? '') === 'node' &&
@@ -95,6 +73,39 @@ if (!$sshHost) {
             }
         }
     } catch (\Exception $e) { /* fall back to node name */ }
+}
+
+// ── Check if ISO exists on the target node ──────────────────────────────────
+$needsDistribute = false;
+$isoStorage = null;
+$localIsoPath = '';
+try {
+    $storages = $api->getStorages($nodeName, 'iso');
+    foreach (($storages['data'] ?? []) as $stor) {
+        $sid = $stor['storage'] ?? '';
+        if (!$sid) continue;
+        try {
+            $contents = $api->get("/nodes/{$nodeName}/storage/{$sid}/content", ['content' => 'iso']);
+            foreach (($contents['data'] ?? []) as $entry) {
+                if (str_ends_with($entry['volid'] ?? '', '/' . $isoFile)) {
+                    $isoStorage = $sid;
+                    break 2;
+                }
+            }
+        } catch (\Exception $e) {}
+    }
+} catch (\Exception $e) {}
+
+if ($isoStorage === null) {
+    // ISO not on any node storage — check if we can distribute from Custom Images
+    $imagesDir = realpath(__DIR__ . '/../../data/images');
+    $localIsoPath = $imagesDir ? $imagesDir . '/' . $isoFile : '';
+    if ($localIsoPath && file_exists($localIsoPath)) {
+        $needsDistribute = true;
+        $isoStorage = 'local'; // SCP puts it in /var/lib/vz/template/iso/ = local storage
+    } else {
+        Response::error("ISO '{$isoFile}' not found — neither on node '{$nodeName}' nor in Custom Images. Upload the ISO first.", 404);
+    }
 }
 
 // ── Build deployment script ─────────────────────────────────────────────────
@@ -239,12 +250,36 @@ $b64Script = base64_encode($script);
 $token = bin2hex(random_bytes(16));
 $dataFile = sys_get_temp_dir() . '/term_sess_' . $token . '.json';
 
-file_put_contents($dataFile, json_encode([
-    'ssh_host'       => $sshHost,
-    'user_id'        => $user['id'],
-    'expires'        => time() + 600,
-    'direct_command' => 'echo ' . escapeshellarg($b64Script) . ' | base64 -d | bash',
-]), LOCK_EX);
+// SSH options for key auth
+$keyDir = getenv('SSH_KEY_DIR') ?: '/var/www/html/data/ssh';
+$keyPath = $keyDir . '/id_ed25519';
+$sshOpts = '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -i ' . escapeshellarg($keyPath);
+$sshUser = \App\Config::get('SSH_USER', 'root');
+$sshPort = (int)\App\Config::get('SSH_PORT', 22);
+
+$sshCmd = 'ssh -tt ' . $sshOpts . ' -p ' . $sshPort
+    . ' ' . escapeshellarg($sshUser . '@' . $sshHost)
+    . ' ' . escapeshellarg('echo ' . escapeshellarg($b64Script) . ' | base64 -d | bash');
+
+$sessData = [
+    'ssh_host'  => $sshHost,
+    'user_id'   => $user['id'],
+    'expires'   => time() + 3600, // 1h for large ISO transfers
+];
+
+if ($needsDistribute) {
+    // Build a compound local command: SCP the ISO first, then SSH deploy
+    $scpCmd = 'echo "==> [0/5] Distributing ISO to node ' . escapeshellarg($nodeName) . '..." && '
+        . 'scp ' . $sshOpts . ' -P ' . $sshPort . ' '
+        . escapeshellarg($localIsoPath) . ' '
+        . escapeshellarg($sshUser . '@' . $sshHost . ':/var/lib/vz/template/iso/' . $isoFile)
+        . ' && echo "    ISO distributed successfully." && ';
+    $sessData['raw_command'] = $scpCmd . $sshCmd;
+} else {
+    $sessData['direct_command'] = 'echo ' . escapeshellarg($b64Script) . ' | base64 -d | bash';
+}
+
+file_put_contents($dataFile, json_encode($sessData), LOCK_EX);
 chmod($dataFile, 0600);
 
 AppLogger::info('deploy', "Windows deploy VM {$vmid} ({$name}) on {$nodeName} with {$image['name']}", [

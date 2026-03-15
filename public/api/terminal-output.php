@@ -92,12 +92,62 @@ if ($directCommand) {
 }
 
 $exitCode = -1;
+$rawCommand = $sess['raw_command'] ?? '';
 
 // Emit an initial status line so we can verify the SSE stream is alive
 $authMethod = ($keyPath && file_exists($keyPath)) ? 'key' : ($password ? 'password' : 'none');
 sse('data', base64_encode("\r\nConnecting to {$sshHost} (auth: {$authMethod})...\r\n"));
 
-if ($keyPath && file_exists($keyPath)) {
+if ($rawCommand) {
+    // ── Path 0: raw local command (e.g., SCP + SSH combined) ─────────────
+    $process = proc_open($rawCommand, [
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ], $pipes);
+
+    if (!is_resource($process)) {
+        sse('error', json_encode(['message' => 'Failed to start process']));
+        exit;
+    }
+
+    $stdout = $pipes[1];
+    $stderr = $pipes[2];
+    stream_set_blocking($stdout, false);
+    stream_set_blocking($stderr, false);
+
+    while (true) {
+        if (connection_aborted()) break;
+        $read = [$stdout, $stderr]; $w = $e = null;
+        $n = stream_select($read, $w, $e, 0, 100000);
+        if ($n > 0) {
+            foreach ($read as $r) {
+                $data = fread($r, 4096);
+                if ($data !== false && $data !== '') {
+                    sse('data', base64_encode($data));
+                }
+            }
+        }
+        if (feof($stdout)) break;
+        $status = proc_get_status($process);
+        if (!$status['running']) {
+            usleep(50000);
+            $read = [$stdout, $stderr]; $w = $e = null;
+            if (stream_select($read, $w, $e, 0, 100000) > 0) {
+                foreach ($read as $r) {
+                    $data = fread($r, 65536);
+                    if ($data !== false && $data !== '') sse('data', base64_encode($data));
+                }
+            }
+            $exitCode = $status['exitcode'] ?? -1;
+            break;
+        }
+    }
+    foreach ($pipes as $p) @fclose($p);
+    $rc = proc_close($process);
+    if ($exitCode === -1) $exitCode = $rc;
+
+} elseif ($keyPath && file_exists($keyPath)) {
     // ── Path A: system ssh + proc_open with pipes (key auth) ───────────────
     // We use regular pipes (not pty) for proc_open.  SSH's -tt flag allocates
     // a remote PTY regardless of the local descriptor type, so whiptail on the
