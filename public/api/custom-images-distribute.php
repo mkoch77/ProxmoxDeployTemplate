@@ -41,6 +41,19 @@ $configuredIsoStorage = Config::get('ISO_STORAGE', '');
 $remoteDest = $isIso ? '/var/lib/vz/template/iso/' : '/var/lib/vz/template/custom/';
 $resolveRemoteDest = $isIso && $configuredIsoStorage; // need to resolve path per-node via pvesm
 
+// Pre-resolve storage path via API (much more reliable than shell hacks)
+$resolvedStoragePath = '';
+if ($resolveRemoteDest) {
+    try {
+        $apiTmp = Helpers::createAPI();
+        $storageConfig = $apiTmp->get("/storage/{$configuredIsoStorage}");
+        $storagePath = $storageConfig['data']['path'] ?? '';
+        if ($storagePath) {
+            $resolvedStoragePath = rtrim($storagePath, '/') . '/template/iso/';
+        }
+    } catch (\Exception $e) {}
+}
+
 // Get SSH key path
 $keyDir = getenv('SSH_KEY_DIR') ?: '/var/www/html/data/.ssh';
 $keyPath = $keyDir . '/id_ed25519';
@@ -99,18 +112,17 @@ foreach ($nodes as $node) {
     // Resolve remote destination: for configured ISO storage, find actual filesystem path
     $nodeRemoteDest = $remoteDest;
     if ($resolveRemoteDest) {
-        $storageName = preg_replace('/[^a-zA-Z0-9_-]/', '', $configuredIsoStorage);
-        $resolveScript = 'P=$(dirname "$(pvesm path ' . escapeshellarg($configuredIsoStorage . ':iso/dummy_probe') . ' 2>/dev/null)" 2>/dev/null);'
-            . ' if [ -z "$P" ] || [ "$P" = "." ]; then'
-            . '   P=$(awk "/^[a-z]+: ' . $storageName . '$/,/^$/{if(/^\\s+path /){print \\$2}}" /etc/pve/storage.cfg 2>/dev/null);'
-            . '   if [ -n "$P" ]; then P="${P}/template/iso"; fi;'
-            . ' fi;'
-            . ' echo "$P"';
-        $resolveCmd = "ssh {$sshOpts} root@" . escapeshellarg($sshHost)
-            . " " . escapeshellarg($resolveScript);
-        $resolved = trim(shell_exec($resolveCmd . ' 2>/dev/null') ?? '');
-        if ($resolved) {
-            $nodeRemoteDest = rtrim($resolved, '/') . '/';
+        if ($resolvedStoragePath) {
+            $nodeRemoteDest = $resolvedStoragePath;
+        } else {
+            // Fallback: ask the node via pvesm path
+            $resolveScript = 'dirname "$(pvesm path ' . escapeshellarg($configuredIsoStorage . ':iso/dummy_probe') . ' 2>/dev/null)" 2>/dev/null';
+            $resolveCmd = "ssh {$sshOpts} root@" . escapeshellarg($sshHost)
+                . " " . escapeshellarg($resolveScript);
+            $resolved = trim(shell_exec($resolveCmd . ' 2>/dev/null') ?? '');
+            if ($resolved && $resolved !== '.') {
+                $nodeRemoteDest = rtrim($resolved, '/') . '/';
+            }
         }
     }
 

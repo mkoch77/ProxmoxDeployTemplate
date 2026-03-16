@@ -181,13 +181,13 @@ $lines[] = '# Method 1: pvesm path with the actual ISO volid';
 $lines[] = 'ISO_STOR_PATH=$(dirname "$(pvesm path "${ISO_STOR}:iso/${ISO_FILE}" 2>/dev/null)" 2>/dev/null)';
 $lines[] = 'if [ -z "$ISO_STOR_PATH" ] || [ "$ISO_STOR_PATH" = "." ]; then';
 $lines[] = '  # Method 2: parse storage.cfg for path-based storages';
-$lines[] = '  _SPATH=$(awk "/^[a-z]+: ${ISO_STOR}\$/,/^\$/{if(/^\\s+path /){print \\$2}}" /etc/pve/storage.cfg 2>/dev/null)';
+$lines[] = '  _SPATH=$(grep -A20 ": ${ISO_STOR}$" /etc/pve/storage.cfg 2>/dev/null | grep -m1 "path " | awk "{print \\$2}")';
 $lines[] = '  if [ -n "$_SPATH" ]; then ISO_STOR_PATH="${_SPATH}/template/iso"; fi';
 $lines[] = 'fi';
 $lines[] = 'if [ -z "$ISO_STOR_PATH" ]; then';
-$lines[] = '  # Method 3: try pvesm status to get path';
-$lines[] = '  ISO_STOR_PATH=$(pvesm status --storage "${ISO_STOR}" 2>/dev/null | awk "NR>1{print \$NF}")';
-$lines[] = '  if [ -n "$ISO_STOR_PATH" ] && [ "$ISO_STOR_PATH" != "-" ]; then ISO_STOR_PATH="${ISO_STOR_PATH}/template/iso"; else ISO_STOR_PATH=""; fi';
+$lines[] = '  # Method 3: grep path from storage.cfg (handles tabs and spaces)';
+$lines[] = '  _SPATH=$(grep -A20 ": ${ISO_STOR}$" /etc/pve/storage.cfg 2>/dev/null | grep -m1 "path " | awk "{print \\$2}")';
+$lines[] = '  if [ -n "$_SPATH" ]; then ISO_STOR_PATH="${_SPATH}/template/iso"; fi';
 $lines[] = 'fi';
 $lines[] = 'if [ -z "$ISO_STOR_PATH" ]; then';
 $lines[] = '  echo "ERROR: Cannot resolve path for storage ${ISO_STOR}. Check storage configuration."';
@@ -391,25 +391,26 @@ $sessData = [
 ];
 
 if ($needsDistribute) {
-    // Resolve remote ISO directory path for the target storage
-    // Use pvesm path to find the actual directory, e.g. cephfs → /mnt/pve/cephfs/template/iso/
-    // Resolve path: try pvesm path, then parse storage.cfg, then fallback
-    $safeStorName = preg_replace('/[^a-zA-Z0-9_-]/', '', $isoStorage);
-    $resolveScript = 'P=$(dirname "$(pvesm path ' . escapeshellarg($isoStorage . ':iso/dummy_probe') . ' 2>/dev/null)" 2>/dev/null);'
-        . ' if [ -z "$P" ] || [ "$P" = "." ]; then'
-        . '   P=$(awk "/^[a-z]+: ' . $safeStorName . '$/,/^$/{if(/^\\s+path /){print \\$2}}" /etc/pve/storage.cfg 2>/dev/null);'
-        . '   if [ -n "$P" ]; then P="${P}/template/iso"; fi;'
-        . ' fi;'
-        . ' if [ -z "$P" ] || [ "$P" = "." ]; then'
-        . '   _S=$(pvesm status --storage ' . escapeshellarg($isoStorage) . ' 2>/dev/null | awk "NR>1{print \\$NF}");'
-        . '   if [ -n "$_S" ] && [ "$_S" != "-" ]; then P="${_S}/template/iso"; fi;'
-        . ' fi;'
-        . ' echo "$P"';
-    $resolvePathCmd = 'ssh ' . $sshOpts . ' -p ' . $sshPort . ' '
-        . escapeshellarg($sshUser . '@' . $sshHost) . ' '
-        . escapeshellarg($resolveScript);
-    $remotePath = trim(shell_exec($resolvePathCmd) ?? '');
+    // Resolve remote ISO directory path via Proxmox API storage config
+    $remotePath = '';
+    try {
+        $storageConfig = $api->get("/storage/{$isoStorage}");
+        $storagePath = $storageConfig['data']['path'] ?? '';
+        if ($storagePath) {
+            $remotePath = rtrim($storagePath, '/') . '/template/iso';
+        }
+    } catch (\Exception $e) {}
+
+    // Fallback: ask the node via pvesm path
     if (!$remotePath) {
+        $resolveScript = 'dirname "$(pvesm path ' . escapeshellarg($isoStorage . ':iso/dummy_probe') . ' 2>/dev/null)" 2>/dev/null';
+        $resolvePathCmd = 'ssh ' . $sshOpts . ' -p ' . $sshPort . ' '
+            . escapeshellarg($sshUser . '@' . $sshHost) . ' '
+            . escapeshellarg($resolveScript);
+        $remotePath = trim(shell_exec($resolvePathCmd) ?? '');
+    }
+
+    if (!$remotePath || $remotePath === '.') {
         $remotePath = '/var/lib/vz/template/iso';
     }
 
