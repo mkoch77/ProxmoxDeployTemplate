@@ -173,27 +173,38 @@ $lines[] = '';
 
 // Step 2: Configure hardware
 $lines[] = "echo '==> [2/5] Configuring hardware...'";
-$lines[] = 'ISO_PATH=$(pvesm path ' . escapeshellarg($isoStorage . ':iso/' . $isoFile) . ' 2>/dev/null)';
-$lines[] = 'if [ -z "$ISO_PATH" ] || [ ! -f "$ISO_PATH" ]; then echo "ERROR: ISO not found on storage ' . escapeshellarg($isoStorage) . '. Distribute the image first via Custom Images."; exit 1; fi';
+$lines[] = '# Resolve ISO storage path';
+$lines[] = 'ISO_STOR=' . escapeshellarg($isoStorage);
+$lines[] = 'ISO_FILE=' . escapeshellarg($isoFile);
+$lines[] = 'ISO_STOR_PATH=""';
+$lines[] = '# Method 1: pvesm path with the actual ISO volid';
+$lines[] = 'ISO_STOR_PATH=$(dirname "$(pvesm path "${ISO_STOR}:iso/${ISO_FILE}" 2>/dev/null)" 2>/dev/null)';
+$lines[] = 'if [ -z "$ISO_STOR_PATH" ] || [ "$ISO_STOR_PATH" = "." ]; then';
+$lines[] = '  # Method 2: parse storage.cfg for path-based storages';
+$lines[] = '  _SPATH=$(awk "/^[a-z]+: ${ISO_STOR}\$/,/^\$/{if(/^\\s+path /){print \\$2}}" /etc/pve/storage.cfg 2>/dev/null)';
+$lines[] = '  if [ -n "$_SPATH" ]; then ISO_STOR_PATH="${_SPATH}/template/iso"; fi';
+$lines[] = 'fi';
+$lines[] = 'if [ -z "$ISO_STOR_PATH" ]; then';
+$lines[] = '  # Method 3: try pvesm status to get path';
+$lines[] = '  ISO_STOR_PATH=$(pvesm status --storage "${ISO_STOR}" 2>/dev/null | awk "NR>1{print \$NF}")';
+$lines[] = '  if [ -n "$ISO_STOR_PATH" ] && [ "$ISO_STOR_PATH" != "-" ]; then ISO_STOR_PATH="${ISO_STOR_PATH}/template/iso"; else ISO_STOR_PATH=""; fi';
+$lines[] = 'fi';
+$lines[] = 'if [ -z "$ISO_STOR_PATH" ]; then';
+$lines[] = '  echo "ERROR: Cannot resolve path for storage ${ISO_STOR}. Check storage configuration."';
+$lines[] = '  exit 1';
+$lines[] = 'fi';
+$lines[] = 'echo "    ISO storage: $ISO_STOR (path: $ISO_STOR_PATH)"';
+$lines[] = 'if [ ! -f "$ISO_STOR_PATH/$ISO_FILE" ]; then';
+$lines[] = '  echo "ERROR: ISO $ISO_FILE not found at $ISO_STOR_PATH/. Distribute the image first via Custom Images."';
+$lines[] = '  exit 1';
+$lines[] = 'fi';
 $lines[] = 'qm set $VMID --scsihw virtio-scsi-pci --scsi0 ' . escapeshellarg($storage) . ':' . (int)$diskSize . ',discard=on,ssd=1';
 $lines[] = 'qm set $VMID --ide2 ' . escapeshellarg($isoStorage . ':iso/' . $isoFile) . ',media=cdrom';
 $lines[] = 'qm set $VMID --boot order="ide2;scsi0"';
 
-// VirtIO drivers ISO
+// VirtIO drivers ISO (reuses $ISO_STOR and $ISO_STOR_PATH from step 2)
 $lines[] = '';
 $lines[] = "echo '==> [3/5] Mounting VirtIO drivers...'";
-$lines[] = 'ISO_STOR=' . escapeshellarg($isoStorage);
-$lines[] = '# Resolve ISO storage path from the Windows ISO we already know exists';
-$lines[] = 'ISO_STOR_PATH=$(dirname "$(pvesm path ' . escapeshellarg($isoStorage . ':iso/' . $isoFile) . ' 2>/dev/null)" 2>/dev/null)';
-$lines[] = 'if [ -z "$ISO_STOR_PATH" ] || [ "$ISO_STOR_PATH" = "." ]; then';
-$lines[] = '  # Fallback: try pvesm with dummy, or read storage config';
-$lines[] = '  ISO_STOR_PATH=$(pvesm path "${ISO_STOR}:iso/dummy" 2>/dev/null | sed "s|/dummy$||")';
-$lines[] = 'fi';
-$lines[] = 'if [ -z "$ISO_STOR_PATH" ]; then';
-$lines[] = '  _SPATH=$(cat /etc/pve/storage.cfg 2>/dev/null | awk "/^[a-z]+: ${ISO_STOR//\//\\/}\$/,/^\$/{if(/^\\s+path /){print \\$2}}")';
-$lines[] = '  if [ -n "$_SPATH" ]; then ISO_STOR_PATH="${_SPATH}/template/iso"; fi';
-$lines[] = 'fi';
-$lines[] = 'echo "    ISO storage: $ISO_STOR (path: ${ISO_STOR_PATH:-unknown})"';
 $lines[] = 'VIRTIO_FOUND=""';
 $lines[] = '# Search configured ISO storage for virtio-win ISO';
 $lines[] = 'if [ -n "$ISO_STOR_PATH" ]; then';
