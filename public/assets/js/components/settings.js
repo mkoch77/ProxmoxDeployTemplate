@@ -52,6 +52,11 @@ const Settings = {
                         <i class="bi bi-key-fill me-1"></i>SSH Keys
                     </button>
                 </li>` : ''}
+                ${Permissions.has('template.deploy') ? `<li class="nav-item" role="presentation">
+                    <button class="nav-link" data-tab="iso-mgmt" onclick="Settings.switchTab('iso-mgmt')">
+                        <i class="bi bi-disc-fill me-1"></i>ISO Management
+                    </button>
+                </li>` : ''}
                 ${Permissions.has('backup.manage') ? `<li class="nav-item" role="presentation">
                     <button class="nav-link" data-tab="backup" onclick="Settings.switchTab('backup')">
                         <i class="bi bi-cloud-arrow-up-fill me-1"></i>Backup
@@ -97,6 +102,9 @@ const Settings = {
         } else if (tab === 'ssh') {
             this.renderSshTab(container);
             this.loadSshData();
+        } else if (tab === 'iso-mgmt') {
+            this.renderIsoMgmtTab(container);
+            this.loadIsoMgmtData();
         } else if (tab === 'backup') {
             this.renderBackupTab(container);
             this.loadBackupData();
@@ -1779,6 +1787,223 @@ const Settings = {
             this.loadVaultData();
         } catch (err) {
             Toast.error(err.message);
+        }
+    },
+
+    // ── ISO Management Tab ──────────────────────────────────────────────
+
+    _isoMgmtData: null,
+    _isoUploadInProgress: false,
+
+    renderIsoMgmtTab(container) {
+        container.innerHTML = `
+            <div class="row g-4">
+                <div class="col-12">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0"><i class="bi bi-disc me-2"></i>ISO Images</h5>
+                        <button class="btn btn-sm btn-outline-primary" onclick="Settings.refreshIsoMgmtData()">
+                            <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+                        </button>
+                    </div>
+                    <p class="text-muted small mb-3">Upload ISO images (e.g. VirtIO drivers, Windows ISOs) and distribute them to Proxmox nodes.</p>
+
+                    <div class="card mb-4">
+                        <div class="card-header"><i class="bi bi-upload me-2"></i>Upload ISO</div>
+                        <div class="card-body">
+                            <div class="row g-3 align-items-end">
+                                <div class="col-md-5">
+                                    <label class="form-label">ISO File</label>
+                                    <input type="file" class="form-control" id="iso-upload-file" accept=".iso">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Display Name</label>
+                                    <input type="text" class="form-control" id="iso-upload-name" placeholder="e.g. VirtIO Drivers 0.1.262">
+                                </div>
+                                <div class="col-md-3">
+                                    <button class="btn btn-primary w-100" id="iso-upload-btn" onclick="Settings.uploadIso()">
+                                        <i class="bi bi-cloud-upload me-1"></i>Upload
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="progress mt-3 d-none" id="iso-upload-progress-wrap" style="height: 24px;">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated" id="iso-upload-progress" role="progressbar" style="width: 0%">0%</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header"><i class="bi bi-collection me-2"></i>Uploaded ISOs</div>
+                        <div class="card-body p-0">
+                            <div id="iso-mgmt-list">
+                                <div class="text-center text-muted py-4">Loading...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    async loadIsoMgmtData() {
+        try {
+            const resp = await API.getCustomImages();
+            const all = resp.images || [];
+            this._isoMgmtData = all.filter(img => /\.iso$/i.test(img.filename));
+            this._renderIsoList();
+        } catch (err) {
+            document.getElementById('iso-mgmt-list').innerHTML = `<div class="text-danger p-3">${err.message}</div>`;
+        }
+    },
+
+    async refreshIsoMgmtData() {
+        await this.loadIsoMgmtData();
+        Toast.success('ISO list refreshed');
+    },
+
+    _renderIsoList() {
+        const container = document.getElementById('iso-mgmt-list');
+        if (!container) return;
+        const isos = this._isoMgmtData || [];
+        if (isos.length === 0) {
+            container.innerHTML = '<div class="text-muted text-center py-4">No ISO images uploaded yet.</div>';
+            return;
+        }
+
+        container.innerHTML = `
+            <table class="table table-sm table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Filename</th>
+                        <th>Uploaded</th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${isos.map(iso => `
+                        <tr>
+                            <td>${this._esc(iso.name)}</td>
+                            <td><code class="small">${this._esc(iso.filename)}</code></td>
+                            <td class="small text-muted">${iso.created_at ? new Date(iso.created_at).toLocaleDateString() : '—'}</td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-success me-1" onclick="Settings.distributeIso(${iso.id}, '${this._esc(iso.filename)}')" title="Distribute to all nodes">
+                                    <i class="bi bi-send"></i> Distribute
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" onclick="Settings.deleteIso(${iso.id}, '${this._esc(iso.filename)}')" title="Delete">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    },
+
+    _esc(str) {
+        const div = document.createElement('div');
+        div.textContent = str || '';
+        return div.innerHTML;
+    },
+
+    async uploadIso() {
+        if (this._isoUploadInProgress) return;
+
+        const fileInput = document.getElementById('iso-upload-file');
+        const nameInput = document.getElementById('iso-upload-name');
+        const file = fileInput?.files?.[0];
+        if (!file) { Toast.error('Please select an ISO file'); return; }
+        if (!file.name.match(/\.iso$/i)) { Toast.error('Only .iso files are supported'); return; }
+
+        const displayName = nameInput.value.trim() || file.name.replace(/\.iso$/i, '').replace(/[_.-]+/g, ' ');
+
+        this._isoUploadInProgress = true;
+        const btn = document.getElementById('iso-upload-btn');
+        const progressWrap = document.getElementById('iso-upload-progress-wrap');
+        const progressBar = document.getElementById('iso-upload-progress');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Uploading...';
+        progressWrap.classList.remove('d-none');
+
+        const CHUNK_SIZE = 50 * 1024 * 1024; // 50 MB
+        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+        const uploadId = crypto.randomUUID();
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+
+        try {
+            for (let i = 0; i < totalChunks; i++) {
+                const start = i * CHUNK_SIZE;
+                const chunk = file.slice(start, start + CHUNK_SIZE);
+                const formData = new FormData();
+                formData.append('chunk', chunk, file.name);
+                formData.append('chunk_index', i);
+                formData.append('total_chunks', totalChunks);
+                formData.append('upload_id', uploadId);
+                formData.append('filename', file.name);
+
+                if (i === totalChunks - 1) {
+                    formData.append('name', displayName);
+                    formData.append('default_user', 'root');
+                    formData.append('ostype', 'other');
+                }
+
+                const resp = await fetch('api/upload-chunk.php', {
+                    method: 'POST',
+                    headers: { 'X-CSRF-Token': csrfToken },
+                    body: formData,
+                });
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    throw new Error(err.error || `Upload failed (HTTP ${resp.status})`);
+                }
+
+                const pct = Math.round(((i + 1) / totalChunks) * 100);
+                progressBar.style.width = pct + '%';
+                progressBar.textContent = pct + '%';
+            }
+
+            Toast.success(`ISO "${displayName}" uploaded successfully`);
+            fileInput.value = '';
+            nameInput.value = '';
+            await this.loadIsoMgmtData();
+        } catch (err) {
+            Toast.error('Upload failed: ' + err.message);
+        } finally {
+            this._isoUploadInProgress = false;
+            btn.disabled = false;
+            btn.innerHTML = '<i class="bi bi-cloud-upload me-1"></i>Upload';
+            progressWrap.classList.add('d-none');
+            progressBar.style.width = '0%';
+        }
+    },
+
+    async distributeIso(id, filename) {
+        if (!confirm(`Distribute "${filename}" to all online Proxmox nodes?`)) return;
+
+        try {
+            Toast.info('Distributing ISO to nodes...');
+            const resp = await API.distributeCustomImage(id);
+            const results = resp.results || {};
+            const failed = Object.entries(results).filter(([, r]) => !r.ok);
+            if (failed.length > 0) {
+                Toast.warning(`Distribution completed with ${failed.length} failure(s): ${failed.map(([n]) => n).join(', ')}`);
+            } else {
+                Toast.success(`"${filename}" distributed to all nodes`);
+            }
+        } catch (err) {
+            Toast.error('Distribution failed: ' + err.message);
+        }
+    },
+
+    async deleteIso(id, filename) {
+        if (!confirm(`Delete "${filename}"? This will remove it from the local store but not from Proxmox nodes.`)) return;
+
+        try {
+            await API.deleteCustomImage(id, true);
+            Toast.success(`"${filename}" deleted`);
+            await this.loadIsoMgmtData();
+        } catch (err) {
+            Toast.error('Delete failed: ' + err.message);
         }
     },
 
