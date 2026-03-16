@@ -197,25 +197,24 @@ if ($image['autounattend_xml']) {
             $xmlContent = str_replace('{{PRODUCT_KEY}}', $image['product_key'], $xmlContent);
         }
     }
+
+    // Inject QEMU guest agent installation into FirstLogonCommands
+    if ($image['install_guest_tools']) {
+        $guestAgentCmd = '<SynchronousCommand wcm:action="add">'
+            . '<Order>99</Order>'
+            . '<CommandLine>cmd /c "for %d in (D E F G H) do if exist %d:\guest-agent\qemu-ga-x86_64.msi msiexec /i %d:\guest-agent\qemu-ga-x86_64.msi /qn /norestart"</CommandLine>'
+            . '<Description>Install QEMU Guest Agent</Description>'
+            . '</SynchronousCommand>';
+
+        // Insert before </FirstLogonCommands> if it exists
+        if (str_contains($xmlContent, '</FirstLogonCommands>')) {
+            $xmlContent = str_replace('</FirstLogonCommands>', $guestAgentCmd . "\n            </FirstLogonCommands>", $xmlContent);
+        }
+    }
+
     $lines[] = 'cat > ' . escapeshellarg($unattendDir . '/Autounattend.xml') . " << 'WIN_XML_EOF'";
     $lines[] = $xmlContent;
     $lines[] = 'WIN_XML_EOF';
-
-    // Create a post-install script to install QEMU guest agent
-    if ($image['install_guest_tools']) {
-        $lines[] = 'cat > ' . escapeshellarg($unattendDir . '/install-guest-agent.cmd') . " << 'WIN_CMD_EOF'";
-        $lines[] = '@echo off';
-        $lines[] = 'echo Installing QEMU Guest Agent...';
-        $lines[] = 'for %%d in (D E F G) do (';
-        $lines[] = '    if exist "%%d:\\guest-agent\\qemu-ga-x86_64.msi" (';
-        $lines[] = '        msiexec /i "%%d:\\guest-agent\\qemu-ga-x86_64.msi" /qn /norestart';
-        $lines[] = '        goto :done';
-        $lines[] = '    )';
-        $lines[] = ')';
-        $lines[] = ':done';
-        $lines[] = 'echo Guest agent installation complete.';
-        $lines[] = 'WIN_CMD_EOF';
-    }
 
     // Create ISO image with autounattend files
     // Use -J (Joliet) without -r (Rock Ridge) to preserve exact Windows filenames
