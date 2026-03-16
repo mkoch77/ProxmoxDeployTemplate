@@ -251,7 +251,7 @@ $token = bin2hex(random_bytes(16));
 $dataFile = sys_get_temp_dir() . '/term_sess_' . $token . '.json';
 
 // SSH options for key auth
-$keyDir = getenv('SSH_KEY_DIR') ?: '/var/www/html/data/ssh';
+$keyDir = getenv('SSH_KEY_DIR') ?: '/var/www/html/data/.ssh';
 $keyPath = $keyDir . '/id_ed25519';
 $sshOpts = '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -i ' . escapeshellarg($keyPath);
 $sshUser = \App\Config::get('SSH_USER', 'root');

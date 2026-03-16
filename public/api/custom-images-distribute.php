@@ -38,7 +38,7 @@ $isIso = (bool)preg_match('/\.iso$/i', $image['filename']);
 $remoteDest = $isIso ? '/var/lib/vz/template/iso/' : '/var/lib/vz/template/custom/';
 
 // Get SSH key path
-$keyDir = getenv('SSH_KEY_DIR') ?: '/var/www/html/data/ssh';
+$keyDir = getenv('SSH_KEY_DIR') ?: '/var/www/html/data/.ssh';
 $keyPath = $keyDir . '/id_ed25519';
 if (!file_exists($keyPath)) {
     Response::error('SSH key not found — check SSH setup', 500);
