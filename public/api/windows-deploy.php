@@ -162,8 +162,21 @@ $lines[] = '  VIRTIO_BASENAME=$(basename "$VIRTIO_ISO")';
 $lines[] = '  qm set $VMID --ide0 ' . escapeshellarg($isoStorage) . ':iso/"$VIRTIO_BASENAME",media=cdrom';
 $lines[] = '  echo "    VirtIO ISO: $VIRTIO_BASENAME"';
 $lines[] = 'else';
-$lines[] = '  echo "    WARNING: No VirtIO ISO found on storage ' . $isoStorage . '"';
-$lines[] = '  echo "    Download from: https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso"';
+$lines[] = '  echo "    VirtIO ISO not found — downloading automatically..."';
+$lines[] = '  VIRTIO_URL="https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso"';
+$lines[] = '  VIRTIO_DEST="$ISO_STORE_PATH/virtio-win.iso"';
+$lines[] = '  if [ -z "$ISO_STORE_PATH" ]; then VIRTIO_DEST="/var/lib/vz/template/iso/virtio-win.iso"; fi';
+$lines[] = '  if wget -q --show-progress -O "$VIRTIO_DEST" "$VIRTIO_URL" 2>&1; then';
+$lines[] = '    VIRTIO_BASENAME=$(basename "$VIRTIO_DEST")';
+$lines[] = '    qm set $VMID --ide0 ' . escapeshellarg($isoStorage) . ':iso/"$VIRTIO_BASENAME",media=cdrom';
+$lines[] = '    echo "    VirtIO ISO downloaded and mounted: $VIRTIO_BASENAME"';
+$lines[] = '  else';
+$lines[] = '    echo "ERROR: VirtIO drivers are required for Windows deployment but could not be downloaded."';
+$lines[] = '    echo "Please download manually: https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso"';
+$lines[] = '    echo "Place it in: $ISO_STORE_PATH/ or /var/lib/vz/template/iso/"';
+$lines[] = '    qm destroy $VMID --purge --skiplock 2>/dev/null || true';
+$lines[] = '    exit 1';
+$lines[] = '  fi';
 $lines[] = 'fi';
 
 // Step 4: Create and mount autounattend ISO
