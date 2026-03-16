@@ -318,6 +318,21 @@ class ProxmoxAPI
         return $this->get("/nodes/{$node}/storage", $params);
     }
 
+    public function getStorageContent(string $node, string $storage, ?string $content = null): array
+    {
+        $params = [];
+        if ($content !== null) {
+            $params['content'] = $content;
+        }
+        return $this->get("/nodes/{$node}/storage/{$storage}/content", $params);
+    }
+
+    public function deleteStorageVolume(string $node, string $volume): array
+    {
+        $storage = explode(':', $volume)[0];
+        return $this->delete("/nodes/{$node}/storage/{$storage}/content/{$volume}");
+    }
+
     // --- Networks ---
 
     public function getNetworks(string $node, ?string $type = null): array

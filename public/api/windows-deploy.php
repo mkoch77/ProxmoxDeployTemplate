@@ -46,8 +46,8 @@ if (!$bridge || !preg_match('/^[a-zA-Z0-9][a-zA-Z0-9\-_]{0,15}$/', $bridge)) Res
 $vlanTag = isset($body['net_vlan']) ? (int)$body['net_vlan'] : 0;
 if ($vlanTag && ($vlanTag < 1 || $vlanTag > 4094)) Response::error('VLAN tag must be between 1 and 4094', 400);
 
-$cores = max(1, min(128, (int)($body['cores'] ?? 2)));
-$memory = max(2048, min(131072, (int)($body['memory'] ?? 4096)));
+$cores = max(2, min(128, (int)($body['cores'] ?? 4)));
+$memory = max(4096, min(131072, (int)($body['memory'] ?? 4096)));
 $diskSize = max(30, min(10000, (int)($body['disk_size'] ?? 64)));
 
 // Check vCPU capacity on target node
@@ -75,36 +75,65 @@ if (!$sshHost) {
     } catch (\Exception $e) { /* fall back to node name */ }
 }
 
-// ── Check if ISO exists on the target node ──────────────────────────────────
+// ── Determine ISO storage ────────────────────────────────────────────────────
+$configuredIsoStorage = Config::get('ISO_STORAGE', '');
 $needsDistribute = false;
-$isoStorage = null;
 $localIsoPath = '';
-try {
-    $storages = $api->getStorages($nodeName, 'iso');
-    foreach (($storages['data'] ?? []) as $stor) {
-        $sid = $stor['storage'] ?? '';
-        if (!$sid) continue;
-        try {
-            $contents = $api->get("/nodes/{$nodeName}/storage/{$sid}/content", ['content' => 'iso']);
-            foreach (($contents['data'] ?? []) as $entry) {
-                if (str_ends_with($entry['volid'] ?? '', '/' . $isoFile)) {
-                    $isoStorage = $sid;
-                    break 2;
-                }
-            }
-        } catch (\Exception $e) {}
-    }
-} catch (\Exception $e) {}
 
-if ($isoStorage === null) {
-    // ISO not on any node storage — check if we can distribute from Custom Images
-    $imagesDir = realpath(__DIR__ . '/../../data/images');
-    $localIsoPath = $imagesDir ? $imagesDir . '/' . $isoFile : '';
-    if ($localIsoPath && file_exists($localIsoPath)) {
-        $needsDistribute = true;
-        $isoStorage = 'local'; // SCP puts it in /var/lib/vz/template/iso/ = local storage
-    } else {
-        Response::error("ISO '{$isoFile}' not found — neither on node '{$nodeName}' nor in Custom Images. Upload the ISO first.", 404);
+if ($configuredIsoStorage) {
+    // Use the configured shared ISO storage
+    $isoStorage = $configuredIsoStorage;
+
+    // Check if the ISO already exists on that storage
+    $isoFound = false;
+    try {
+        $contents = $api->get("/nodes/{$nodeName}/storage/{$isoStorage}/content", ['content' => 'iso']);
+        foreach (($contents['data'] ?? []) as $entry) {
+            if (str_ends_with($entry['volid'] ?? '', '/' . $isoFile)) {
+                $isoFound = true;
+                break;
+            }
+        }
+    } catch (\Exception $e) {}
+
+    if (!$isoFound) {
+        $imagesDir = realpath(__DIR__ . '/../../data/images');
+        $localIsoPath = $imagesDir ? $imagesDir . '/' . $isoFile : '';
+        if ($localIsoPath && file_exists($localIsoPath)) {
+            $needsDistribute = true;
+        } else {
+            Response::error("ISO '{$isoFile}' not found on storage '{$isoStorage}' and not in Custom Images. Upload the ISO first.", 404);
+        }
+    }
+} else {
+    // No ISO storage configured — search all storages on the node
+    $isoStorage = null;
+    try {
+        $storages = $api->getStorages($nodeName, 'iso');
+        foreach (($storages['data'] ?? []) as $stor) {
+            $sid = $stor['storage'] ?? '';
+            if (!$sid) continue;
+            try {
+                $contents = $api->get("/nodes/{$nodeName}/storage/{$sid}/content", ['content' => 'iso']);
+                foreach (($contents['data'] ?? []) as $entry) {
+                    if (str_ends_with($entry['volid'] ?? '', '/' . $isoFile)) {
+                        $isoStorage = $sid;
+                        break 2;
+                    }
+                }
+            } catch (\Exception $e) {}
+        }
+    } catch (\Exception $e) {}
+
+    if ($isoStorage === null) {
+        $imagesDir = realpath(__DIR__ . '/../../data/images');
+        $localIsoPath = $imagesDir ? $imagesDir . '/' . $isoFile : '';
+        if ($localIsoPath && file_exists($localIsoPath)) {
+            $needsDistribute = true;
+            $isoStorage = 'local';
+        } else {
+            Response::error("ISO '{$isoFile}' not found on node '{$nodeName}' and not in Custom Images. Configure ISO_STORAGE in Settings or upload the ISO first.", 404);
+        }
     }
 }
 
@@ -135,11 +164,10 @@ $lines[] = 'qm create $VMID'
     . ' --agent enabled=1';
 $lines[] = '';
 
-// TPM 2.0: try to add, skip on failure (swtpm can fail on NFS/shared storage)
-$lines[] = 'echo "    Adding TPM 2.0..."';
-$lines[] = 'if ! qm set $VMID --tpmstate0 ' . escapeshellarg($storage) . ':1,version=v2.0 2>/dev/null; then';
-$lines[] = '  echo "    WARNING: TPM 2.0 could not be added (swtpm init failed — common on shared/NFS storage)."';
-$lines[] = '  echo "    The VM will work without TPM. Windows 11 requires TPM, Windows Server does not."';
+// TPM 2.0: always on local storage (swtpm requires local filesystem)
+$lines[] = 'echo "    Adding TPM 2.0 (local storage)..."';
+$lines[] = 'if ! qm set $VMID --tpmstate0 local:1,version=v2.0 2>/dev/null; then';
+$lines[] = '  echo "    WARNING: TPM 2.0 could not be added."';
 $lines[] = 'fi';
 $lines[] = '';
 
@@ -151,29 +179,44 @@ $lines[] = 'qm set $VMID --scsihw virtio-scsi-pci --scsi0 ' . escapeshellarg($st
 $lines[] = 'qm set $VMID --ide2 ' . escapeshellarg($isoStorage . ':iso/' . $isoFile) . ',media=cdrom';
 $lines[] = 'qm set $VMID --boot order="ide2;scsi0"';
 
-// VirtIO drivers ISO (if available)
+// VirtIO drivers ISO
 $lines[] = '';
 $lines[] = "echo '==> [3/5] Mounting VirtIO drivers...'";
-$lines[] = '# Try to find VirtIO ISO on the same storage';
-$lines[] = 'ISO_STORE_PATH=$(pvesm path ' . escapeshellarg($isoStorage . ':iso/dummy') . ' 2>/dev/null | sed "s|/dummy$||")';
-$lines[] = 'VIRTIO_ISO=$(find "$ISO_STORE_PATH" /var/lib/vz/template/iso/ -iname "virtio-win*.iso" 2>/dev/null | head -1)';
-$lines[] = 'if [ -n "$VIRTIO_ISO" ]; then';
-$lines[] = '  VIRTIO_BASENAME=$(basename "$VIRTIO_ISO")';
-$lines[] = '  qm set $VMID --ide0 ' . escapeshellarg($isoStorage) . ':iso/"$VIRTIO_BASENAME",media=cdrom';
-$lines[] = '  echo "    VirtIO ISO: $VIRTIO_BASENAME"';
-$lines[] = 'else';
-$lines[] = '  echo "    VirtIO ISO not found — downloading automatically..."';
+$lines[] = 'ISO_STOR=' . escapeshellarg($isoStorage);
+$lines[] = '# Resolve ISO storage path from the Windows ISO we already know exists';
+$lines[] = 'ISO_STOR_PATH=$(dirname "$(pvesm path ' . escapeshellarg($isoStorage . ':iso/' . $isoFile) . ' 2>/dev/null)" 2>/dev/null)';
+$lines[] = 'if [ -z "$ISO_STOR_PATH" ] || [ "$ISO_STOR_PATH" = "." ]; then';
+$lines[] = '  # Fallback: try pvesm with dummy, or read storage config';
+$lines[] = '  ISO_STOR_PATH=$(pvesm path "${ISO_STOR}:iso/dummy" 2>/dev/null | sed "s|/dummy$||")';
+$lines[] = 'fi';
+$lines[] = 'if [ -z "$ISO_STOR_PATH" ]; then';
+$lines[] = '  _SPATH=$(cat /etc/pve/storage.cfg 2>/dev/null | awk "/^[a-z]+: ${ISO_STOR//\//\\/}\$/,/^\$/{if(/^\\s+path /){print \\$2}}")';
+$lines[] = '  if [ -n "$_SPATH" ]; then ISO_STOR_PATH="${_SPATH}/template/iso"; fi';
+$lines[] = 'fi';
+$lines[] = 'echo "    ISO storage: $ISO_STOR (path: ${ISO_STOR_PATH:-unknown})"';
+$lines[] = 'VIRTIO_FOUND=""';
+$lines[] = '# Search configured ISO storage for virtio-win ISO';
+$lines[] = 'if [ -n "$ISO_STOR_PATH" ]; then';
+$lines[] = '  FOUND=$(find "$ISO_STOR_PATH" -maxdepth 1 -iname "virtio-win*.iso" 2>/dev/null | head -1)';
+$lines[] = '  if [ -n "$FOUND" ]; then';
+$lines[] = '    VIRTIO_BASENAME=$(basename "$FOUND")';
+$lines[] = '    qm set $VMID --ide0 "${ISO_STOR}":iso/"$VIRTIO_BASENAME",media=cdrom';
+$lines[] = '    echo "    VirtIO ISO: $VIRTIO_BASENAME (storage: $ISO_STOR)"';
+$lines[] = '    VIRTIO_FOUND=1';
+$lines[] = '  fi';
+$lines[] = 'fi';
+$lines[] = 'if [ -z "$VIRTIO_FOUND" ]; then';
+$lines[] = '  echo "    VirtIO ISO not found on $ISO_STOR — downloading automatically..."';
 $lines[] = '  VIRTIO_URL="https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso"';
-$lines[] = '  VIRTIO_DEST="$ISO_STORE_PATH/virtio-win.iso"';
-$lines[] = '  if [ -z "$ISO_STORE_PATH" ]; then VIRTIO_DEST="/var/lib/vz/template/iso/virtio-win.iso"; fi';
+$lines[] = '  if [ -z "$ISO_STOR_PATH" ]; then ISO_STOR_PATH="/var/lib/vz/template/iso"; ISO_STOR="local"; fi';
+$lines[] = '  VIRTIO_DEST="$ISO_STOR_PATH/virtio-win.iso"';
 $lines[] = '  if wget -q --show-progress -O "$VIRTIO_DEST" "$VIRTIO_URL" 2>&1; then';
-$lines[] = '    VIRTIO_BASENAME=$(basename "$VIRTIO_DEST")';
-$lines[] = '    qm set $VMID --ide0 ' . escapeshellarg($isoStorage) . ':iso/"$VIRTIO_BASENAME",media=cdrom';
-$lines[] = '    echo "    VirtIO ISO downloaded and mounted: $VIRTIO_BASENAME"';
+$lines[] = '    qm set $VMID --ide0 "${ISO_STOR}":iso/virtio-win.iso,media=cdrom';
+$lines[] = '    echo "    VirtIO ISO downloaded and mounted (storage: $ISO_STOR)"';
 $lines[] = '  else';
 $lines[] = '    echo "ERROR: VirtIO drivers are required for Windows deployment but could not be downloaded."';
-$lines[] = '    echo "Please download manually: https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso"';
-$lines[] = '    echo "Place it in: $ISO_STORE_PATH/ or /var/lib/vz/template/iso/"';
+$lines[] = '    echo "Please download manually: $VIRTIO_URL"';
+$lines[] = '    echo "Place it in: $ISO_STOR_PATH/"';
 $lines[] = '    qm destroy $VMID --purge --skiplock 2>/dev/null || true';
 $lines[] = '    exit 1';
 $lines[] = '  fi';
@@ -222,10 +265,16 @@ if ($image['autounattend_xml']) {
     $lines[] = 'apt-get install -y genisoimage >/dev/null 2>&1 || true';
     $lines[] = 'genisoimage -J -joliet-long -input-charset utf-8 -V OEMDRV -o ' . escapeshellarg($unattendIso) . ' ' . escapeshellarg($unattendDir) . ' 2>/dev/null';
 
-    // Copy ISO to local storage (always directory-based, works reliably) and mount as CD-ROM
-    $lines[] = 'mkdir -p /var/lib/vz/template/iso';
-    $lines[] = 'cp ' . escapeshellarg($unattendIso) . ' /var/lib/vz/template/iso/win_unattend_' . $vmid . '.iso';
-    $lines[] = 'qm set $VMID --sata0 local:iso/win_unattend_' . $vmid . '.iso,media=cdrom';
+    // Copy ISO to configured storage (reuse $ISO_STOR_PATH from step 3) and mount as CD-ROM
+    $lines[] = 'if [ -n "$ISO_STOR_PATH" ]; then';
+    $lines[] = '  mkdir -p "$ISO_STOR_PATH"';
+    $lines[] = '  cp ' . escapeshellarg($unattendIso) . ' "$ISO_STOR_PATH"/win_unattend_' . $vmid . '.iso';
+    $lines[] = '  qm set $VMID --sata0 "${ISO_STOR}":iso/win_unattend_' . $vmid . '.iso,media=cdrom';
+    $lines[] = 'else';
+    $lines[] = '  mkdir -p /var/lib/vz/template/iso';
+    $lines[] = '  cp ' . escapeshellarg($unattendIso) . ' /var/lib/vz/template/iso/win_unattend_' . $vmid . '.iso';
+    $lines[] = '  qm set $VMID --sata0 local:iso/win_unattend_' . $vmid . '.iso,media=cdrom';
+    $lines[] = 'fi';
     $lines[] = 'rm -rf ' . escapeshellarg($unattendDir) . ' ' . escapeshellarg($unattendIso);
     $lines[] = "echo '    Autounattend.xml injected via ISO'";
 } else {
@@ -244,7 +293,17 @@ $lines[] = 'qm config $VMID | grep -E "^(scsi|ide|sata|efidisk|boot|bios|machine
 // Step 5: Start VM
 $lines[] = '';
 $lines[] = "echo '==> [5/5] Starting VM...'";
-$lines[] = 'qm start $VMID';
+$lines[] = 'if ! qm start $VMID 2>&1; then';
+$lines[] = '  if qm config $VMID | grep -q "^tpmstate0:"; then';
+$lines[] = '    echo "    Start failed (swtpm error) — removing TPM and retrying..."';
+$lines[] = '    qm set $VMID --delete tpmstate0 2>/dev/null || true';
+$lines[] = '    qm start $VMID';
+$lines[] = '    echo "    WARNING: VM started without TPM 2.0. Fix swtpm on this node: swtpm_localca --create-ca"';
+$lines[] = '  else';
+$lines[] = '    echo "ERROR: VM failed to start."';
+$lines[] = '    exit 1';
+$lines[] = '  fi';
+$lines[] = 'fi';
 $lines[] = "echo '    Waiting for UEFI boot...'";
 $lines[] = '# Send keystrokes in background to catch "Press any key to boot from CD" prompt';
 $lines[] = '# UEFI+TPM+EFI disk init can take 10-20s, so keep pressing over a wide window';
@@ -260,6 +319,8 @@ $lines[] = '';
 $lines[] = "echo '==> Post-install cleanup will run in background after Windows setup completes.'";
 $lines[] = "echo '    (Waiting for QEMU Guest Agent to become available...)'";
 $lines[] = 'nohup bash -c ' . "'" . 'VMID=' . $vmid . ';';
+$lines[] = 'CLEANUP_PATH=$(dirname "$(pvesm path ' . escapeshellarg($isoStorage . ':iso/' . $isoFile) . ' 2>/dev/null)" 2>/dev/null);';
+$lines[] = 'if [ -z "$CLEANUP_PATH" ] || [ "$CLEANUP_PATH" = "." ]; then CLEANUP_PATH="/var/lib/vz/template/iso"; fi;';
 $lines[] = 'TIMEOUT=3600; ELAPSED=0;';  // max 60 min wait
 $lines[] = 'while [ $ELAPSED -lt $TIMEOUT ]; do';
 $lines[] = '  if qm agent $VMID ping 2>/dev/null; then';
@@ -267,7 +328,7 @@ $lines[] = '    sleep 30;';  // extra wait for post-setup tasks (guest tools ins
 $lines[] = '    qm set $VMID --delete ide0 2>/dev/null || true;';
 $lines[] = '    qm set $VMID --delete sata0 2>/dev/null || true;';
 $lines[] = '    qm set $VMID --ide2 none,media=cdrom 2>/dev/null || true;';
-$lines[] = '    rm -f /var/lib/vz/template/iso/win_unattend_' . $vmid . '.iso 2>/dev/null || true;';
+$lines[] = '    rm -f "$CLEANUP_PATH/win_unattend_' . $vmid . '.iso" 2>/dev/null || true;';
 $lines[] = '    qm set $VMID --boot order=scsi0 2>/dev/null || true;';
 $lines[] = '    logger -t pve-deploy "VM $VMID: Windows setup complete, CD-ROMs cleaned up";';
 $lines[] = '    exit 0;';
@@ -312,11 +373,28 @@ $sessData = [
 ];
 
 if ($needsDistribute) {
+    // Resolve remote ISO directory path for the target storage
+    // Use pvesm path to find the actual directory, e.g. cephfs → /mnt/pve/cephfs/template/iso/
+    // Resolve path: try pvesm path, then parse storage.cfg, then fallback
+    $resolveScript = 'P=$(dirname "$(pvesm path ' . escapeshellarg($isoStorage . ':iso/dummy_probe') . ' 2>/dev/null)" 2>/dev/null);'
+        . ' if [ -z "$P" ] || [ "$P" = "." ]; then'
+        . '   P=$(awk "/^[a-z]+: ' . preg_replace('/[^a-zA-Z0-9_-]/', '', $isoStorage) . '$/,/^$/{if(/^\\s+path /){print \\$2}}" /etc/pve/storage.cfg 2>/dev/null);'
+        . '   if [ -n "$P" ]; then P="${P}/template/iso"; fi;'
+        . ' fi;'
+        . ' echo "$P"';
+    $resolvePathCmd = 'ssh ' . $sshOpts . ' -p ' . $sshPort . ' '
+        . escapeshellarg($sshUser . '@' . $sshHost) . ' '
+        . escapeshellarg($resolveScript);
+    $remotePath = trim(shell_exec($resolvePathCmd) ?? '');
+    if (!$remotePath) {
+        $remotePath = '/var/lib/vz/template/iso';
+    }
+
     // Build a compound local command: SCP the ISO first, then SSH deploy
-    $scpCmd = 'echo "==> [0/5] Distributing ISO to node ' . escapeshellarg($nodeName) . '..." && '
+    $scpCmd = 'echo "==> [0/5] Distributing ISO to ' . escapeshellarg($isoStorage) . ' on ' . escapeshellarg($nodeName) . '..." && '
         . 'scp ' . $sshOpts . ' -P ' . $sshPort . ' '
         . escapeshellarg($localIsoPath) . ' '
-        . escapeshellarg($sshUser . '@' . $sshHost . ':/var/lib/vz/template/iso/' . $isoFile)
+        . escapeshellarg($sshUser . '@' . $sshHost . ':' . $remotePath . '/' . $isoFile)
         . ' && echo "    ISO distributed successfully." && ';
     $sessData['raw_command'] = $scpCmd . $sshCmd;
 } else {

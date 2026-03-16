@@ -283,13 +283,15 @@ const Monitoring = {
                     </div>
                 </div>` : ''}
 
-                ${(data.warnings || []).length ? `
-                <div class="card mb-4" style="background:var(--card-bg);border:1px solid var(--border-color)">
+                ${(data.warnings || []).length ? (() => {
+                    const hasErr = data.warnings.some(w => w.severity === 'HEALTH_ERR');
+                    return `<div class="card mb-4" style="background:var(--card-bg);border:1px solid var(--border-color)">
                     <div class="card-body">
-                        <h6 class="mb-3 text-warning"><i class="bi bi-exclamation-triangle me-1"></i>Warnings</h6>
+                        <h6 class="mb-3 ${hasErr ? 'text-danger' : 'text-warning'}"><i class="bi bi-exclamation-triangle me-1"></i>${hasErr ? 'Alerts' : 'Warnings'}</h6>
                         ${data.warnings.map(w => `<div class="small ${w.severity === 'HEALTH_ERR' ? 'text-danger' : 'text-warning'} mb-1"><i class="bi bi-exclamation-circle me-1"></i>${Utils.escapeHtml(w.message)}</div>`).join('')}
                     </div>
-                </div>` : ''}
+                </div>`;
+                })() : ''}
             `;
 
             // Load CEPH time-series charts

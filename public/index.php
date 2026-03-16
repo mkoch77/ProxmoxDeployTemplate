@@ -51,6 +51,7 @@ $perms = $user['permissions'];
             'ssh_public_keys' => $user['ssh_public_keys'] ?? '',
             'default_storage' => $user['default_storage'] ?? '',
             'ssh_enabled' => filter_var(Config::get('SSH_ENABLED', 'true'), FILTER_VALIDATE_BOOLEAN),
+            'iso_storage' => Config::get('ISO_STORAGE', ''),
         ], JSON_HEX_TAG | JSON_HEX_AMP) ?>;
 
         // Apply theme immediately to prevent flash
@@ -325,8 +326,8 @@ $perms = $user['permissions'];
                     </h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" onclick="Templates.closeTerminal()"></button>
                 </div>
-                <div class="modal-body p-0" style="background:#000;height:70vh">
-                    <div id="ssh-terminal-container" style="padding:8px;height:100%;box-sizing:border-box"></div>
+                <div class="modal-body p-0" style="background:#0d1117;height:70vh">
+                    <div id="ssh-terminal-container" style="height:100%;box-sizing:border-box"></div>
                 </div>
                 <div class="modal-footer justify-content-start py-2">
                     <span id="ssh-terminal-status" class="text-muted small"></span>

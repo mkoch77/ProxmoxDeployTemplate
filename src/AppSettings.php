@@ -26,6 +26,7 @@ class AppSettings
         'PROXMOX_FALLBACK_HOSTS',
         'SSH_ENABLED',
         'SSH_PORT',
+        'ISO_STORAGE',
         'CLOUD_DISTROS',
         'DOMAIN',
         'LETSENCRYPT_EMAIL',
@@ -80,6 +81,14 @@ class AppSettings
             'type' => 'number',
             'placeholder' => '22',
             'default' => '22',
+        ],
+        'ISO_STORAGE' => [
+            'label' => 'ISO Storage',
+            'description' => 'Shared storage for ISO images (required for VM live-migration). Must be a shared/cluster-wide storage with ISO content type.',
+            'group' => 'Storage',
+            'type' => 'iso-storage',
+            'placeholder' => 'e.g. cephfs, nfs-iso',
+            'default' => '',
         ],
         'CLOUD_DISTROS' => [
             'label' => 'Cloud-Init Distros',

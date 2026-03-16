@@ -1184,10 +1184,10 @@ const Templates = {
                     </div>
                 </div>
                 <div class="ci-card-footer">
-                    <button class="btn btn-sm btn-outline-info me-1" title="${Utils.sshEnabled() ? 'Distribute to all nodes' : 'Requires SSH'}"
+                    ${!window.APP_USER?.iso_storage ? `<button class="btn btn-sm btn-outline-info me-1" title="${Utils.sshEnabled() ? 'Distribute to all nodes' : 'Requires SSH'}"
                         onclick="event.stopPropagation();Templates.distributeCustomImage(${img.id},this)" ${Utils.sshEnabled() ? '' : 'disabled'}>
                         <i class="bi bi-send"></i>
-                    </button>
+                    </button>` : ''}
                     <button class="btn btn-sm btn-outline-danger" title="Delete"
                         onclick="event.stopPropagation();Templates.deleteCustomImage(${img.id},'${escapeHtml(img.name)}')">
                         <i class="bi bi-trash"></i>
@@ -1874,11 +1874,11 @@ const Templates = {
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">CPU Cores</label>
-                                <input type="number" class="form-control" id="win-cores" value="4" min="1" max="128">
+                                <input type="number" class="form-control" id="win-cores" value="4" min="2" max="128">
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Memory (MB)</label>
-                                <input type="number" class="form-control" id="win-memory" value="4096" min="2048" max="131072" step="1024">
+                                <input type="number" class="form-control" id="win-memory" value="4096" min="4096" max="131072" step="1024">
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label">Disk Size (GB)</label>

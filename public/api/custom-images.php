@@ -8,6 +8,8 @@ use App\Request;
 use App\Response;
 use App\Database;
 use App\AppLogger;
+use App\Config;
+use App\Helpers;
 
 Bootstrap::init();
 $user = Auth::requirePermission('template.deploy');
@@ -43,7 +45,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         }
     }
 
-    Response::success(['images' => $rows, 'unregistered' => $unregistered]);
+    // List ISOs from configured ISO_STORAGE (Proxmox shared storage)
+    $storageIsos = [];
+    $isoStorage = Config::get('ISO_STORAGE', '');
+    if ($isoStorage) {
+        try {
+            $api = Helpers::createAPI();
+            $nodesResult = $api->getNodes();
+            $onlineNode = null;
+            foreach ($nodesResult['data'] ?? [] as $n) {
+                if (($n['status'] ?? '') === 'online') {
+                    $onlineNode = $n['node'];
+                    break;
+                }
+            }
+            if ($onlineNode) {
+                $content = $api->getStorageContent($onlineNode, $isoStorage, 'iso');
+                foreach ($content['data'] ?? [] as $item) {
+                    $volid = $item['volid'] ?? '';
+                    $filename = basename($volid);
+                    $storageIsos[] = [
+                        'volid'     => $volid,
+                        'filename'  => $filename,
+                        'file_size' => $item['size'] ?? 0,
+                        'ctime'     => $item['ctime'] ?? null,
+                    ];
+                }
+            }
+        } catch (\Exception $e) {
+            // Storage query failed — return what we have
+        }
+    }
+
+    Response::success(['images' => $rows, 'unregistered' => $unregistered, 'storage_isos' => $storageIsos]);
 }
 
 // ── POST: register or upload ────────────────────────────────────────────────
@@ -135,6 +169,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // ── DELETE: remove image ────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'DELETE') {
+    // Delete ISO from Proxmox storage by volid
+    if (!empty($_GET['volid'])) {
+        Request::validateCsrf();
+        $volid = $_GET['volid'];
+        if (!preg_match('/^[a-zA-Z0-9_-]+:iso\/.+$/i', $volid)) {
+            Response::error('Invalid volume ID', 400);
+        }
+        try {
+            $api = Helpers::createAPI();
+            $nodesResult = $api->getNodes();
+            $onlineNode = null;
+            foreach ($nodesResult['data'] ?? [] as $n) {
+                if (($n['status'] ?? '') === 'online') {
+                    $onlineNode = $n['node'];
+                    break;
+                }
+            }
+            if (!$onlineNode) Response::error('No online node found', 500);
+            $api->deleteStorageVolume($onlineNode, $volid);
+            AppLogger::warning('deploy', 'Storage ISO deleted', ['volid' => $volid], $user['id']);
+            Response::success(['deleted' => true]);
+        } catch (\Exception $e) {
+            Response::error('Failed to delete: ' . $e->getMessage(), 500);
+        }
+    }
+
     $id = (int)($_GET['id'] ?? 0);
     if (!$id) Response::error('Missing id', 400);
 

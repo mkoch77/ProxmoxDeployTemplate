@@ -238,16 +238,19 @@ const App = {
                 }
             }
 
-            // CEPH health warnings
+            // CEPH health warnings — any OSD down or HEALTH_ERR is always critical
             if (data.ceph && data.ceph.available) {
+                const osds = data.ceph.osds || {};
+                const osdsDown = osds.total > 0 && osds.up < osds.total;
+                const isCritical = data.ceph.health === 'HEALTH_ERR' || osdsDown;
+
                 if (data.ceph.health === 'HEALTH_ERR') {
                     warnings.push({ level: 'danger', msg: 'CEPH cluster health: <strong>ERROR</strong>', cat: 'ceph' });
                 } else if (data.ceph.health === 'HEALTH_WARN') {
-                    warnings.push({ level: 'warning', msg: 'CEPH cluster health: <strong>WARNING</strong>', cat: 'ceph' });
+                    warnings.push({ level: isCritical ? 'danger' : 'warning', msg: `CEPH cluster health: <strong>${isCritical ? 'CRITICAL' : 'WARNING'}</strong>`, cat: 'ceph' });
                 }
-                const osds = data.ceph.osds || {};
-                if (osds.total > 0 && osds.up < osds.total) {
-                    warnings.push({ level: osds.up < osds.total / 2 ? 'danger' : 'warning', msg: `CEPH: ${osds.total - osds.up} OSD(s) down (${osds.up}/${osds.total} up)`, cat: 'ceph' });
+                if (osdsDown) {
+                    warnings.push({ level: 'danger', msg: `CEPH: ${osds.total - osds.up} OSD(s) down (${osds.up}/${osds.total} up)`, cat: 'ceph' });
                 }
             }
 

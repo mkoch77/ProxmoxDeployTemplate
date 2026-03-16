@@ -33,9 +33,13 @@ if (!file_exists($localPath)) {
     Response::error("File '{$image['filename']}' not found locally", 404);
 }
 
-// Remote destination on Proxmox nodes: ISOs go to iso/, everything else to custom/
+// Remote destination on Proxmox nodes
+// For ISOs: use configured ISO_STORAGE path if set, otherwise /var/lib/vz/template/iso/
+// For non-ISOs: always /var/lib/vz/template/custom/
 $isIso = (bool)preg_match('/\.iso$/i', $image['filename']);
+$configuredIsoStorage = Config::get('ISO_STORAGE', '');
 $remoteDest = $isIso ? '/var/lib/vz/template/iso/' : '/var/lib/vz/template/custom/';
+$resolveRemoteDest = $isIso && $configuredIsoStorage; // need to resolve path per-node via pvesm
 
 // Get SSH key path
 $keyDir = getenv('SSH_KEY_DIR') ?: '/var/www/html/data/.ssh';
@@ -61,8 +65,15 @@ $userId = Auth::check()['id'] ?? null;
 AppLogger::info('deploy', 'Custom image distribution started', ['image_id' => $imageId, 'filename' => $image['filename'], 'node_count' => count($nodes)], $userId);
 
 $results = [];
+$sharedDone = false; // For shared storage, only need to copy once
 foreach ($nodes as $node) {
     $nodeName = $node['node'];
+
+    // For shared ISO storage: once copied to one node, it's available on all
+    if ($resolveRemoteDest && $sharedDone) {
+        $results[$nodeName] = ['ok' => true, 'note' => 'shared storage — already distributed'];
+        continue;
+    }
 
     // Resolve SSH host
     $envKey  = 'SSH_HOST_' . strtoupper(str_replace('-', '_', $nodeName));
@@ -85,8 +96,27 @@ foreach ($nodes as $node) {
     // Create remote dir + SCP the file
     $sshOpts = "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -i " . escapeshellarg($keyPath);
 
+    // Resolve remote destination: for configured ISO storage, find actual filesystem path
+    $nodeRemoteDest = $remoteDest;
+    if ($resolveRemoteDest) {
+        $storageName = preg_replace('/[^a-zA-Z0-9_-]/', '', $configuredIsoStorage);
+        $resolveScript = 'P=$(dirname "$(pvesm path ' . escapeshellarg($configuredIsoStorage . ':iso/dummy_probe') . ' 2>/dev/null)" 2>/dev/null);'
+            . ' if [ -z "$P" ] || [ "$P" = "." ]; then'
+            . '   P=$(awk "/^[a-z]+: ' . $storageName . '$/,/^$/{if(/^\\s+path /){print \\$2}}" /etc/pve/storage.cfg 2>/dev/null);'
+            . '   if [ -n "$P" ]; then P="${P}/template/iso"; fi;'
+            . ' fi;'
+            . ' echo "$P"';
+        $resolveCmd = "ssh {$sshOpts} root@" . escapeshellarg($sshHost)
+            . " " . escapeshellarg($resolveScript);
+        $resolved = trim(shell_exec($resolveCmd . ' 2>/dev/null') ?? '');
+        if ($resolved) {
+            $nodeRemoteDest = rtrim($resolved, '/') . '/';
+        }
+    }
+
     // Create remote directory
-    $mkdirCmd = "ssh {$sshOpts} root@" . escapeshellarg($sshHost) . " 'mkdir -p " . escapeshellarg($remoteDest) . "'";
+    $mkdirCmd = "ssh {$sshOpts} root@" . escapeshellarg($sshHost) . " 'mkdir -p " . escapeshellarg($nodeRemoteDest) . "'";
+    $mkdirOut = [];
     exec($mkdirCmd . ' 2>&1', $mkdirOut, $mkdirCode);
 
     if ($mkdirCode !== 0) {
@@ -95,13 +125,15 @@ foreach ($nodes as $node) {
     }
 
     // SCP the file
-    $scpCmd = "scp {$sshOpts} " . escapeshellarg($localPath) . " root@" . escapeshellarg($sshHost) . ":" . escapeshellarg($remoteDest . $image['filename']);
+    $scpCmd = "scp {$sshOpts} " . escapeshellarg($localPath) . " root@" . escapeshellarg($sshHost) . ":" . escapeshellarg($nodeRemoteDest . $image['filename']);
+    $scpOut = [];
     exec($scpCmd . ' 2>&1', $scpOut, $scpCode);
 
     if ($scpCode !== 0) {
         $results[$nodeName] = ['ok' => false, 'error' => 'SCP failed: ' . implode(' ', $scpOut)];
     } else {
         $results[$nodeName] = ['ok' => true];
+        if ($resolveRemoteDest) $sharedDone = true;
     }
 }
 

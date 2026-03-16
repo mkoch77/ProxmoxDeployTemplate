@@ -54,7 +54,7 @@ const Settings = {
                 </li>` : ''}
                 ${Permissions.has('template.deploy') ? `<li class="nav-item" role="presentation">
                     <button class="nav-link" data-tab="iso-mgmt" onclick="Settings.switchTab('iso-mgmt')">
-                        <i class="bi bi-disc-fill me-1"></i>ISO Management
+                        <i class="bi bi-disc-fill me-1"></i>Content Library
                     </button>
                 </li>` : ''}
                 ${Permissions.has('backup.manage') ? `<li class="nav-item" role="presentation">
@@ -1568,6 +1568,10 @@ const Settings = {
                 <input type="checkbox" class="form-check-input" id="app-config-edit-value" ${checked ? 'checked' : ''}>
                 <label class="form-check-label" for="app-config-edit-value">Enabled</label>
             </div>`;
+        } else if (entry.type === 'iso-storage') {
+            inputHtml = `<select class="form-select bg-dark text-light border-secondary" id="app-config-edit-value">
+                <option value="">Loading storages...</option>
+            </select>`;
         } else {
             inputHtml = `<input type="${entry.type === 'number' ? 'number' : entry.type === 'email' ? 'email' : 'text'}"
                 class="form-control bg-dark text-light border-secondary" id="app-config-edit-value"
@@ -1598,6 +1602,37 @@ const Settings = {
         document.body.appendChild(modal);
         const input = modal.querySelector('#app-config-edit-value');
         if (input && input.type !== 'checkbox') input.focus();
+
+        // For iso-storage type: load shared ISO storages from first online node
+        if (entry.type === 'iso-storage') {
+            this._loadIsoStorageOptions(modal.querySelector('#app-config-edit-value'), entry.value);
+        }
+    },
+
+    async _loadIsoStorageOptions(selectEl, currentValue) {
+        try {
+            const nodes = await API.get('api/nodes.php');
+            const onlineNode = (nodes || []).find(n => n.status === 'online');
+            if (!onlineNode) {
+                selectEl.innerHTML = '<option value="">No online nodes found</option>';
+                return;
+            }
+            const storages = await API.get('api/storages.php', { node: onlineNode.node, content: 'iso' });
+            const shared = (storages || []).filter(s => s.shared);
+            let html = '<option value="">(not set — uses local per node)</option>';
+            for (const s of shared) {
+                const sel = s.storage === currentValue ? ' selected' : '';
+                const used = Utils.formatBytes(s.used || 0);
+                const total = Utils.formatBytes(s.total || 0);
+                html += `<option value="${Utils.escapeHtml(s.storage)}"${sel}>${Utils.escapeHtml(s.storage)} (${used} / ${total})</option>`;
+            }
+            if (!shared.length) {
+                html += '<option disabled>No shared ISO storages found</option>';
+            }
+            selectEl.innerHTML = html;
+        } catch (err) {
+            selectEl.innerHTML = `<option value="${Utils.escapeHtml(currentValue || '')}">${Utils.escapeHtml(currentValue || '(error loading)')}</option>`;
+        }
     },
 
     async appConfigSave(key, type, modal) {
@@ -1831,7 +1866,7 @@ const Settings = {
                         </div>
                     </div>
 
-                    <div class="card">
+                    <div class="card mb-4">
                         <div class="card-header"><i class="bi bi-collection me-2"></i>Uploaded ISOs</div>
                         <div class="card-body p-0">
                             <div id="iso-mgmt-list">
@@ -1839,6 +1874,15 @@ const Settings = {
                             </div>
                         </div>
                     </div>
+
+                    ${window.APP_USER?.iso_storage ? `<div class="card">
+                        <div class="card-header"><i class="bi bi-hdd-network me-2"></i>ISOs on Storage: <code>${window.APP_USER.iso_storage}</code></div>
+                        <div class="card-body p-0">
+                            <div id="iso-storage-list">
+                                <div class="text-center text-muted py-4">Loading...</div>
+                            </div>
+                        </div>
+                    </div>` : ''}
                 </div>
             </div>
         `;
@@ -1849,6 +1893,7 @@ const Settings = {
             const resp = await API.getCustomImages();
             const all = resp.images || [];
             this._isoMgmtData = all.filter(img => /\.iso$/i.test(img.filename));
+            this._storageIsos = resp.storage_isos || [];
             this._renderIsoList();
         } catch (err) {
             document.getElementById('iso-mgmt-list').innerHTML = `<div class="text-danger p-3">${err.message}</div>`;
@@ -1866,30 +1911,74 @@ const Settings = {
         const isos = this._isoMgmtData || [];
         if (isos.length === 0) {
             container.innerHTML = '<div class="text-muted text-center py-4">No ISO images uploaded yet.</div>';
+        } else {
+            container.innerHTML = `
+                <table class="table table-sm table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Filename</th>
+                            <th>Uploaded</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${isos.map(iso => `
+                            <tr>
+                                <td>${this._esc(iso.name)}</td>
+                                <td><code class="small">${this._esc(iso.filename)}</code></td>
+                                <td class="small text-muted">${iso.created_at ? new Date(iso.created_at).toLocaleDateString() : '—'}</td>
+                                <td class="text-end">
+                                    ${!window.APP_USER?.iso_storage ? `<button class="btn btn-sm btn-outline-success me-1" onclick="Settings.distributeIso(${iso.id}, '${this._esc(iso.filename)}')" title="Distribute to all nodes">
+                                        <i class="bi bi-send"></i> Distribute
+                                    </button>` : ''}
+                                    <button class="btn btn-sm btn-outline-danger" onclick="Settings.deleteIso(${iso.id}, '${this._esc(iso.filename)}')" title="Delete">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        // Render storage ISOs
+        const storageContainer = document.getElementById('iso-storage-list');
+        if (!storageContainer) return;
+        const storageIsos = this._storageIsos || [];
+        if (storageIsos.length === 0) {
+            storageContainer.innerHTML = '<div class="text-muted text-center py-4">No ISOs found on storage.</div>';
             return;
         }
 
-        container.innerHTML = `
+        const formatSize = (bytes) => {
+            if (!bytes) return '—';
+            const units = ['B', 'KB', 'MB', 'GB'];
+            let i = 0;
+            let size = bytes;
+            while (size >= 1024 && i < units.length - 1) { size /= 1024; i++; }
+            return size.toFixed(i > 1 ? 1 : 0) + ' ' + units[i];
+        };
+
+        storageContainer.innerHTML = `
             <table class="table table-sm table-hover mb-0">
                 <thead>
                     <tr>
-                        <th>Name</th>
                         <th>Filename</th>
-                        <th>Uploaded</th>
+                        <th>Size</th>
+                        <th>Created</th>
                         <th class="text-end">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
-                    ${isos.map(iso => `
+                    ${storageIsos.map(iso => `
                         <tr>
-                            <td>${this._esc(iso.name)}</td>
                             <td><code class="small">${this._esc(iso.filename)}</code></td>
-                            <td class="small text-muted">${iso.created_at ? new Date(iso.created_at).toLocaleDateString() : '—'}</td>
+                            <td class="small text-muted">${formatSize(iso.file_size)}</td>
+                            <td class="small text-muted">${iso.ctime ? new Date(iso.ctime * 1000).toLocaleDateString() : '—'}</td>
                             <td class="text-end">
-                                <button class="btn btn-sm btn-outline-success me-1" onclick="Settings.distributeIso(${iso.id}, '${this._esc(iso.filename)}')" title="Distribute to all nodes">
-                                    <i class="bi bi-send"></i> Distribute
-                                </button>
-                                <button class="btn btn-sm btn-outline-danger" onclick="Settings.deleteIso(${iso.id}, '${this._esc(iso.filename)}')" title="Delete">
+                                <button class="btn btn-sm btn-outline-danger" onclick="Settings.deleteStorageIso('${this._esc(iso.volid)}', '${this._esc(iso.filename)}')" title="Delete from storage">
                                     <i class="bi bi-trash"></i>
                                 </button>
                             </td>
@@ -2001,6 +2090,18 @@ const Settings = {
         try {
             await API.deleteCustomImage(id, true);
             Toast.success(`"${filename}" deleted`);
+            await this.loadIsoMgmtData();
+        } catch (err) {
+            Toast.error('Delete failed: ' + err.message);
+        }
+    },
+
+    async deleteStorageIso(volid, filename) {
+        if (!confirm(`Delete "${filename}" from Proxmox storage? This removes it from all nodes using this shared storage.`)) return;
+
+        try {
+            await API.deleteStorageIso(volid);
+            Toast.success(`"${filename}" deleted from storage`);
             await this.loadIsoMgmtData();
         } catch (err) {
             Toast.error('Delete failed: ' + err.message);

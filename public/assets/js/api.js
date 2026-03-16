@@ -270,6 +270,13 @@ const API = {
         }).then(r => r.json()).then(d => { if (!d.success) throw new Error(d.error || 'Delete failed'); return d.data; });
     },
 
+    deleteStorageIso(volid) {
+        return fetch(`api/custom-images.php?volid=${encodeURIComponent(volid)}`, {
+            method: 'DELETE',
+            headers: { 'X-CSRF-Token': this.csrfToken },
+        }).then(r => r.json()).then(d => { if (!d.success) throw new Error(d.message || 'Delete failed'); return d.data; });
+    },
+
     distributeCustomImage(id) {
         return this.post('api/custom-images-distribute.php', { id });
     },
