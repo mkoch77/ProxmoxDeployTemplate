@@ -37,6 +37,9 @@ try {
     $failed = 0;
 
     foreach ($migrations as $mig) {
+        // Detach local CD-ROMs that would block migration
+        $detachedCds = \App\MaintenanceManager::detachLocalCdRoms($api, $mig['source_node'], $mig['vm_type'], $mig['vmid']);
+
         try {
             $result = $api->migrateGuest(
                 $mig['source_node'],
@@ -48,6 +51,10 @@ try {
             $succeeded++;
             echo date('Y-m-d H:i:s') . "   VM {$mig['vmid']} ({$mig['vm_name']}): {$mig['source_node']} -> {$mig['target_node']} — started\n";
         } catch (\Exception $e) {
+            // Re-attach CDs on failure
+            if (!empty($detachedCds)) {
+                \App\MaintenanceManager::reattachCdRoms($api, $mig['source_node'], $mig['vm_type'], $mig['vmid'], $detachedCds);
+            }
             $failed++;
             echo date('Y-m-d H:i:s') . "   VM {$mig['vmid']} ({$mig['vm_name']}): FAILED — {$e->getMessage()}\n";
         }

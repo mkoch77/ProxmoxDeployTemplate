@@ -517,6 +517,9 @@ class Loadbalancer
             return $rec;
         }
 
+        // Detach local CD-ROMs that would block migration
+        $detachedCds = MaintenanceManager::detachLocalCdRoms($api, $rec['source_node'], $rec['vm_type'], (int)$rec['vmid']);
+
         try {
             $result = $api->migrateGuest(
                 $rec['source_node'],
@@ -536,6 +539,10 @@ class Loadbalancer
             $rec['status'] = 'applied';
             $rec['upid'] = $upid;
         } catch (\Exception $e) {
+            // Migration failed — re-attach CDs
+            if (!empty($detachedCds)) {
+                MaintenanceManager::reattachCdRoms($api, $rec['source_node'], $rec['vm_type'], (int)$rec['vmid'], $detachedCds);
+            }
             $stmt = $db->prepare('UPDATE drs_recommendations SET status = ?, error_message = ? WHERE id = ?');
             $stmt->execute(['error', $e->getMessage(), $recommendationId]);
 

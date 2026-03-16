@@ -80,6 +80,9 @@ switch ($method) {
                 }
                 $type = $guest['type'];
 
+                // Detach local CD-ROMs that would block migration
+                $detachedCds = MaintenanceManager::detachLocalCdRoms($api, $nodeName, $type, $vmid);
+
                 try {
                     $result = $api->migrateGuest($nodeName, $type, $vmid, $target, true);
                     AppLogger::info('maintenance', 'Migration API call succeeded', [
@@ -94,8 +97,13 @@ switch ($method) {
                         'upid' => $result['data'] ?? '',
                         'status' => 'running',
                         'started_at' => date('c'),
+                        'detached_cdroms' => $detachedCds,
                     ];
                 } catch (\Exception $e) {
+                    // Migration failed — re-attach CDs immediately
+                    if (!empty($detachedCds)) {
+                        MaintenanceManager::reattachCdRoms($api, $nodeName, $type, $vmid, $detachedCds);
+                    }
                     AppLogger::error('maintenance', 'Migration API call failed', [
                         'vmid' => $vmid, 'target' => $target, 'error' => $e->getMessage(),
                     ], $user['id']);
@@ -197,7 +205,18 @@ switch ($method) {
                     }
                 } catch (\Exception $e) { /* VM not on target */ }
 
-                if (!$vmOnTarget) continue;
+                if (!$vmOnTarget) {
+                    // VM not on target — maybe it was already migrated back manually
+                    // Re-attach CDs on original node if they were detached
+                    $detachedCds = $mig['detached_cdroms'] ?? [];
+                    if (!empty($detachedCds)) {
+                        MaintenanceManager::reattachCdRoms($api, $originalNode, $type, $vmid, $detachedCds);
+                    }
+                    continue;
+                }
+
+                // Detach local CD-ROMs on current node before back-migration
+                $detachedCds = MaintenanceManager::detachLocalCdRoms($api, $targetNode, $type, $vmid);
 
                 try {
                     $result = $api->migrateGuest($targetNode, $type, $vmid, $originalNode, true);
@@ -210,8 +229,13 @@ switch ($method) {
                         'upid' => $result['data'] ?? '',
                         'status' => 'running',
                         'started_at' => date('c'),
+                        'detached_cdroms' => array_merge($detachedCds, $mig['detached_cdroms'] ?? []),
                     ];
                 } catch (\Exception $e) {
+                    // Migration failed — re-attach CDs
+                    if (!empty($detachedCds)) {
+                        MaintenanceManager::reattachCdRoms($api, $targetNode, $type, $vmid, $detachedCds);
+                    }
                     $backMigrations[] = [
                         'vmid' => $vmid,
                         'type' => $type,

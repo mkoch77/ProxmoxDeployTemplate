@@ -65,13 +65,25 @@ try {
     }
 
     $online = !empty($body['online']);
-    $result = $api->migrateGuest(
-        $body['node'],
-        $body['type'],
-        (int) $body['vmid'],
-        $body['target'],
-        $online
-    );
+
+    // Detach local CD-ROMs that would block live migration
+    $detachedCds = \App\MaintenanceManager::detachLocalCdRoms($api, $body['node'], $body['type'], (int)$body['vmid']);
+
+    try {
+        $result = $api->migrateGuest(
+            $body['node'],
+            $body['type'],
+            (int) $body['vmid'],
+            $body['target'],
+            $online
+        );
+    } catch (\Exception $e) {
+        // Migration failed — re-attach CDs
+        if (!empty($detachedCds)) {
+            \App\MaintenanceManager::reattachCdRoms($api, $body['node'], $body['type'], (int)$body['vmid'], $detachedCds);
+        }
+        throw $e;
+    }
 
     AppLogger::info('migrate', "Migrate VM {$body['vmid']} from {$body['node']} to {$body['target']}", ['online' => $online], Auth::check()['id'] ?? null);
     Response::success(['upid' => $result['data'] ?? null]);
