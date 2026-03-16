@@ -1570,21 +1570,45 @@ const Templates = {
         <component name="Microsoft-Windows-PnpCustomizationsWinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
             <DriverPaths>
                 <PathAndCredentials wcm:action="add" wcm:keyValue="1">
-                    <Path>D:\\vioscsi\\w11\\amd64</Path>
+                    <Path>D:\\vioscsi\\2k22\\amd64</Path>
                 </PathAndCredentials>
                 <PathAndCredentials wcm:action="add" wcm:keyValue="2">
-                    <Path>D:\\viostor\\w11\\amd64</Path>
+                    <Path>D:\\vioscsi\\w11\\amd64</Path>
                 </PathAndCredentials>
                 <PathAndCredentials wcm:action="add" wcm:keyValue="3">
-                    <Path>D:\\NetKVM\\w11\\amd64</Path>
+                    <Path>D:\\vioscsi\\2k25\\amd64</Path>
                 </PathAndCredentials>
                 <PathAndCredentials wcm:action="add" wcm:keyValue="4">
-                    <Path>E:\\vioscsi\\w11\\amd64</Path>
+                    <Path>D:\\viostor\\2k22\\amd64</Path>
                 </PathAndCredentials>
                 <PathAndCredentials wcm:action="add" wcm:keyValue="5">
-                    <Path>E:\\viostor\\w11\\amd64</Path>
+                    <Path>D:\\viostor\\w11\\amd64</Path>
                 </PathAndCredentials>
                 <PathAndCredentials wcm:action="add" wcm:keyValue="6">
+                    <Path>D:\\NetKVM\\2k22\\amd64</Path>
+                </PathAndCredentials>
+                <PathAndCredentials wcm:action="add" wcm:keyValue="7">
+                    <Path>D:\\NetKVM\\w11\\amd64</Path>
+                </PathAndCredentials>
+                <PathAndCredentials wcm:action="add" wcm:keyValue="8">
+                    <Path>E:\\vioscsi\\2k22\\amd64</Path>
+                </PathAndCredentials>
+                <PathAndCredentials wcm:action="add" wcm:keyValue="9">
+                    <Path>E:\\vioscsi\\w11\\amd64</Path>
+                </PathAndCredentials>
+                <PathAndCredentials wcm:action="add" wcm:keyValue="10">
+                    <Path>E:\\vioscsi\\2k25\\amd64</Path>
+                </PathAndCredentials>
+                <PathAndCredentials wcm:action="add" wcm:keyValue="11">
+                    <Path>E:\\viostor\\2k22\\amd64</Path>
+                </PathAndCredentials>
+                <PathAndCredentials wcm:action="add" wcm:keyValue="12">
+                    <Path>E:\\viostor\\w11\\amd64</Path>
+                </PathAndCredentials>
+                <PathAndCredentials wcm:action="add" wcm:keyValue="13">
+                    <Path>E:\\NetKVM\\2k22\\amd64</Path>
+                </PathAndCredentials>
+                <PathAndCredentials wcm:action="add" wcm:keyValue="14">
                     <Path>E:\\NetKVM\\w11\\amd64</Path>
                 </PathAndCredentials>
             </DriverPaths>

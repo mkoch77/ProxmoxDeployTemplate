@@ -184,7 +184,7 @@ if ($image['autounattend_xml']) {
             $xmlContent = str_replace('{{PRODUCT_KEY}}', $image['product_key'], $xmlContent);
         }
     }
-    $lines[] = 'cat > ' . escapeshellarg($unattendDir . '/autounattend.xml') . " << 'WIN_XML_EOF'";
+    $lines[] = 'cat > ' . escapeshellarg($unattendDir . '/Autounattend.xml') . " << 'WIN_XML_EOF'";
     $lines[] = $xmlContent;
     $lines[] = 'WIN_XML_EOF';
 
@@ -205,8 +205,10 @@ if ($image['autounattend_xml']) {
     }
 
     // Create ISO image with autounattend files
+    // Use -J (Joliet) without -r (Rock Ridge) to preserve exact Windows filenames
+    // Use -joliet-long for long filenames, -input-charset utf-8 for special chars
     $lines[] = 'apt-get install -y genisoimage >/dev/null 2>&1 || true';
-    $lines[] = 'genisoimage -J -r -o ' . escapeshellarg($unattendIso) . ' ' . escapeshellarg($unattendDir) . ' 2>/dev/null';
+    $lines[] = 'genisoimage -J -joliet-long -input-charset utf-8 -V OEMDRV -o ' . escapeshellarg($unattendIso) . ' ' . escapeshellarg($unattendDir) . ' 2>/dev/null';
 
     // Copy ISO to local storage (always directory-based, works reliably) and mount as CD-ROM
     $lines[] = 'mkdir -p /var/lib/vz/template/iso';
@@ -221,6 +223,11 @@ if ($image['autounattend_xml']) {
 if ($tags) {
     $lines[] = 'qm set $VMID --tags ' . escapeshellarg($tags);
 }
+
+// Debug: Show VM config before start
+$lines[] = '';
+$lines[] = "echo '    Final VM configuration:'";
+$lines[] = 'qm config $VMID | grep -E "^(scsi|ide|sata|efidisk|boot|bios|machine|scsihw)" | sed "s/^/    /"';
 
 // Step 5: Start VM
 $lines[] = '';
