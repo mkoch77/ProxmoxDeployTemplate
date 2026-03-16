@@ -254,24 +254,34 @@ $lines[] = 'sleep 15';
 $lines[] = "echo '    Boot keystrokes sent.'";
 $lines[] = 'kill $SENDKEY_PID 2>/dev/null || true';
 
-// Post-deploy cleanup: remove extra CD-ROM drives, keep only one empty drive (ide2)
+// Post-deploy cleanup: wait for Windows setup to finish, then remove extra CD-ROM drives
+// Runs in background so the terminal session can close
 $lines[] = '';
-$lines[] = "echo '==> Cleaning up CD-ROM drives...'";
-// Remove VirtIO ISO (ide0) and unattend ISO (sata0)
-$lines[] = 'qm set $VMID --delete ide0 2>/dev/null || true';
-$lines[] = 'qm set $VMID --delete sata0 2>/dev/null || true';
-// Set Windows ISO drive to empty (keep as single CD-ROM)
-$lines[] = 'qm set $VMID --ide2 none,media=cdrom 2>/dev/null || true';
-// Clean up unattend ISO file from local storage
-$lines[] = 'rm -f /var/lib/vz/template/iso/win_unattend_' . $vmid . '.iso 2>/dev/null || true';
-// Update boot order to just scsi0
-$lines[] = 'qm set $VMID --boot order=scsi0';
-$lines[] = "echo '    Removed VirtIO and unattend ISOs, kept one empty CD-ROM drive.'";
+$lines[] = "echo '==> Post-install cleanup will run in background after Windows setup completes.'";
+$lines[] = "echo '    (Waiting for QEMU Guest Agent to become available...)'";
+$lines[] = 'nohup bash -c ' . "'" . 'VMID=' . $vmid . ';';
+$lines[] = 'TIMEOUT=3600; ELAPSED=0;';  // max 60 min wait
+$lines[] = 'while [ $ELAPSED -lt $TIMEOUT ]; do';
+$lines[] = '  if qm agent $VMID ping 2>/dev/null; then';
+$lines[] = '    sleep 30;';  // extra wait for post-setup tasks (guest tools install etc.)
+$lines[] = '    qm set $VMID --delete ide0 2>/dev/null || true;';
+$lines[] = '    qm set $VMID --delete sata0 2>/dev/null || true;';
+$lines[] = '    qm set $VMID --ide2 none,media=cdrom 2>/dev/null || true;';
+$lines[] = '    rm -f /var/lib/vz/template/iso/win_unattend_' . $vmid . '.iso 2>/dev/null || true;';
+$lines[] = '    qm set $VMID --boot order=scsi0 2>/dev/null || true;';
+$lines[] = '    logger -t pve-deploy "VM $VMID: Windows setup complete, CD-ROMs cleaned up";';
+$lines[] = '    exit 0;';
+$lines[] = '  fi;';
+$lines[] = '  sleep 30; ELAPSED=$((ELAPSED+30));';
+$lines[] = 'done;';
+$lines[] = 'logger -t pve-deploy "VM $VMID: Timeout waiting for guest agent, CD-ROM cleanup skipped"';
+$lines[] = "' >/dev/null 2>&1 &";
 
 $lines[] = "echo ''";
 if ($image['autounattend_xml']) {
     $lines[] = 'echo "==> Done! VM $VMID (' . addslashes($name) . ') is booting into Windows unattended setup."';
     $lines[] = "echo '    Installation will complete automatically. Guest agent will be installed post-setup.'";
+    $lines[] = "echo '    CD-ROM drives will be cleaned up automatically once Windows is ready.'";
 } else {
     $lines[] = 'echo "==> Done! VM $VMID (' . addslashes($name) . ') is booting from the Windows ISO."';
     $lines[] = "echo '    Connect via VNC/console to complete the installation.'";
