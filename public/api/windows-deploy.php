@@ -253,6 +253,21 @@ $lines[] = 'SENDKEY_PID=$!';
 $lines[] = 'sleep 15';
 $lines[] = "echo '    Boot keystrokes sent.'";
 $lines[] = 'kill $SENDKEY_PID 2>/dev/null || true';
+
+// Post-deploy cleanup: remove extra CD-ROM drives, keep only one empty drive (ide2)
+$lines[] = '';
+$lines[] = "echo '==> Cleaning up CD-ROM drives...'";
+// Remove VirtIO ISO (ide0) and unattend ISO (sata0)
+$lines[] = 'qm set $VMID --delete ide0 2>/dev/null || true';
+$lines[] = 'qm set $VMID --delete sata0 2>/dev/null || true';
+// Set Windows ISO drive to empty (keep as single CD-ROM)
+$lines[] = 'qm set $VMID --ide2 none,media=cdrom 2>/dev/null || true';
+// Clean up unattend ISO file from local storage
+$lines[] = 'rm -f /var/lib/vz/template/iso/win_unattend_' . $vmid . '.iso 2>/dev/null || true';
+// Update boot order to just scsi0
+$lines[] = 'qm set $VMID --boot order=scsi0';
+$lines[] = "echo '    Removed VirtIO and unattend ISOs, kept one empty CD-ROM drive.'";
+
 $lines[] = "echo ''";
 if ($image['autounattend_xml']) {
     $lines[] = 'echo "==> Done! VM $VMID (' . addslashes($name) . ') is booting into Windows unattended setup."';

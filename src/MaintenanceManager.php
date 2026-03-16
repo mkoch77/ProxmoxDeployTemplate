@@ -62,37 +62,47 @@ class MaintenanceManager
     {
         if ($type !== 'qemu') return []; // LXC has no CD drives
 
-        $config = $api->getGuestConfig($node, $type, $vmid)['data'] ?? [];
+        try {
+            $config = $api->getGuestConfig($node, $type, $vmid)['data'] ?? [];
+        } catch (\Exception $e) {
+            AppLogger::warning('maintenance', "Cannot read VM config for CD-ROM detach", [
+                'vmid' => $vmid, 'error' => $e->getMessage(),
+            ]);
+            return [];
+        }
+
+        // Build shared storage lookup once
+        $sharedStorages = [];
+        try {
+            $storages = $api->getStorages($node)['data'] ?? [];
+            foreach ($storages as $s) {
+                if (!empty($s['shared'])) {
+                    $sharedStorages[] = $s['storage'] ?? '';
+                }
+            }
+        } catch (\Exception $e) {
+            // If we can't determine, we'll detach all local-looking ISOs
+        }
+
         $detached = [];
 
-        // CD-ROM buses: ide0-3, sata0-5, scsi0-30
         foreach ($config as $key => $value) {
             if (!is_string($value)) continue;
             if (!preg_match('/^(ide|sata|scsi)\d+$/', $key)) continue;
+
+            // Check for CD-ROM: Proxmox format is "storage:iso/file.iso,media=cdrom,..."
+            // or "none,media=cdrom" for empty drives
             if (strpos($value, 'media=cdrom') === false) continue;
 
-            // Skip already empty drives (e.g. "none,media=cdrom")
-            if (str_starts_with($value, 'none,')) continue;
+            // Skip already empty drives
+            if (str_starts_with($value, 'none,') || $value === 'none,media=cdrom') continue;
 
-            // Only detach local (non-shared) storage ISOs
-            // Shared storage ISOs don't block migration
+            // Extract storage name (part before the colon)
             $storageName = explode(':', $value)[0] ?? '';
             if ($storageName === '' || $storageName === 'none') continue;
 
-            // Check if the storage is shared
-            try {
-                $storages = $api->getStorages($node)['data'] ?? [];
-                $isShared = false;
-                foreach ($storages as $s) {
-                    if (($s['storage'] ?? '') === $storageName) {
-                        $isShared = !empty($s['shared']);
-                        break;
-                    }
-                }
-                if ($isShared) continue;
-            } catch (\Exception $e) {
-                // If we can't determine, try detaching anyway
-            }
+            // Skip shared storage — those don't block migration
+            if (in_array($storageName, $sharedStorages, true)) continue;
 
             // Detach: set to "none,media=cdrom"
             try {
