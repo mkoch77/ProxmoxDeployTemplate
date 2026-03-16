@@ -195,8 +195,15 @@ $lines[] = '  exit 1';
 $lines[] = 'fi';
 $lines[] = 'echo "    ISO storage: $ISO_STOR (path: $ISO_STOR_PATH)"';
 $lines[] = 'if [ ! -f "$ISO_STOR_PATH/$ISO_FILE" ]; then';
-$lines[] = '  echo "ERROR: ISO $ISO_FILE not found at $ISO_STOR_PATH/. Distribute the image first via Custom Images."';
-$lines[] = '  exit 1';
+$lines[] = '  # Check fallback location (SCP distribute may have placed it here)';
+$lines[] = '  if [ -f "/var/lib/vz/template/iso/$ISO_FILE" ] && [ "$ISO_STOR_PATH" != "/var/lib/vz/template/iso" ]; then';
+$lines[] = '    echo "    Moving ISO from fallback path to $ISO_STOR_PATH..."';
+$lines[] = '    mkdir -p "$ISO_STOR_PATH"';
+$lines[] = '    mv "/var/lib/vz/template/iso/$ISO_FILE" "$ISO_STOR_PATH/$ISO_FILE"';
+$lines[] = '  else';
+$lines[] = '    echo "ERROR: ISO $ISO_FILE not found at $ISO_STOR_PATH/. Distribute the image first via Custom Images."';
+$lines[] = '    exit 1';
+$lines[] = '  fi';
 $lines[] = 'fi';
 $lines[] = 'qm set $VMID --scsihw virtio-scsi-pci --scsi0 ' . escapeshellarg($storage) . ':' . (int)$diskSize . ',discard=on,ssd=1';
 $lines[] = 'qm set $VMID --ide2 ' . escapeshellarg($isoStorage . ':iso/' . $isoFile) . ',media=cdrom';
@@ -387,10 +394,15 @@ if ($needsDistribute) {
     // Resolve remote ISO directory path for the target storage
     // Use pvesm path to find the actual directory, e.g. cephfs → /mnt/pve/cephfs/template/iso/
     // Resolve path: try pvesm path, then parse storage.cfg, then fallback
+    $safeStorName = preg_replace('/[^a-zA-Z0-9_-]/', '', $isoStorage);
     $resolveScript = 'P=$(dirname "$(pvesm path ' . escapeshellarg($isoStorage . ':iso/dummy_probe') . ' 2>/dev/null)" 2>/dev/null);'
         . ' if [ -z "$P" ] || [ "$P" = "." ]; then'
-        . '   P=$(awk "/^[a-z]+: ' . preg_replace('/[^a-zA-Z0-9_-]/', '', $isoStorage) . '$/,/^$/{if(/^\\s+path /){print \\$2}}" /etc/pve/storage.cfg 2>/dev/null);'
+        . '   P=$(awk "/^[a-z]+: ' . $safeStorName . '$/,/^$/{if(/^\\s+path /){print \\$2}}" /etc/pve/storage.cfg 2>/dev/null);'
         . '   if [ -n "$P" ]; then P="${P}/template/iso"; fi;'
+        . ' fi;'
+        . ' if [ -z "$P" ] || [ "$P" = "." ]; then'
+        . '   _S=$(pvesm status --storage ' . escapeshellarg($isoStorage) . ' 2>/dev/null | awk "NR>1{print \\$NF}");'
+        . '   if [ -n "$_S" ] && [ "$_S" != "-" ]; then P="${_S}/template/iso"; fi;'
         . ' fi;'
         . ' echo "$P"';
     $resolvePathCmd = 'ssh ' . $sshOpts . ' -p ' . $sshPort . ' '
