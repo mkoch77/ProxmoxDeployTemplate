@@ -371,13 +371,30 @@ const Updater = {
                 if (target === 'maintenance' && s.status === 'maintenance') {
                     return;
                 }
-                if (target === 'done' && s.status === 'done') return;
+                if (target === 'done' && s.status === 'done') {
+                    this.markAllTasksComplete(node);
+                    return;
+                }
             } catch (err) {
                 // 404 = record deleted = done
-                if (target === 'done') return;
+                if (target === 'done') {
+                    this.markAllTasksComplete(node);
+                    return;
+                }
             }
         }
         throw new Error(`Timeout waiting for maintenance on ${node}`);
+    },
+
+    markAllTasksComplete(node) {
+        const taskEl = document.getElementById(`updater-tasks-${node}`);
+        if (!taskEl) return;
+        // Replace all spinners with green checkmarks
+        taskEl.querySelectorAll('.spinner-border').forEach(spinner => {
+            const icon = document.createElement('i');
+            icon.className = 'bi bi-check-circle-fill text-success';
+            spinner.replaceWith(icon);
+        });
     },
 
     updateMaintenanceTasks(node, status) {

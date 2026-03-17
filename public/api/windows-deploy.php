@@ -347,21 +347,26 @@ $lines[] = "echo '    (Waiting for QEMU Guest Agent to become available...)'";
 $lines[] = 'nohup bash -c ' . "'" . 'VMID=' . $vmid . ';';
 $lines[] = 'CLEANUP_PATH=$(dirname "$(pvesm path ' . escapeshellarg($isoStorage . ':iso/' . $isoFile) . ' 2>/dev/null)" 2>/dev/null);';
 $lines[] = 'if [ -z "$CLEANUP_PATH" ] || [ "$CLEANUP_PATH" = "." ]; then CLEANUP_PATH="/var/lib/vz/template/iso"; fi;';
-$lines[] = 'TIMEOUT=3600; ELAPSED=0;';  // max 60 min wait
+$lines[] = 'TIMEOUT=3600; ELAPSED=0; GA_READY=0;';
 $lines[] = 'while [ $ELAPSED -lt $TIMEOUT ]; do';
-$lines[] = '  if qm agent $VMID ping 2>/dev/null; then';
-$lines[] = '    sleep 30;';  // extra wait for post-setup tasks (guest tools install etc.)
-$lines[] = '    qm set $VMID --delete ide0 2>/dev/null || true;';
-$lines[] = '    qm set $VMID --delete sata0 2>/dev/null || true;';
-$lines[] = '    qm set $VMID --ide2 none,media=cdrom 2>/dev/null || true;';
-$lines[] = '    rm -f "$CLEANUP_PATH/win_unattend_' . $vmid . '.iso" 2>/dev/null || true;';
-$lines[] = '    qm set $VMID --boot order=scsi0 2>/dev/null || true;';
-$lines[] = '    logger -t pve-deploy "VM $VMID: Windows setup complete, CD-ROMs cleaned up";';
-$lines[] = '    exit 0;';
-$lines[] = '  fi;';
+$lines[] = '  if qm agent $VMID ping 2>/dev/null; then GA_READY=1; break; fi;';
 $lines[] = '  sleep 30; ELAPSED=$((ELAPSED+30));';
 $lines[] = 'done;';
-$lines[] = 'logger -t pve-deploy "VM $VMID: Timeout waiting for guest agent, CD-ROM cleanup skipped"';
+$lines[] = 'if [ "$GA_READY" = "1" ]; then';
+$lines[] = '  sleep 30;';
+$lines[] = '  logger -t pve-deploy "VM $VMID: Guest agent ready, cleaning up CD-ROMs";';
+$lines[] = 'else';
+$lines[] = '  logger -t pve-deploy "VM $VMID: Guest agent timeout, cleaning up CD-ROMs anyway";';
+$lines[] = 'fi;';
+// Detach ISOs and remove extra drives (pending next reboot for full removal)
+$lines[] = 'qm set $VMID --ide0 none,media=cdrom 2>/dev/null || true;';
+$lines[] = 'qm set $VMID --sata0 none,media=cdrom 2>/dev/null || true;';
+$lines[] = 'qm set $VMID --ide2 none,media=cdrom 2>/dev/null || true;';
+$lines[] = 'qm set $VMID --delete ide0 2>/dev/null || true;';
+$lines[] = 'qm set $VMID --delete sata0 2>/dev/null || true;';
+$lines[] = 'qm set $VMID --boot order=scsi0 2>/dev/null || true;';
+$lines[] = 'rm -f "$CLEANUP_PATH/win_unattend_' . $vmid . '.iso" 2>/dev/null || true;';
+$lines[] = 'logger -t pve-deploy "VM $VMID: CD-ROMs cleaned up (drives removed from config)"';
 $lines[] = "' >/dev/null 2>&1 &";
 
 $lines[] = "echo ''";
