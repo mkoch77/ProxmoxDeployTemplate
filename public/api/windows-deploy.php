@@ -137,6 +137,32 @@ if ($configuredIsoStorage) {
     }
 }
 
+// ── Check VirtIO ISO availability ───────────────────────────────────────────
+$needsVirtioDistribute = false;
+$virtioLocalPath = '';
+if ($configuredIsoStorage) {
+    // Check if VirtIO already exists on storage (with actual size > 0)
+    $virtioFound = false;
+    try {
+        $contents = $api->get("/nodes/{$nodeName}/storage/{$isoStorage}/content", ['content' => 'iso']);
+        foreach (($contents['data'] ?? []) as $entry) {
+            if (preg_match('/virtio-win/i', $entry['volid'] ?? '') && ($entry['size'] ?? 0) > 0) {
+                $virtioFound = true;
+                break;
+            }
+        }
+    } catch (\Exception $e) {}
+
+    // If not on storage, check Content Library uploads
+    if (!$virtioFound) {
+        $localFiles = glob('/var/www/html/data/images/virtio-win*.iso');
+        if (!empty($localFiles)) {
+            $virtioLocalPath = $localFiles[0];
+            $needsVirtioDistribute = true;
+        }
+    }
+}
+
 // ── Build deployment script ─────────────────────────────────────────────────
 $lines = [];
 $lines[] = 'export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"';
@@ -208,53 +234,18 @@ $lines[] = 'qm set $VMID --boot order="ide2;scsi0"';
 // VirtIO drivers ISO (reuses $ISO_STOR and $ISO_STOR_PATH from step 2)
 $lines[] = '';
 $lines[] = "echo '==> [3/5] Mounting VirtIO drivers...'";
-$lines[] = 'VIRTIO_FOUND=""';
-$lines[] = '# Remove broken 0-byte VirtIO ISOs from previous failed downloads';
+$lines[] = '# Remove broken 0-byte VirtIO ISOs';
 $lines[] = 'if [ -f "$ISO_STOR_PATH/virtio-win.iso" ] && [ ! -s "$ISO_STOR_PATH/virtio-win.iso" ]; then';
-$lines[] = '  echo "    Removing broken 0-byte virtio-win.iso..."';
 $lines[] = '  rm -f "$ISO_STOR_PATH/virtio-win.iso"';
 $lines[] = 'fi';
 $lines[] = '';
-$lines[] = '# Try mounting VirtIO from configured storage';
-$lines[] = 'if qm set $VMID --ide0 "${ISO_STOR}":iso/virtio-win.iso,media=cdrom 2>/dev/null; then';
-$lines[] = '  echo "    VirtIO ISO mounted from $ISO_STOR"';
-$lines[] = '  VIRTIO_FOUND=1';
+$lines[] = '# Mount VirtIO ISO from storage';
+$lines[] = 'VIRTIO_VOL=$(pvesm list "$ISO_STOR" --content iso 2>/dev/null | grep -i "virtio-win" | awk "{print \\$1}" | head -1)';
+$lines[] = 'if [ -n "$VIRTIO_VOL" ]; then';
+$lines[] = '  qm set $VMID --ide0 "$VIRTIO_VOL",media=cdrom';
+$lines[] = '  echo "    VirtIO ISO: $VIRTIO_VOL"';
 $lines[] = 'else';
-$lines[] = '  # Try any virtio-win variant name (e.g. virtio-win-0.1.229.iso)';
-$lines[] = '  VIRTIO_VOL=$(pvesm list "$ISO_STOR" --content iso 2>/dev/null | grep -i "virtio-win" | awk "{print \\$1}" | head -1)';
-$lines[] = '  if [ -n "$VIRTIO_VOL" ]; then';
-$lines[] = '    qm set $VMID --ide0 "$VIRTIO_VOL",media=cdrom';
-$lines[] = '    echo "    VirtIO ISO: $VIRTIO_VOL"';
-$lines[] = '    VIRTIO_FOUND=1';
-$lines[] = '  fi';
-$lines[] = 'fi';
-$lines[] = '';
-$lines[] = '# Download if not found';
-$lines[] = 'if [ -z "$VIRTIO_FOUND" ]; then';
-$lines[] = '  echo "    VirtIO ISO not available on $ISO_STOR — downloading..."';
-$lines[] = '  if [ -z "$ISO_STOR_PATH" ]; then ISO_STOR_PATH="/var/lib/vz/template/iso"; ISO_STOR="local"; fi';
-$lines[] = '  mkdir -p "$ISO_STOR_PATH"';
-$lines[] = '  VIRTIO_TMP="$ISO_STOR_PATH/virtio-win.iso.tmp"';
-$lines[] = '  VIRTIO_DEST="$ISO_STOR_PATH/virtio-win.iso"';
-$lines[] = '  VIRTIO_OK=""';
-$lines[] = '  # Try primary URL';
-$lines[] = '  for URL in "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso" "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/latest-virtio/virtio-win.iso"; do';
-$lines[] = '    echo "    Trying: $URL"';
-$lines[] = '    if wget --no-check-certificate -q --show-progress -O "$VIRTIO_TMP" "$URL" 2>&1 && [ -s "$VIRTIO_TMP" ]; then';
-$lines[] = '      mv "$VIRTIO_TMP" "$VIRTIO_DEST"';
-$lines[] = '      VIRTIO_OK=1';
-$lines[] = '      break';
-$lines[] = '    fi';
-$lines[] = '    rm -f "$VIRTIO_TMP"';
-$lines[] = '  done';
-$lines[] = '  if [ -n "$VIRTIO_OK" ]; then';
-$lines[] = '    qm set $VMID --ide0 "${ISO_STOR}":iso/virtio-win.iso,media=cdrom';
-$lines[] = '    echo "    VirtIO ISO downloaded and mounted (storage: $ISO_STOR)"';
-$lines[] = '  else';
-$lines[] = '    echo "WARNING: VirtIO ISO could not be downloaded. Windows will use emulated devices."';
-$lines[] = '    echo "         Download manually: https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso"';
-$lines[] = '    echo "         Place it in: $ISO_STOR_PATH/"';
-$lines[] = '  fi';
+$lines[] = '  echo "WARNING: VirtIO ISO not found on storage $ISO_STOR. Upload virtio-win.iso via Content Library."';
 $lines[] = 'fi';
 
 // Step 4: Create and mount autounattend ISO
@@ -407,9 +398,9 @@ $sessData = [
     'expires'   => time() + 3600, // 1h for large ISO transfers
 ];
 
-if ($needsDistribute) {
-    // Resolve remote ISO directory path via Proxmox API storage config
-    $remotePath = '';
+// Resolve remote ISO directory path (needed for distribute and VirtIO)
+$remotePath = '';
+if ($needsDistribute || $needsVirtioDistribute) {
     try {
         $storageConfig = $api->get("/storage/{$isoStorage}");
         $storagePath = $storageConfig['data']['path'] ?? '';
@@ -418,7 +409,6 @@ if ($needsDistribute) {
         }
     } catch (\Exception $e) {}
 
-    // Fallback: ask the node via pvesm path
     if (!$remotePath) {
         $resolveScript = 'dirname "$(pvesm path ' . escapeshellarg($isoStorage . ':iso/dummy_probe') . ' 2>/dev/null)" 2>/dev/null';
         $resolvePathCmd = 'ssh ' . $sshOpts . ' -p ' . $sshPort . ' '
@@ -430,13 +420,29 @@ if ($needsDistribute) {
     if (!$remotePath || $remotePath === '.') {
         $remotePath = '/var/lib/vz/template/iso';
     }
+}
 
-    // Build a compound local command: SCP the ISO first, then SSH deploy
-    $scpCmd = 'echo "==> [0/5] Distributing ISO to ' . escapeshellarg($isoStorage) . ' on ' . escapeshellarg($nodeName) . '..." && '
-        . 'scp ' . $sshOpts . ' -P ' . $sshPort . ' '
-        . escapeshellarg($localIsoPath) . ' '
-        . escapeshellarg($sshUser . '@' . $sshHost . ':' . $remotePath . '/' . $isoFile)
-        . ' && echo "    ISO distributed successfully." && ';
+if ($needsDistribute || $needsVirtioDistribute) {
+    $scpParts = [];
+
+    if ($needsDistribute) {
+        $scpParts[] = 'echo "==> [0/5] Distributing ISO to ' . escapeshellarg($isoStorage) . ' on ' . escapeshellarg($nodeName) . '..."'
+            . ' && scp ' . $sshOpts . ' -P ' . $sshPort . ' '
+            . escapeshellarg($localIsoPath) . ' '
+            . escapeshellarg($sshUser . '@' . $sshHost . ':' . $remotePath . '/' . $isoFile)
+            . ' && echo "    ISO distributed successfully."';
+    }
+
+    if ($needsVirtioDistribute && $virtioLocalPath) {
+        $virtioBasename = basename($virtioLocalPath);
+        $scpParts[] = 'echo "    Distributing VirtIO ISO..."'
+            . ' && scp ' . $sshOpts . ' -P ' . $sshPort . ' '
+            . escapeshellarg($virtioLocalPath) . ' '
+            . escapeshellarg($sshUser . '@' . $sshHost . ':' . $remotePath . '/virtio-win.iso')
+            . ' && echo "    VirtIO ISO distributed successfully."';
+    }
+
+    $scpCmd = implode(' && ', $scpParts) . ' && ';
     $sessData['raw_command'] = $scpCmd . $sshCmd;
 } else {
     $sessData['direct_command'] = 'echo ' . escapeshellarg($b64Script) . ' | base64 -d | bash';
