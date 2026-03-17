@@ -126,17 +126,38 @@ if (in_array($maintNode['status'], ['entering', 'leaving']) && !empty($migration
 
         if ($allDone) {
             if ($maintNode['status'] === 'entering') {
-                $newStatus = 'maintenance';
-                $stmt = $db->prepare('UPDATE maintenance_nodes SET status = ? WHERE node_name = ?');
-                $stmt->execute([$newStatus, $nodeName]);
-                $maintNode['status'] = $newStatus;
-                AppLogger::info('maintenance', 'Status transitioned to maintenance', ['node' => $nodeName]);
-
-                // Enable Proxmox built-in maintenance mode (blue wrench icon)
+                // Verify no guests are still running on the node before transitioning
+                $guestsStillRunning = false;
                 try {
-                    SSH::enableNodeMaintenance($nodeName);
+                    $nodeGuests = \App\MaintenanceManager::getNodeGuests($api, $nodeName);
+                    if (!empty($nodeGuests)) {
+                        $guestsStillRunning = true;
+                        AppLogger::warning('maintenance', 'Migrations done but guests still on node', [
+                            'node' => $nodeName,
+                            'remaining_guests' => count($nodeGuests),
+                            'vmids' => array_map(fn($g) => $g['vmid'] ?? '?', $nodeGuests),
+                        ]);
+                    }
                 } catch (\Exception $e) {
-                    AppLogger::warning('maintenance', 'Could not enable PVE maintenance mode via SSH', ['node' => $nodeName, 'error' => $e->getMessage()]);
+                    AppLogger::warning('maintenance', 'Could not verify guest status', ['node' => $nodeName, 'error' => $e->getMessage()]);
+                }
+
+                if ($guestsStillRunning) {
+                    // Don't transition — keep 'entering' so the updater keeps waiting
+                    AppLogger::info('maintenance', 'Holding in entering state — guests still present', ['node' => $nodeName]);
+                } else {
+                    $newStatus = 'maintenance';
+                    $stmt = $db->prepare('UPDATE maintenance_nodes SET status = ? WHERE node_name = ?');
+                    $stmt->execute([$newStatus, $nodeName]);
+                    $maintNode['status'] = $newStatus;
+                    AppLogger::info('maintenance', 'Status transitioned to maintenance', ['node' => $nodeName]);
+
+                    // Enable Proxmox built-in maintenance mode (blue wrench icon)
+                    try {
+                        SSH::enableNodeMaintenance($nodeName);
+                    } catch (\Exception $e) {
+                        AppLogger::warning('maintenance', 'Could not enable PVE maintenance mode via SSH', ['node' => $nodeName, 'error' => $e->getMessage()]);
+                    }
                 }
             } elseif ($maintNode['status'] === 'leaving') {
                 $stmt = $db->prepare('DELETE FROM maintenance_nodes WHERE node_name = ?');

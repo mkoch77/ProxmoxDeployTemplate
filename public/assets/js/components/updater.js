@@ -253,7 +253,7 @@ const Updater = {
     },
 
     async updateNode(node) {
-        // ── Step 1: Enter Maintenance ─────────────────────────────────
+        // ── Step 1: Migrate all VMs off the node ──────────────────────
         this.setNodeStep(node, 'entering_maintenance');
         await API.updateRollingNode(this.session.id, node, 'entering_maintenance');
 
@@ -269,13 +269,16 @@ const Updater = {
             }
         }
 
-        // Wait until maintenance is active (all migrations done)
+        // Wait until ALL migrations are complete and maintenance is active (blue wrench)
         if (!alreadyInMaintenance) {
             await this.waitMaintenance(node, 'maintenance');
         }
 
-        // ── Step 2: Run apt upgrade ────────────────────────────────────
-        // Backend will reject the update if VMs are still running (409)
+        // ── Step 2: Verify maintenance is truly active ────────────────
+        // Double-check: wait for PVE maintenance flag (blue wrench icon)
+        await this.waitPveMaintenanceFlag(node, true);
+
+        // ── Step 3: Run apt upgrade ────────────────────────────────────
         this.setNodeStep(node, 'updating');
         await API.updateRollingNode(this.session.id, node, 'updating');
 
@@ -283,16 +286,21 @@ const Updater = {
         try {
             updateResult = await API.runNodeUpdate(node);
         } catch (err) {
-            // If backend reports VMs still running, this is a critical error — don't proceed
+            // If backend reports VMs still running, wait and retry once
             if (err.status === 409) {
-                throw new Error(err.message || 'VMs still running on node — update blocked');
+                await this.sleep(10000);
+                try {
+                    updateResult = await API.runNodeUpdate(node);
+                } catch (retryErr) {
+                    throw new Error(retryErr.message || 'VMs still running on node — update blocked');
+                }
+            } else {
+                // SSH/update failure — still exit maintenance so node isn't stuck
+                updateResult = { success: false, log: err.message || 'Update failed', upgraded: 0, warnings: [] };
             }
-            // SSH/update failure — still exit maintenance so node isn't stuck
-            updateResult = { success: false, log: err.message || 'Update failed', upgraded: 0, warnings: [] };
         }
 
-        // ── Step 3: Leave Maintenance ─────────────────────────────────
-        // Only exit maintenance if we entered it (not if node was already in maintenance)
+        // ── Step 4: Leave Maintenance ─────────────────────────────────
         if (!alreadyInMaintenance) {
             this.setNodeStep(node, 'leaving_maintenance', updateResult.log, updateResult.upgraded, null, updateResult.warnings || []);
             await API.updateRollingNode(this.session.id, node, 'leaving_maintenance',
@@ -300,13 +308,16 @@ const Updater = {
 
             try {
                 await API.leaveMaintenance(node);
+                // Wait until ALL VMs are migrated back
                 await this.waitMaintenance(node, 'done');
+                // Wait for PVE maintenance flag to be removed (blue wrench gone)
+                await this.waitPveMaintenanceFlag(node, false);
             } catch (_) {
                 // Best effort — maintenance record may already be gone
             }
         }
 
-        // ── Step 4: Done ──────────────────────────────────────────────
+        // ── Step 5: Done ──────────────────────────────────────────────
         if (!updateResult.success) {
             throw new Error(updateResult.log || 'Update command failed');
         }
@@ -316,28 +327,54 @@ const Updater = {
             updateResult.log, updateResult.upgraded);
     },
 
-    async waitMaintenance(node, target) {
-        const maxWait = 20 * 60 * 1000; // 20 minutes max
-        const start   = Date.now();
+    async waitPveMaintenanceFlag(node, shouldBeEnabled) {
+        // Wait for Proxmox HA maintenance flag (blue wrench) to match expected state
+        const maxWait = 3 * 60 * 1000; // 3 minutes
+        const start = Date.now();
 
         while (Date.now() - start < maxWait) {
             if (this.cancelled) throw new Error('Cancelled');
             await this.sleep(4000);
 
             try {
+                // Use direct Proxmox node list which includes the maintenance field
+                const health = await API.getClusterHealth();
+                const nodeData = (health.nodes || []).find(n => n.node === node);
+                if (!nodeData) continue;
+
+                if (shouldBeEnabled) {
+                    // Waiting for wrench to appear — our DB status being 'maintenance' is enough
+                    // (PVE HA flag may take a few seconds to propagate)
+                    const dbMaint = nodeData.maintenance;
+                    if (dbMaint && (dbMaint.status === 'maintenance')) return;
+                } else {
+                    // Waiting for wrench to disappear — DB record should be gone
+                    if (!nodeData.maintenance) return;
+                }
+            } catch (_) {}
+        }
+        // Don't throw — continue anyway after timeout
+    },
+
+    async waitMaintenance(node, target) {
+        const maxWait = 60 * 60 * 1000; // 60 minutes max (large VMs take time to migrate)
+        const start   = Date.now();
+
+        while (Date.now() - start < maxWait) {
+            if (this.cancelled) throw new Error('Cancelled');
+            await this.sleep(5000);
+
+            try {
                 const s = await API.getMaintenanceStatus(node);
                 this.updateMaintenanceTasks(node, s);
+
                 if (target === 'maintenance' && s.status === 'maintenance') {
-                    // Give PVE HA-Manager time to sync maintenance state
-                    await this.sleep(5000);
                     return;
                 }
-                if (target === 'done'        && s.status === 'done')        return;
+                if (target === 'done' && s.status === 'done') return;
             } catch (err) {
                 // 404 = record deleted = done
                 if (target === 'done') return;
-                // For 'maintenance' target: if node has no guests it goes directly to maintenance
-                // without a DB record being created in 'entering' state; check if it's there
             }
         }
         throw new Error(`Timeout waiting for maintenance on ${node}`);
