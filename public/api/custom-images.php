@@ -112,6 +112,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             Response::error('Unsupported file type. Allowed: qcow2, img, raw, iso, vhd, vhdx', 400);
         }
 
+        $isIso = (bool)preg_match('/\.iso$/i', $origName);
+        $isoStorageCfg = Config::get('ISO_STORAGE', '');
+
+        // ISO + ISO_STORAGE configured: upload directly to Proxmox storage
+        if ($isIso && $isoStorageCfg) {
+            $remotePath = '';
+            try {
+                $api = Helpers::createAPI();
+                $storageConfig = $api->get("/storage/{$isoStorageCfg}");
+                $storagePath = $storageConfig['data']['path'] ?? '';
+                if ($storagePath) {
+                    $remotePath = rtrim($storagePath, '/') . '/template/iso';
+                }
+            } catch (\Exception $e) {}
+
+            if (!$remotePath) {
+                Response::error("Cannot resolve path for ISO storage '{$isoStorageCfg}'", 500);
+            }
+
+            $sshHost = '';
+            try {
+                $status = $api->getClusterStatus();
+                foreach ($status['data'] ?? [] as $entry) {
+                    if (($entry['type'] ?? '') === 'node' && ($entry['online'] ?? 0)) {
+                        $sshHost = $entry['ip'] ?? $entry['name'] ?? '';
+                        break;
+                    }
+                }
+            } catch (\Exception $e) {}
+
+            if (!$sshHost) {
+                Response::error('No online Proxmox node found for upload', 500);
+            }
+
+            $keyPath = (getenv('SSH_KEY_DIR') ?: '/var/www/html/data/.ssh') . '/id_ed25519';
+            $sshOpts = '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -i ' . escapeshellarg($keyPath);
+            $sshPort = getenv('SSH_PORT') ?: '22';
+            $sshUser = getenv('SSH_USER') ?: 'root';
+
+            $scpCmd = 'scp ' . $sshOpts . ' -P ' . $sshPort . ' '
+                . escapeshellarg($file['tmp_name']) . ' '
+                . escapeshellarg($sshUser . '@' . $sshHost . ':' . $remotePath . '/' . $origName);
+
+            $exitCode = -1;
+            $proc = proc_open($scpCmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+            if (is_resource($proc)) {
+                stream_get_contents($pipes[1]);
+                stream_get_contents($pipes[2]);
+                fclose($pipes[1]);
+                fclose($pipes[2]);
+                $exitCode = proc_close($proc);
+            }
+
+            if ($exitCode !== 0) {
+                Response::error("Failed to upload ISO to storage '{$isoStorageCfg}'", 500);
+            }
+
+            AppLogger::info('deploy', 'ISO uploaded to Proxmox storage', ['filename' => $origName, 'storage' => $isoStorageCfg], $user['id']);
+            Response::success(['filename' => $origName, 'storage' => $isoStorageCfg]);
+        }
+
+        // Non-ISO or no ISO_STORAGE: save locally
         $dest = $imagesDir . '/' . $origName;
         if (file_exists($dest)) {
             Response::error("File '{$origName}' already exists", 409);
