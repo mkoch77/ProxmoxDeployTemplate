@@ -147,11 +147,47 @@ Secrets verwalten: **Settings > Vault** im Web-UI.
 
 ## Proxmox API-Token erstellen
 
-1. Proxmox Web-UI > Datacenter > Permissions > API Tokens
-2. User: `root@pam` (oder dedizierter User)
-3. Token erstellen, z.B. `deploy`
-4. **Privilege Separation** deaktivieren (Token erbt User-Rechte)
-5. Token-ID: `root@pam!deploy`, Token-Secret: UUID kopieren
+Der Datacenter Manager benötigt einen API-Token mit ausreichenden Privilegien. Auf einem beliebigen Proxmox-Node ausführen:
+
+```bash
+# 1. Rolle mit allen benötigten Privilegien erstellen
+pveum role add DatacenterManager -privs "Sys.Audit,Sys.Modify,VM.Audit,VM.PowerMgmt,VM.Config.Disk,VM.Config.CPU,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.Config.CDROM,VM.Config.HWType,VM.Allocate,VM.Clone,VM.Migrate,VM.Snapshot,VM.Console,Datastore.Allocate,Datastore.AllocateSpace,Datastore.Audit"
+
+# 2. API-Token erstellen
+pveum user token add root@pam deploy
+
+# 3. Rolle dem Token zuweisen
+pveum aclmod / -token 'root@pam!deploy' -role DatacenterManager
+```
+
+> **Token-Secret notieren!** Das Secret wird nur einmal angezeigt und wird im Setup benötigt.
+> Token-ID für die Konfiguration: `root@pam!deploy`
+
+<details>
+<summary>Alternativ: Privilege Separation deaktivieren (einfacher, aber weniger sicher)</summary>
+
+```bash
+pveum user token add root@pam deploy --privsep 0
+```
+
+Der Token erbt dann alle Rechte des Users — keine separate Rolle nötig.
+</details>
+
+**Benötigte Privilegien im Detail:**
+
+| Privileg | Funktion |
+|---|---|
+| `Sys.Audit` | Node-Status, Cluster-Health, Storage-Info |
+| `Sys.Modify` | HA-Management, Maintenance Mode |
+| `VM.Audit` | VM/CT-Liste und Details |
+| `VM.PowerMgmt` | Start, Stop, Shutdown, Reboot |
+| `VM.Config.*` | VM-Konfiguration (Disk, CPU, RAM, Netzwerk, CD-ROM, BIOS) |
+| `VM.Allocate` | VMs erstellen und löschen |
+| `VM.Clone` | Templates klonen |
+| `VM.Migrate` | Live-Migration zwischen Nodes |
+| `VM.Snapshot` | Snapshots erstellen und löschen |
+| `VM.Console` | QEMU Guest Agent, Sendkey, Konsole |
+| `Datastore.*` | Storage: Disk-Images erstellen, Platz reservieren, auflisten |
 
 ## Lizenz
 

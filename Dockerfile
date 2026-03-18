@@ -61,8 +61,8 @@ VOLUME ["/var/www/html/data"]
 
 EXPOSE 80
 
-COPY docker/crontab /etc/cron.d/proxmoxdeploy
-RUN chmod 0644 /etc/cron.d/proxmoxdeploy
+COPY docker/crontab /etc/cron.d/pvedcm
+RUN chmod 0644 /etc/cron.d/pvedcm
 
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
