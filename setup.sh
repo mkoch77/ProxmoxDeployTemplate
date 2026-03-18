@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# ProxmoxDeploy — Interactive First-Run Setup
+# ProxmoxVE Datacenter Manager — Interactive First-Run Setup
 # Generates .env and optionally starts the stack via docker compose.
 # =============================================================================
 set -euo pipefail
@@ -96,7 +96,7 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
-echo -e "\n${BOLD}ProxmoxDeploy — Ersteinrichtung${RESET}"
+echo -e "\n${BOLD}ProxmoxVE Datacenter Manager — Ersteinrichtung${RESET}"
 echo -e "Alle Pflichtfelder sind ${RED}*${RESET} markiert. Leere Eingabe übernimmt den Standardwert.\n"
 
 # ── Backup-Wiederherstellung ─────────────────────────────────────────────────
@@ -295,7 +295,7 @@ if ask_yn "SSH-Keypair für Admin generieren? (wird für VM-Zugang via Cloud-Ini
         echo -e "${YELLOW}  SSH-Key existiert bereits: ${ADMIN_KEY_FILE}${RESET}"
         ADMIN_SSH_PUBKEY="$(cat "${ADMIN_KEY_FILE}.pub")"
     else
-        ssh-keygen -t ed25519 -f "$ADMIN_KEY_FILE" -N "" -C "${ADMIN_USER}@proxmox-deploy" -q
+        ssh-keygen -t ed25519 -f "$ADMIN_KEY_FILE" -N "" -C "${ADMIN_USER}@pvedcm" -q
         chmod 600 "$ADMIN_KEY_FILE"
         chmod 644 "${ADMIN_KEY_FILE}.pub"
         ADMIN_SSH_PUBKEY="$(cat "${ADMIN_KEY_FILE}.pub")"
@@ -349,7 +349,7 @@ fi
 
 # ── .env schreiben ────────────────────────────────────────────────────────────
 cat > "$ENV_FILE" <<EOF
-# ProxmoxDeploy — generiert von setup.sh am $(date '+%Y-%m-%d %H:%M:%S')
+# ProxmoxVE Datacenter Manager — generiert von setup.sh am $(date '+%Y-%m-%d %H:%M:%S')
 #
 # Secrets:       Settings > Vault (AES-256-GCM verschlüsselt)
 # Einstellungen: Settings > Configuration (Plaintext in DB)

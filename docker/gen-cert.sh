@@ -10,7 +10,7 @@ openssl req -x509 -nodes -newkey rsa:4096 \
     -keyout "$CERT_DIR/key.pem" \
     -out    "$CERT_DIR/cert.pem" \
     -days   3650 \
-    -subj   "/CN=proxmoxdeploy/O=ProxmoxDeploy" \
+    -subj   "/CN=pvedcm/O=ProxmoxVE Datacenter Manager" \
     -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
 
 chmod 600 "$CERT_DIR/key.pem"

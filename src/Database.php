@@ -15,8 +15,8 @@ class Database
     {
         $host = getenv('DB_HOST') ?: 'db';
         $port = getenv('DB_PORT') ?: '5432';
-        $name = getenv('DB_NAME') ?: 'proxmoxdeploy';
-        $user = getenv('DB_USER') ?: 'proxmoxdeploy';
+        $name = getenv('DB_NAME') ?: 'pvedcm';
+        $user = getenv('DB_USER') ?: 'pvedcm';
         $pass = getenv('DB_PASSWORD') ?: '';
         if (empty($pass) && is_readable('/tmp/db_password')) {
             $pass = trim(file_get_contents('/tmp/db_password'));

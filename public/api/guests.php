@@ -67,10 +67,15 @@ try {
             }
         } catch (\Exception $e) {}
 
-        $quickOpts = ['connect_timeout' => 2, 'timeout' => 3];
+        $quickOpts = ['connect_timeout' => 1, 'timeout' => 2];
+        $enrichStart = microtime(true);
+        $enrichMaxSeconds = 10;
         $ostypeUpdates = [];
         foreach ($guests as &$guest) {
             if (!isset($onlineNodes[$guest['node']])) continue;
+            // Skip if already cached or time budget exceeded
+            if ($guest['ostype']) continue;
+            if (microtime(true) - $enrichStart > $enrichMaxSeconds) break;
             try {
                 $config = $api->getGuestConfig($guest['node'], $guest['type'], (int)$guest['vmid'], $quickOpts);
                 $ostype = $config['data']['ostype'] ?? null;

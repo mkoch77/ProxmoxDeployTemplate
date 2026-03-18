@@ -87,7 +87,7 @@ const Dashboard = {
             const [guests, nodes, lb, maint] = await Promise.all([
                 fetch('api/guests.php', { quick: '1' }),
                 fetch('api/nodes.php'),
-                API.getSilent('api/loadbalancer.php').catch(() => null),
+                API.getSilent('api/loadbalancer-history.php', { limit: 1 }).catch(() => null),
                 API.getSilent('api/maintenance.php').catch(() => null),
             ]);
             this.guests = guests;
@@ -101,14 +101,17 @@ const Dashboard = {
                 }
             }
 
-            // Loadbalancer recommendations
+            // Loadbalancer recommendations (from history endpoint — DB only, no Proxmox API calls)
             this.pendingMigrations = {};
-            if (lb?.latest_run?.recommendations) {
-                for (const rec of lb.latest_run.recommendations) {
-                    if (rec.status === 'pending') {
-                        this.pendingMigrations[rec.vmid] = rec.target_node;
+            if (lb?.runs?.[0]?.id) {
+                try {
+                    const recs = await API.getSilent('api/loadbalancer-history.php', { run_id: lb.runs[0].id });
+                    for (const rec of recs?.recommendations ?? []) {
+                        if (rec.status === 'pending') {
+                            this.pendingMigrations[rec.vmid] = rec.target_node;
+                        }
                     }
-                }
+                } catch (_) {}
             }
 
             // Maintenance nodes

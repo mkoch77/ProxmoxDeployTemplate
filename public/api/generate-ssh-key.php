@@ -20,7 +20,7 @@ $tmpDir = sys_get_temp_dir() . '/ssh_keygen_' . bin2hex(random_bytes(8));
 mkdir($tmpDir, 0700, true);
 $keyFile = $tmpDir . '/id_ed25519';
 
-$comment = ($user['username'] ?? 'user') . '@proxmox-deploy';
+$comment = ($user['username'] ?? 'user') . '@pvedcm';
 
 $cmd = sprintf(
     'ssh-keygen -t ed25519 -f %s -N "" -C %s -q 2>&1',

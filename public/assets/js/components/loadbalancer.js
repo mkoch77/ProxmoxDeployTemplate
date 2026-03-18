@@ -33,7 +33,7 @@ const Loadbalancer = {
                 <h2 class="mb-0"><i class="bi bi-shuffle"></i> Loadbalancing</h2>
                 <div id="lb-header-actions"></div>
             </div>
-            <p class="text-muted mb-4">Automatic workload distribution of VMs/CTs across cluster nodes, similar to VMware DRS.</p>
+            <p class="text-muted mb-4">Automatic workload distribution of VMs/CTs across cluster nodes, Balances CPU and RAM load evenly across all nodes.</p>
 
             <div id="lb-balance-stats" class="row g-3 mb-4"></div>
 
@@ -164,7 +164,7 @@ const Loadbalancer = {
 
         const latestRun = this.data.latest_run;
         const settings = this.data.settings || {};
-        const canManage = Permissions.has('drs.manage');
+        const canManage = Permissions.has('loadbalancer.manage');
         const isPartial = settings.automation_level === 'partial';
         const recs = latestRun?.recommendations || [];
 

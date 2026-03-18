@@ -18,7 +18,7 @@ class Loadbalancer
     public static function getSettings(): array
     {
         $db = Database::connection();
-        $row = $db->query('SELECT * FROM drs_settings WHERE id = 1')->fetch(PDO::FETCH_ASSOC);
+        $row = $db->query('SELECT * FROM loadbalancer_settings WHERE id = 1')->fetch(PDO::FETCH_ASSOC);
         return $row ?: [
             'enabled' => 0,
             'automation_level' => 'manual',
@@ -49,7 +49,7 @@ class Loadbalancer
         $values[] = 1;
 
         $db = Database::connection();
-        $sql = 'UPDATE drs_settings SET ' . implode(', ', $sets) . ' WHERE id = ?';
+        $sql = 'UPDATE loadbalancer_settings SET ' . implode(', ', $sets) . ' WHERE id = ?';
         $stmt = $db->prepare($sql);
         $stmt->execute($values);
     }
@@ -59,13 +59,13 @@ class Loadbalancer
      */
     public static function evaluate(ProxmoxAPI $api, string $triggeredBy = 'manual'): array
     {
-        AppLogger::debug('drs', 'DRS evaluation started', ['triggered_by' => $triggeredBy]);
+        AppLogger::debug('loadbalancer', 'Loadbalancer evaluation started', ['triggered_by' => $triggeredBy]);
 
         $settings = self::getSettings();
 
         $nodeMetrics = self::collectNodeMetrics($api, $settings);
 
-        AppLogger::debug('drs', 'DRS node metrics collected', ['node_count' => count($nodeMetrics)]);
+        AppLogger::debug('loadbalancer', 'Loadbalancer node metrics collected', ['node_count' => count($nodeMetrics)]);
 
         if (count($nodeMetrics) < 2) {
             return ['run_id' => null, 'recommendations' => [], 'cluster' => self::buildClusterSummary($nodeMetrics)];
@@ -78,7 +78,7 @@ class Loadbalancer
         $skippedReasons = [];
         $recommendations = self::generateRecommendations($nodeMetrics, $avgScore, $thresholdPct, $settings, $skippedReasons);
 
-        AppLogger::debug('drs', 'DRS recommendations generated', ['count' => count($recommendations), 'avg_score' => round($avgScore * 100, 1)]);
+        AppLogger::debug('loadbalancer', 'Loadbalancer recommendations generated', ['count' => count($recommendations), 'avg_score' => round($avgScore * 100, 1)]);
 
         $runId = self::storeRun($triggeredBy, $nodeMetrics, $avgScore, $recommendations, $skippedReasons);
 
@@ -88,7 +88,7 @@ class Loadbalancer
             $executed = count(array_filter($results, fn($r) => $r['status'] === 'applied'));
         }
 
-        AppLogger::debug('drs', 'DRS evaluation complete', ['run_id' => $runId, 'executed' => $executed]);
+        AppLogger::debug('loadbalancer', 'Loadbalancer evaluation complete', ['run_id' => $runId, 'executed' => $executed]);
 
         return [
             'run_id' => $runId,
@@ -444,11 +444,11 @@ class Loadbalancer
     {
         $db = Database::connection();
 
-        $stmt = $db->prepare('INSERT INTO drs_runs (triggered_by, node_count, cluster_avg_score, recommendations_count, skipped_reasons) VALUES (?, ?, ?, ?, ?) RETURNING id');
+        $stmt = $db->prepare('INSERT INTO loadbalancer_runs (triggered_by, node_count, cluster_avg_score, recommendations_count, skipped_reasons) VALUES (?, ?, ?, ?, ?) RETURNING id');
         $stmt->execute([$triggeredBy, count($nodeMetrics), round($avgScore * 100, 2), count($recommendations), !empty($skippedReasons) ? json_encode($skippedReasons) : null]);
         $runId = (int)$stmt->fetchColumn();
 
-        $stmt = $db->prepare('INSERT INTO drs_recommendations (run_id, vmid, vm_name, vm_type, source_node, target_node, reason, impact_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+        $stmt = $db->prepare('INSERT INTO loadbalancer_recommendations (run_id, vmid, vm_name, vm_type, source_node, target_node, reason, impact_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
         foreach ($recommendations as $rec) {
             $stmt->execute([
                 $runId,
@@ -468,7 +468,7 @@ class Loadbalancer
     public static function applyRecommendation(ProxmoxAPI $api, int $recommendationId): array
     {
         $db = Database::connection();
-        $stmt = $db->prepare('SELECT * FROM drs_recommendations WHERE id = ?');
+        $stmt = $db->prepare('SELECT * FROM loadbalancer_recommendations WHERE id = ?');
         $stmt->execute([$recommendationId]);
         $rec = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -489,7 +489,7 @@ class Loadbalancer
             }
         }
         if (!$targetOnline) {
-            $stmt = $db->prepare('UPDATE drs_recommendations SET status = ?, error_message = ? WHERE id = ?');
+            $stmt = $db->prepare('UPDATE loadbalancer_recommendations SET status = ?, error_message = ? WHERE id = ?');
             $stmt->execute(['error', 'Target node is not online', $recommendationId]);
             $rec['status'] = 'error';
             $rec['error_message'] = 'Target node is not online';
@@ -500,7 +500,7 @@ class Loadbalancer
         $maintStmt = $db->prepare('SELECT 1 FROM maintenance_nodes WHERE node_name = ?');
         $maintStmt->execute([$rec['target_node']]);
         if ($maintStmt->fetch()) {
-            $stmt = $db->prepare('UPDATE drs_recommendations SET status = ?, error_message = ? WHERE id = ?');
+            $stmt = $db->prepare('UPDATE loadbalancer_recommendations SET status = ?, error_message = ? WHERE id = ?');
             $stmt->execute(['error', 'Target node is in maintenance mode', $recommendationId]);
             $rec['status'] = 'error';
             $rec['error_message'] = 'Target node is in maintenance mode';
@@ -510,7 +510,7 @@ class Loadbalancer
         // Re-check affinity rules (state may have changed since recommendation was generated)
         $affinityError = AffinityHelper::validateMigration($api, (int)$rec['vmid'], $rec['target_node']);
         if ($affinityError) {
-            $stmt = $db->prepare('UPDATE drs_recommendations SET status = ?, error_message = ? WHERE id = ?');
+            $stmt = $db->prepare('UPDATE loadbalancer_recommendations SET status = ?, error_message = ? WHERE id = ?');
             $stmt->execute(['error', $affinityError, $recommendationId]);
             $rec['status'] = 'error';
             $rec['error_message'] = $affinityError;
@@ -530,10 +530,10 @@ class Loadbalancer
             );
 
             $upid = $result['data'] ?? '';
-            $stmt = $db->prepare('UPDATE drs_recommendations SET status = ?, upid = ?, applied_at = CURRENT_TIMESTAMP WHERE id = ?');
+            $stmt = $db->prepare('UPDATE loadbalancer_recommendations SET status = ?, upid = ?, applied_at = CURRENT_TIMESTAMP WHERE id = ?');
             $stmt->execute(['applied', $upid, $recommendationId]);
 
-            $stmt = $db->prepare('UPDATE drs_runs SET executed_count = executed_count + 1 WHERE id = ?');
+            $stmt = $db->prepare('UPDATE loadbalancer_runs SET executed_count = executed_count + 1 WHERE id = ?');
             $stmt->execute([$rec['run_id']]);
 
             $rec['status'] = 'applied';
@@ -543,7 +543,7 @@ class Loadbalancer
             if (!empty($detachedCds)) {
                 MaintenanceManager::reattachCdRoms($api, $rec['source_node'], $rec['vm_type'], (int)$rec['vmid'], $detachedCds);
             }
-            $stmt = $db->prepare('UPDATE drs_recommendations SET status = ?, error_message = ? WHERE id = ?');
+            $stmt = $db->prepare('UPDATE loadbalancer_recommendations SET status = ?, error_message = ? WHERE id = ?');
             $stmt->execute(['error', $e->getMessage(), $recommendationId]);
 
             $rec['status'] = 'error';
@@ -560,7 +560,7 @@ class Loadbalancer
             $limit = (int)($settings['max_concurrent'] ?? 3);
         }
         $db = Database::connection();
-        $stmt = $db->prepare('SELECT id FROM drs_recommendations WHERE run_id = ? AND status = ? ORDER BY id ASC LIMIT ?');
+        $stmt = $db->prepare('SELECT id FROM loadbalancer_recommendations WHERE run_id = ? AND status = ? ORDER BY id ASC LIMIT ?');
         $stmt->execute([$runId, 'pending', $limit]);
         $ids = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
@@ -574,7 +574,7 @@ class Loadbalancer
     public static function getLatestRun(): ?array
     {
         $db = Database::connection();
-        $run = $db->query('SELECT * FROM drs_runs ORDER BY id DESC LIMIT 1')->fetch(PDO::FETCH_ASSOC);
+        $run = $db->query('SELECT * FROM loadbalancer_runs ORDER BY id DESC LIMIT 1')->fetch(PDO::FETCH_ASSOC);
         if (!$run) return null;
 
         $run['recommendations'] = self::getRunRecommendations((int)$run['id']);
@@ -587,10 +587,10 @@ class Loadbalancer
     {
         $db = Database::connection();
 
-        $countStmt = $db->query('SELECT COUNT(*) FROM drs_runs');
+        $countStmt = $db->query('SELECT COUNT(*) FROM loadbalancer_runs');
         $total = (int)$countStmt->fetchColumn();
 
-        $stmt = $db->prepare('SELECT * FROM drs_runs ORDER BY id DESC LIMIT ? OFFSET ?');
+        $stmt = $db->prepare('SELECT * FROM loadbalancer_runs ORDER BY id DESC LIMIT ? OFFSET ?');
         $stmt->execute([$limit, $offset]);
         $runs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -600,7 +600,7 @@ class Loadbalancer
     public static function getRunRecommendations(int $runId): array
     {
         $db = Database::connection();
-        $stmt = $db->prepare('SELECT * FROM drs_recommendations WHERE run_id = ? ORDER BY impact_score DESC');
+        $stmt = $db->prepare('SELECT * FROM loadbalancer_recommendations WHERE run_id = ? ORDER BY impact_score DESC');
         $stmt->execute([$runId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
@@ -608,7 +608,7 @@ class Loadbalancer
     public static function cleanupOldRuns(int $days = 30): int
     {
         $db = Database::connection();
-        $stmt = $db->prepare("DELETE FROM drs_runs WHERE created_at < NOW() - make_interval(days := ?)");
+        $stmt = $db->prepare("DELETE FROM loadbalancer_runs WHERE created_at < NOW() - make_interval(days := ?)");
         $stmt->execute([$days]);
         return $stmt->rowCount();
     }

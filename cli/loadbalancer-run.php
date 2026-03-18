@@ -15,7 +15,7 @@ use App\AppLogger;
 
 Migrator::run();
 
-AppLogger::debug('drs', 'CLI loadbalancer run started');
+AppLogger::debug('loadbalancer', 'Loadbalancer CLI run started');
 
 $settings = Loadbalancer::getSettings();
 if (!$settings['enabled']) {

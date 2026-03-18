@@ -1,4 +1,4 @@
-# ProxmoxDeploy
+# ProxmoxVE Datacenter Manager
 
 Web-basiertes Management-Dashboard für Proxmox VE Cluster. Verwaltet VMs, Container, Templates, Cloud-Init, SSH-Zugang, Rolling-Updates, Community-Scripts und mehr — alles in einer Oberfläche.
 
@@ -61,16 +61,16 @@ newgrp docker
 
 </details>
 
-### 2. ProxmoxDeploy installieren
+### 2. ProxmoxVE Datacenter Manager installieren
 
 ```bash
-git clone https://github.com/mkoch77/ProxmoxDeployTemplate.git /opt/proxmox-deploy
-cd /opt/proxmox-deploy
+git clone https://github.com/mkoch77/ProxmoxDeployTemplate.git /opt/pvedcm
+cd /opt/pvedcm
 ./setup.sh
 ```
 
-> **Empfohlenes Verzeichnis:** `/opt/proxmox-deploy` — Standard für Server-Applikationen unter Linux.
-> Alternativ jedes beliebige Verzeichnis, z.B. `~/proxmox-deploy`.
+> **Empfohlenes Verzeichnis:** `/opt/pvedcm` — Standard für Server-Applikationen unter Linux.
+> Alternativ jedes beliebige Verzeichnis, z.B. `~/pvedcm`.
 
 Das Setup-Script fragt interaktiv ab:
 - Proxmox Host + API-Token
@@ -115,7 +115,7 @@ Login mit dem im Setup angelegten Admin-Account.
 ## Verwaltung
 
 ```bash
-cd /opt/proxmox-deploy
+cd /opt/pvedcm
 
 # Logs anzeigen
 docker compose logs -f app

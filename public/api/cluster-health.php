@@ -180,6 +180,8 @@ try {
     $totalVcpu = 0;
     $totalPhysicalCores = 0;
     $totalMemAllocated = 0;
+    $enrichStart = microtime(true);
+    $enrichMaxSeconds = 8; // max total time for all per-node enrichment
     foreach ($nodes as &$node) {
         $nodeName = $node['node'] ?? '';
         $node['vcpus_allocated'] = $vcpuPerNode[$nodeName] ?? 0;
@@ -188,8 +190,18 @@ try {
         $totalMemAllocated += $node['mem_allocated'];
 
         if (($node['status'] ?? '') === 'online') {
-            // Use short timeouts — these are nice-to-have enrichment, not critical
-            $quickOpts = ['connect_timeout' => 2, 'timeout' => 4];
+            // Skip enrichment if we've already spent too long
+            $elapsed = microtime(true) - $enrichStart;
+            if ($elapsed > $enrichMaxSeconds) {
+                $node['cpu_topology'] = null;
+                $node['numa_nodes'] = null;
+                $node['physical_cores'] = $node['maxcpu'] ?? 0;
+                $totalPhysicalCores += $node['maxcpu'] ?? 0;
+                $node['iowait'] = 0;
+                continue;
+            }
+
+            $quickOpts = ['connect_timeout' => 1, 'timeout' => 2];
             try {
                 $nodeStatus = $api->getNodeStatus($nodeName, $quickOpts);
                 $cpuInfo = $nodeStatus['data']['cpuinfo'] ?? [];

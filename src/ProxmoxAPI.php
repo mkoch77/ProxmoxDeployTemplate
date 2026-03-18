@@ -147,7 +147,7 @@ class ProxmoxAPI
     }
 
     /** Short timeout options for non-critical health/status checks */
-    private const QUICK_OPTS = ['connect_timeout' => 2, 'timeout' => 4];
+    private const QUICK_OPTS = ['connect_timeout' => 1, 'timeout' => 3];
 
     // --- Nodes ---
 

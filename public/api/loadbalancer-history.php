@@ -11,9 +11,9 @@ use App\AppLogger;
 
 Bootstrap::init();
 Request::requireMethod('GET');
-Auth::requirePermission('drs.view');
+Auth::requirePermission('loadbalancer.view');
 
-AppLogger::debug('monitoring', 'Fetching DRS history');
+AppLogger::debug('monitoring', 'Fetching loadbalancer history');
 
 try {
     $runId = Request::get('run_id');

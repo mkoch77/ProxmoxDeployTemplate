@@ -103,7 +103,7 @@ class AppSettings
             'description' => 'Application domain for SSL/access',
             'group' => 'Application',
             'type' => 'text',
-            'placeholder' => 'proxmox-deploy.example.com',
+            'placeholder' => 'pvedcm.example.com',
             'default' => '',
         ],
         'LETSENCRYPT_EMAIL' => [

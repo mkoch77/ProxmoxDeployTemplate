@@ -1,27 +1,27 @@
 services:
   db:
     image: postgres:16-alpine
-    container_name: proxmoxdeploy_db
+    container_name: pvedcm_db
     restart: unless-stopped
     secrets:
       - db_password
     environment:
-      POSTGRES_DB: ${DB_NAME:-proxmoxdeploy}
-      POSTGRES_USER: ${DB_USER:-proxmoxdeploy}
+      POSTGRES_DB: ${DB_NAME:-pvedcm}
+      POSTGRES_USER: ${DB_USER:-pvedcm}
       POSTGRES_PASSWORD_FILE: /run/secrets/db_password
     volumes:
-      - proxmoxdeploy_pgdata:/var/lib/postgresql/data
+      - pvedcm_pgdata:/var/lib/postgresql/data
     networks:
       - internal
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-proxmoxdeploy}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-pvedcm}"]
       interval: 5s
       timeout: 5s
       retries: 10
 
   app:
     build: .
-    container_name: proxmoxdeploy_app
+    container_name: pvedcm_app
     restart: unless-stopped
     depends_on:
       db:
@@ -32,13 +32,13 @@ services:
       - db_password
     volumes:
       # Persistent data: SSH keys + custom images
-      - proxmoxdeploy_data:/var/www/html/data
+      - pvedcm_data:/var/www/html/data
     environment:
       # PostgreSQL
       DB_HOST: db
       DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-proxmoxdeploy}
-      DB_USER: ${DB_USER:-proxmoxdeploy}
+      DB_NAME: ${DB_NAME:-pvedcm}
+      DB_USER: ${DB_USER:-pvedcm}
       # DB_PASSWORD is read from Docker secret /run/secrets/db_password
 
       # Proxmox API (migrated to vault on first boot)
@@ -77,7 +77,7 @@ services:
 
   nginx:
     image: nginx:1.27-alpine
-    container_name: proxmoxdeploy_nginx
+    container_name: pvedcm_nginx
     restart: unless-stopped
     ports:
       - "${HTTP_PORT:-80}:80"
@@ -99,7 +99,7 @@ services:
   # Renewal: docker compose run --rm certbot renew
   certbot:
     image: certbot/certbot:latest
-    container_name: proxmoxdeploy_certbot
+    container_name: pvedcm_certbot
     volumes:
       # Stores issued certificates persistently
       - letsencrypt:/etc/letsencrypt
@@ -128,7 +128,7 @@ networks:
   internal:
 
 volumes:
-  proxmoxdeploy_data:
-  proxmoxdeploy_pgdata:
+  pvedcm_data:
+  pvedcm_pgdata:
   letsencrypt:
   certbot_webroot:

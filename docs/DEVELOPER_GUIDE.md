@@ -1,4 +1,4 @@
-# ProxmoxDeploy – Entwicklerhandbuch
+# ProxmoxVE Datacenter Manager – Entwicklerhandbuch
 
 ## Inhaltsverzeichnis
 
@@ -31,7 +31,7 @@
 ## Projektstruktur
 
 ```
-ProxmoxDeployTemplate/
+pvedcm/
 ├── config/
 │   ├── config.php          # Aktive Konfiguration (nicht im Git!)
 │   └── config.example.php  # Vorlage mit allen Schlüsseln
@@ -42,7 +42,7 @@ ProxmoxDeployTemplate/
 │   ├── Database.php        # PDO-Singleton für SQLite
 │   ├── EntraID.php         # Azure AD / Entra ID OAuth2-Flow
 │   ├── Helpers.php         # Hilfsfunktionen (validateNodeName, createAPI)
-│   ├── Loadbalancer.php    # DRS-Engine: Auswertung, Empfehlungen, Migration
+│   ├── Loadbalancer.php    # Loadbalancer-Engine: Auswertung, Empfehlungen, Migration
 │   ├── MaintenanceManager.php # Wartungsmodus-Logik
 │   ├── Migrator.php        # DB-Migrations-System
 │   ├── ProxmoxAPI.php      # HTTP-Client für Proxmox VE API
@@ -67,7 +67,7 @@ ProxmoxDeployTemplate/
 │               ├── dashboard.js    # Dashboard-Tabelle, Grupierung, Detail-Modal
 │               ├── deploy.js       # Template-Deploy-Dialog
 │               ├── health.js       # Cluster-Health-Seite
-│               ├── loadbalancer.js # DRS-Seite
+│               ├── loadbalancer.js # Loadbalancer-Seite
 │               ├── maintenance.js  # Wartungsmodus-Seite
 │               ├── tasks.js        # Task-Übersicht
 │               ├── templates.js    # Template-Auswahl
@@ -75,7 +75,7 @@ ProxmoxDeployTemplate/
 │               ├── updater.js      # Rolling-Update-Seite
 │               └── users.js        # Benutzerverwaltungs-Seite
 ├── cli/
-│   └── drs-run.php         # Cron-Einstiegspunkt für automatischen DRS-Lauf
+│   └── loadbalancer-run.php # Cron-Einstiegspunkt für automatischen Loadbalancer-Lauf
 ├── vendor/                 # Composer-Abhängigkeiten
 └── composer.json
 ```
@@ -168,9 +168,9 @@ private static function migration013(): string
 | `user_permission_overrides` | Individuelle Overrides pro Benutzer |
 | `user_sessions` | Aktive Sessions (Cookie-basiert) |
 | `maintenance_nodes` | Nodes im Wartungsmodus + Migrationsstatus |
-| `drs_settings` | DRS-Konfiguration (Single-Row, id=1) |
-| `drs_runs` | Historie der DRS-Auswertungsläufe |
-| `drs_recommendations` | Migrations-Empfehlungen pro Lauf |
+| `loadbalancer_settings` | Loadbalancer-Konfiguration (Single-Row, id=1) |
+| `loadbalancer_runs` | Historie der Loadbalancer-Auswertungsläufe |
+| `loadbalancer_recommendations` | Migrations-Empfehlungen pro Lauf |
 | `rolling_update_sessions` | Laufende/abgeschlossene Rolling-Update-Sessions |
 | `migrations` | Angewendete Migrationsversionen |
 
@@ -255,7 +255,7 @@ SSH::disableNodeMaintenance($nodeName);  // ha-manager Maintenance deaktivieren
 
 ### `Loadbalancer`
 
-DRS-Engine. Berechnet gewichtete CPU/RAM-Scores pro Node und generiert Migrations-Empfehlungen.
+Loadbalancer-Engine. Berechnet gewichtete CPU/RAM-Scores pro Node und generiert Migrations-Empfehlungen.
 
 ```php
 Loadbalancer::getSettings();
@@ -341,12 +341,12 @@ Alle Endpoints liegen unter `public/api/`. Sie antworten immer mit JSON.
 
 | Endpoint | Methode | Berechtigung | Beschreibung |
 |----------|---------|-------------|-------------|
-| `api/loadbalancer.php` | GET | `drs.view` | Settings + letzter Run + Balance |
-| `api/loadbalancer.php?action=settings` | POST | `drs.manage` | Einstellungen speichern |
-| `api/loadbalancer.php?action=run` | POST | `drs.manage` | Auswertung manuell starten |
-| `api/loadbalancer.php?action=apply` | POST | `drs.manage` | Einzelne Empfehlung anwenden |
-| `api/loadbalancer.php?action=apply-all` | POST | `drs.manage` | Alle Empfehlungen anwenden |
-| `api/loadbalancer-history.php` | GET | `drs.view` | Lauf-Historie + Empfehlungen |
+| `api/loadbalancer.php` | GET | `loadbalancer.view` | Settings + letzter Run + Balance |
+| `api/loadbalancer.php?action=settings` | POST | `loadbalancer.manage` | Einstellungen speichern |
+| `api/loadbalancer.php?action=run` | POST | `loadbalancer.manage` | Auswertung manuell starten |
+| `api/loadbalancer.php?action=apply` | POST | `loadbalancer.manage` | Einzelne Empfehlung anwenden |
+| `api/loadbalancer.php?action=apply-all` | POST | `loadbalancer.manage` | Alle Empfehlungen anwenden |
+| `api/loadbalancer-history.php` | GET | `loadbalancer.view` | Lauf-Historie + Empfehlungen |
 
 ### Benutzerverwaltung
 

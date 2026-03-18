@@ -3,7 +3,7 @@
 # Let's Encrypt – Certificate renewal
 #
 # Run manually or via cron:
-#   0 3 * * * bash /opt/proxmoxdeploy/docker/letsencrypt-renew.sh >> /var/log/proxmoxdeploy/letsencrypt.log 2>&1
+#   0 3 * * * bash /opt/pvedcm/docker/letsencrypt-renew.sh >> /var/log/pvedcm/letsencrypt.log 2>&1
 # ============================================================
 
 set -e

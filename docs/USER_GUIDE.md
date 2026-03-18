@@ -1,4 +1,4 @@
-# ProxmoxDeploy – Benutzerhandbuch
+# ProxmoxVE Datacenter Manager – Benutzerhandbuch
 
 ## Inhaltsverzeichnis
 
@@ -10,7 +10,7 @@
 6. [Tasks](#tasks)
 7. [Cluster Health](#cluster-health)
 8. [Wartungsmodus](#wartungsmodus)
-9. [Load Balancer (DRS)](#load-balancer-drs)
+9. [Load Balancer](#load-balancer)
 10. [Rolling Updates](#rolling-updates)
 11. [Benutzerverwaltung](#benutzerverwaltung)
 12. [Rollen und Berechtigungen](#rollen-und-berechtigungen)
@@ -20,7 +20,7 @@
 
 ## Überblick
 
-ProxmoxDeploy ist ein Web-Frontend für Proxmox VE-Cluster. Es ermöglicht das Verwalten von VMs und Containern, das Deployen von Templates, automatisches Load-Balancing sowie Clusterwartung – alles in einer Oberfläche, ohne direkten Zugriff auf die Proxmox-Weboberfläche.
+ProxmoxVE Datacenter Manager ist ein Web-Frontend für Proxmox VE-Cluster. Es ermöglicht das Verwalten von VMs und Containern, das Deployen von Templates, automatisches Load-Balancing sowie Clusterwartung – alles in einer Oberfläche, ohne direkten Zugriff auf die Proxmox-Weboberfläche.
 
 ---
 
@@ -144,15 +144,15 @@ Mit dem Wartungsmodus kann ein Node sicher aus dem Cluster genommen werden:
 1. **Wartung aktivieren** – Alle VMs/CTs auf dem Node werden auf andere Nodes migriert. Der Node erscheint in der Health-Übersicht als "in maintenance".
 2. **Wartung deaktivieren** – Node kehrt in den normalen Betrieb zurück.
 
-> Während des Wartungsmodus werden keine DRS-Empfehlungen für diesen Node erzeugt.
+> Während des Wartungsmodus werden keine Loadbalancer-Empfehlungen für diesen Node erzeugt.
 
 ---
 
-## Load Balancer (DRS)
+## Load Balancer
 
-Menüpunkt **Loadbalancing** – Ansicht erfordert `drs.view`, Konfiguration erfordert `drs.manage`.
+Menüpunkt **Loadbalancing** – Ansicht erfordert `loadbalancer.view`, Konfiguration erfordert `loadbalancer.manage`.
 
-Der DRS (Distributed Resource Scheduler) analysiert die CPU- und RAM-Auslastung aller Nodes und empfiehlt Live-Migrationen zum Ausgleich der Last.
+Der Loadbalancer analysiert die CPU- und RAM-Auslastung aller Nodes und empfiehlt Live-Migrationen zum Ausgleich der Last.
 
 ### Cluster-Balance-Übersicht
 
@@ -160,7 +160,7 @@ Zeigt den aktuellen Cluster-Zustand:
 - Durchschnittlicher Auslastungs-Score
 - Standardabweichung (niedrig = gut ausbalanciert)
 - Anzahl Online-Nodes
-- Letzter DRS-Lauf
+- Letzter Loadbalancer-Lauf
 
 ### Node-Auslastung
 
@@ -170,7 +170,7 @@ Balkenanzeige pro Node mit CPU- und RAM-Auslastung sowie dem gewichteten Score.
 
 | Einstellung | Beschreibung |
 |------------|--------------|
-| Aktiviert | DRS ein- oder ausschalten |
+| Aktiviert | Loadbalancer ein- oder ausschalten |
 | Automations-Level | Manual / Teilautomatisch / Vollautomatisch |
 | CPU-Gewichtung | Anteil CPU am Score (0–100) |
 | RAM-Gewichtung | Anteil RAM am Score (0–100) |
@@ -195,13 +195,13 @@ Tabelle zeigt:
 
 ### Verlauf
 
-Die letzten DRS-Läufe mit Zeitstempel, Trigger (cron/manual), Anzahl Empfehlungen und ausgeführten Migrationen.
+Die letzten Loadbalancer-Läufe mit Zeitstempel, Trigger (cron/manual), Anzahl Empfehlungen und ausgeführten Migrationen.
 
 ### Cron-Job einrichten
 
-Um den DRS automatisch auszuführen, folgenden Eintrag in die Crontab des Servers eintragen:
+Um den Loadbalancer automatisch auszuführen, folgenden Eintrag in die Crontab des Servers eintragen:
 ```
-*/5 * * * * php /pfad/zu/cli/drs-run.php >> /var/log/proxmox-drs.log 2>&1
+*/5 * * * * php /pfad/zu/cli/loadbalancer-run.php >> /var/log/proxmox-loadbalancer.log 2>&1
 ```
 
 ---
@@ -269,8 +269,8 @@ Benutzer die sich per Microsoft-SSO anmelden, werden automatisch angelegt. Sie h
 | `cluster.maintenance` | Wartungsmodus verwalten | ja | nein | nein |
 | `cluster.update` | Rolling Updates durchführen | ja | nein | nein |
 | `cluster.ha` | HA-Ressourcen verwalten | ja | ja | nein |
-| `drs.view` | Loadbalancer-Empfehlungen einsehen | ja | ja | nein |
-| `drs.manage` | Loadbalancer konfigurieren | ja | nein | nein |
+| `loadbalancer.view` | Loadbalancer-Empfehlungen einsehen | ja | ja | nein |
+| `loadbalancer.manage` | Loadbalancer konfigurieren | ja | nein | nein |
 | `users.manage` | Benutzerverwaltung | ja | nein | nein |
 
 Individuelle Benutzer können per **Override** einzelne Berechtigungen über ihre Rolle hinaus erhalten oder verlieren.

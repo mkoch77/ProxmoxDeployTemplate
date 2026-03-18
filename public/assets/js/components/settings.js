@@ -387,7 +387,7 @@ const Settings = {
         container.innerHTML = `
             <div class="settings-section">
                 <h5 class="settings-section-title"><i class="bi bi-shuffle me-2"></i>Loadbalancer Settings</h5>
-                <p class="text-muted small mb-4">Configure automatic workload distribution across cluster nodes (DRS).</p>
+                <p class="text-muted small mb-4">Configure automatic workload distribution across cluster nodes.</p>
 
                 <div class="row g-3">
                     <div class="col-12">

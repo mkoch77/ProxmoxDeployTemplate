@@ -32,7 +32,7 @@ fi
 
 # Wait for PostgreSQL to be ready
 echo "Waiting for PostgreSQL..."
-until PGPASSWORD="$DB_PASSWORD" pg_isready -h "${DB_HOST:-db}" -p "${DB_PORT:-5432}" -U "${DB_USER:-proxmoxdeploy}" -q 2>/dev/null; do
+until PGPASSWORD="$DB_PASSWORD" pg_isready -h "${DB_HOST:-db}" -p "${DB_PORT:-5432}" -U "${DB_USER:-pvedcm}" -q 2>/dev/null; do
     sleep 1
 done
 echo "PostgreSQL is ready."
@@ -43,7 +43,7 @@ KEY_DIR=$(dirname "$KEY_PATH")
 
 if [ ! -f "$KEY_PATH" ]; then
     mkdir -p "$KEY_DIR"
-    ssh-keygen -t ed25519 -f "$KEY_PATH" -N "" -C "proxmox-deploy" -q
+    ssh-keygen -t ed25519 -f "$KEY_PATH" -N "" -C "pvedcm" -q
     chmod 700 "$KEY_DIR"
     chmod 600 "$KEY_PATH"
     chmod 644 "${KEY_PATH}.pub"

@@ -65,7 +65,7 @@ foreach ($categories as $cat) {
 
 // 2. Get list of JSON files from GitHub API
 $ctx = stream_context_create(['http' => [
-    'header'  => "User-Agent: ProxmoxDeploy\r\n",
+    'header'  => "User-Agent: PVEDCM\r\n",
     'timeout' => 30,
 ]]);
 
@@ -109,7 +109,7 @@ foreach ($batches as $batch) {
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT        => 15,
             CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_USERAGENT      => 'ProxmoxDeploy',
+            CURLOPT_USERAGENT      => 'PVEDCM',
         ]);
         curl_multi_add_handle($mh, $ch);
         $handles[] = ['handle' => $ch, 'file' => $fileName];

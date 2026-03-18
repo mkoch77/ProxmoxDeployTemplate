@@ -47,7 +47,7 @@ $tmpPub = $tmpKey . '.pub';
 @unlink($tmpPub);
 
 $cmd = sprintf(
-    'ssh-keygen -t ed25519 -f %s -N "" -C "proxmox-deploy-rotated" -q 2>&1',
+    'ssh-keygen -t ed25519 -f %s -N "" -C "pvedcm-rotated" -q 2>&1',
     escapeshellarg($tmpKey)
 );
 exec($cmd, $output, $exitCode);

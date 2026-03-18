@@ -254,7 +254,7 @@ class BackupManager
             file_put_contents($tmpDir . '/metadata.json', json_encode([
                 'created_at' => date('c'),
                 'version' => '1.1',
-                'app' => 'ProxmoxDeployTemplate',
+                'app' => 'ProxmoxVE Datacenter Manager',
                 'encrypted' => $encrypted,
                 'includes' => ['database', 'vault', 'env', 'monitoring_data'],
             ], JSON_PRETTY_PRINT));

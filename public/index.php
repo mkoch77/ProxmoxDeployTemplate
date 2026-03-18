@@ -160,7 +160,7 @@ $perms = $user['permissions'];
                     <span>Monitoring</span>
                 </a>
                 <?php endif; ?>
-                <?php if (in_array('drs.view', $perms)): ?>
+                <?php if (in_array('loadbalancer.view', $perms)): ?>
                 <a href="#loadbalancing" class="sidebar-link" data-page="loadbalancing" title="Loadbalancing">
                     <div class="sidebar-icon"><i class="bi bi-shuffle"></i></div>
                     <span>Loadbalancing</span>

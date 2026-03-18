@@ -16,7 +16,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 switch ($method) {
     case 'GET':
-        Auth::requirePermission('drs.view');
+        Auth::requirePermission('loadbalancer.view');
         try {
             $api = Helpers::createAPI();
             Response::success([
@@ -31,7 +31,7 @@ switch ($method) {
 
     case 'POST':
         Request::validateCsrf();
-        Auth::requirePermission('drs.manage');
+        Auth::requirePermission('loadbalancer.manage');
 
         $action = $_GET['action'] ?? '';
         $body = Request::jsonBody();
@@ -56,10 +56,10 @@ switch ($method) {
 
                     Loadbalancer::updateSettings($data);
                     $userId = Auth::check()['id'] ?? null;
-                    AppLogger::info('config', 'DRS settings updated', $data, $userId);
+                    AppLogger::info('config', 'Loadbalancer settings updated', $data, $userId);
                     Response::success(Loadbalancer::getSettings());
                 } catch (\Exception $e) {
-                    AppLogger::error('config', 'DRS settings update failed', ['error' => $e->getMessage()], Auth::check()['id'] ?? null);
+                    AppLogger::error('config', 'Loadbalancer settings update failed', ['error' => $e->getMessage()], Auth::check()['id'] ?? null);
                     Response::error($e->getMessage(), 500);
                 }
                 break;
@@ -68,10 +68,10 @@ switch ($method) {
                 try {
                     $api = Helpers::createAPI();
                     $userId = Auth::check()['id'] ?? null;
-                    AppLogger::info('monitoring', 'DRS manual run triggered', null, $userId);
+                    AppLogger::info('monitoring', 'Loadbalancer manual run triggered', null, $userId);
                     Response::success(Loadbalancer::evaluate($api, 'manual'));
                 } catch (\Exception $e) {
-                    AppLogger::error('monitoring', 'DRS manual run failed', ['error' => $e->getMessage()], Auth::check()['id'] ?? null);
+                    AppLogger::error('monitoring', 'Loadbalancer manual run failed', ['error' => $e->getMessage()], Auth::check()['id'] ?? null);
                     Response::error($e->getMessage(), 500);
                 }
                 break;
@@ -82,10 +82,10 @@ switch ($method) {
                     if ($recId <= 0) Response::error('Invalid recommendation ID', 400);
                     $api = Helpers::createAPI();
                     $userId = Auth::check()['id'] ?? null;
-                    AppLogger::info('monitoring', 'DRS recommendation applied', ['recommendation_id' => $recId], $userId);
+                    AppLogger::info('monitoring', 'Loadbalancer recommendation applied', ['recommendation_id' => $recId], $userId);
                     Response::success(Loadbalancer::applyRecommendation($api, $recId));
                 } catch (\Exception $e) {
-                    AppLogger::error('monitoring', 'DRS recommendation apply failed', ['recommendation_id' => $recId ?? 0, 'error' => $e->getMessage()], Auth::check()['id'] ?? null);
+                    AppLogger::error('monitoring', 'Loadbalancer recommendation apply failed', ['recommendation_id' => $recId ?? 0, 'error' => $e->getMessage()], Auth::check()['id'] ?? null);
                     Response::error($e->getMessage(), 500);
                 }
                 break;
@@ -96,10 +96,10 @@ switch ($method) {
                     if ($runId <= 0) Response::error('Invalid run ID', 400);
                     $api = Helpers::createAPI();
                     $userId = Auth::check()['id'] ?? null;
-                    AppLogger::info('monitoring', 'All DRS recommendations applied', ['run_id' => $runId], $userId);
+                    AppLogger::info('monitoring', 'All loadbalancer recommendations applied', ['run_id' => $runId], $userId);
                     Response::success(Loadbalancer::applyAllRecommendations($api, $runId));
                 } catch (\Exception $e) {
-                    AppLogger::error('monitoring', 'DRS apply-all failed', ['run_id' => $runId ?? 0, 'error' => $e->getMessage()], Auth::check()['id'] ?? null);
+                    AppLogger::error('monitoring', 'Loadbalancer apply-all failed', ['run_id' => $runId ?? 0, 'error' => $e->getMessage()], Auth::check()['id'] ?? null);
                     Response::error($e->getMessage(), 500);
                 }
                 break;

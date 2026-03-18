@@ -49,8 +49,8 @@ const PERMISSION_FEATURES = [
         id: 'loadbalancing',
         label: 'Load Balancing',
         icon: 'bi-diagram-3',
-        ro_perms: ['drs.view'],
-        rw_perms: ['drs.manage'],
+        ro_perms: ['loadbalancer.view'],
+        rw_perms: ['loadbalancer.manage'],
     },
     {
         id: 'ha',
