@@ -17,16 +17,15 @@ Header always set Referrer-Policy "strict-origin-when-cross-origin"
     Require all denied
 </FilesMatch>
 
-# Block direct access to internal directories
+# Block direct access to data directory
 RewriteRule ^data/ - [F,L]
-RewriteRule ^api/.*\.php$ - [L]
-
-# Deny access to PHP files in subdirectories (except api/ and root-level PHP)
-RewriteRule ^.+/(?!api/).+\.php$ - [F,L]
 
 # Serve existing files directly (PHP, JS, CSS, images, fonts)
 RewriteCond %{REQUEST_FILENAME} -f
 RewriteRule ^ - [L]
+
+# Disable directory listings
+Options -Indexes
 
 # Route everything else to index.php (SPA)
 RewriteRule ^ index.php [L]
