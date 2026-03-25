@@ -20,6 +20,7 @@ $allImages = [
         'ubuntu-20.04'      => ['name' => 'Ubuntu 20.04 LTS',   'subtitle' => 'Focal Fossa',     'color' => '#E95420', 'default_user' => 'ubuntu'],
     ],
     'debian' => [
+        'debian-13'         => ['name' => 'Debian 13',          'subtitle' => 'Trixie',          'color' => '#D70A53', 'default_user' => 'debian'],
         'debian-12'         => ['name' => 'Debian 12',          'subtitle' => 'Bookworm',        'color' => '#D70A53', 'default_user' => 'debian'],
         'debian-11'         => ['name' => 'Debian 11',          'subtitle' => 'Bullseye',        'color' => '#D70A53', 'default_user' => 'debian'],
     ],

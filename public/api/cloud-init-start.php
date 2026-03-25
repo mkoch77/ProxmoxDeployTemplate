@@ -27,6 +27,7 @@ $ALL_CLOUD_IMAGES = [
         'ubuntu-20.04' => ['name' => 'Ubuntu 20.04 LTS (Focal)',  'url' => 'https://cloud-images.ubuntu.com/focal/current/focal-server-cloudimg-amd64.img', 'default_user' => 'ubuntu'],
     ],
     'debian' => [
+        'debian-13' => ['name' => 'Debian 13 (Trixie)', 'url' => 'https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-amd64.qcow2', 'default_user' => 'debian'],
         'debian-12' => ['name' => 'Debian 12 (Bookworm)', 'url' => 'https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2', 'default_user' => 'debian'],
         'debian-11' => ['name' => 'Debian 11 (Bullseye)', 'url' => 'https://cloud.debian.org/images/cloud/bullseye/latest/debian-11-genericcloud-amd64.qcow2', 'default_user' => 'debian'],
     ],

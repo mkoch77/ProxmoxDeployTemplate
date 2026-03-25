@@ -165,9 +165,11 @@ if (!$phase1Ok) {
     Response::success(['results' => $results, 'new_public_key' => null, 'needs_password' => $needsPassword]);
 }
 
-// ── Phase 2: Remove old key from ALL nodes ───────────────────────────────────
-$removeCmd = 'grep -vF ' . escapeshellarg($oldPubKey) . ' ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.tmp 2>/dev/null '
-    . '&& mv ~/.ssh/authorized_keys.tmp ~/.ssh/authorized_keys '
+// ── Phase 2: Remove ALL old pvedcm keys from ALL nodes (keep only the new one) ──
+// Remove any key with pvedcm/pvedcm-rotated/admin@pvedcm comment, then re-add only the new key
+$removeCmd = 'grep -v "pvedcm" ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.tmp 2>/dev/null; '
+    . 'echo ' . escapeshellarg($newPubKey) . ' >> ~/.ssh/authorized_keys.tmp; '
+    . 'mv ~/.ssh/authorized_keys.tmp ~/.ssh/authorized_keys '
     . '&& chmod 600 ~/.ssh/authorized_keys';
 
 $phase2Ok = true;
