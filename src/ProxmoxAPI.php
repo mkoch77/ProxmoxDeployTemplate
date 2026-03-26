@@ -41,7 +41,7 @@ class ProxmoxAPI
     private function request(string $method, string $path, array $params = [], array $options = []): array
     {
         // Validate path segments to prevent injection via node/VM names
-        if (preg_match('#[^a-zA-Z0-9/_\-.:+@!]#', $path)) {
+        if (preg_match('#[^a-zA-Z0-9/_\-.:+@!%]#', $path)) {
             throw new \InvalidArgumentException('Invalid characters in API path');
         }
 

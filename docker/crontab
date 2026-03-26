@@ -1,7 +1,7 @@
-# Loadbalancer — run every minute
+# Loadbalancer - run every minute
 * * * * * www-data . /etc/docker-env.sh; /usr/local/bin/php /var/www/html/cli/loadbalancer-run.php >> /var/www/html/data/loadbalancer.log 2>&1
 
-# Affinity auto-resolve — check and fix violations every minute
+# Affinity auto-resolve - check and fix violations every minute
 * * * * * www-data . /etc/docker-env.sh; /usr/local/bin/php /var/www/html/cli/affinity-resolve.php >> /var/www/html/data/affinity-resolve.log 2>&1
 
 # Auto-deploy SSH key to nodes when a new key was generated
@@ -10,7 +10,7 @@
 # Rotate SSH key every 4 hours (generate new key, deploy to nodes, remove old key)
 0 */4 * * * www-data . /etc/docker-env.sh; /usr/local/bin/php /var/www/html/cli/ssh-rotate-key.php >> /var/www/html/data/ssh-rotate.log 2>&1
 
-# Scheduled backup — checks every minute if it's time for the daily backup
+# Scheduled backup - checks every minute if it is time for the daily backup
 * * * * * www-data . /etc/docker-env.sh; /usr/local/bin/php /var/www/html/cli/backup-run.php >> /var/www/html/data/backup.log 2>&1
 
 # Required: cron.d files must end with a newline
