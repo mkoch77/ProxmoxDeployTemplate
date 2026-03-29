@@ -49,6 +49,20 @@ const App = {
         localStorage.setItem('sidebar_collapsed', collapsed ? '1' : '0');
     },
 
+    toggleMobileSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        const backdrop = document.getElementById('mobile-backdrop');
+        const isOpen = sidebar.classList.toggle('mobile-open');
+        if (backdrop) backdrop.classList.toggle('active', isOpen);
+    },
+
+    closeMobileSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        const backdrop = document.getElementById('mobile-backdrop');
+        if (sidebar) sidebar.classList.remove('mobile-open');
+        if (backdrop) backdrop.classList.remove('active');
+    },
+
     restoreSidebarState() {
         if (localStorage.getItem('sidebar_collapsed') === '1') {
             document.getElementById('sidebar')?.classList.add('sidebar-collapsed');
@@ -69,6 +83,9 @@ const App = {
         if (!this.pages[page]) {
             page = 'dashboard';
         }
+
+        // Close mobile sidebar on navigation
+        this.closeMobileSidebar();
 
         // Hide any lingering tooltips
         ResourceTooltip.hide();

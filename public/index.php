@@ -73,7 +73,11 @@ $perms = $user['permissions'];
     <!-- Navbar -->
     <nav class="navbar fixed-top glass-nav">
         <div class="container-fluid px-4">
-            <a class="navbar-brand d-flex align-items-center gap-2" href="#dashboard">
+            <div class="d-flex align-items-center gap-2">
+                <button class="btn btn-link p-0 d-md-none mobile-hamburger" onclick="App.toggleMobileSidebar()" style="font-size:1.3rem;color:var(--text-secondary);line-height:1">
+                    <i class="bi bi-list"></i>
+                </button>
+                <a class="navbar-brand d-flex align-items-center gap-2 mb-0" href="#dashboard">
                 <div class="brand-icon">
                     <i class="bi bi-hdd-rack-fill"></i>
                 </div>
@@ -83,6 +87,7 @@ $perms = $user['permissions'];
                     <span class="badge bg-secondary ms-2" style="font-size:0.6rem;vertical-align:middle">v0.2</span>
                 </div>
             </a>
+            </div>
             <div class="d-flex align-items-center gap-3">
                 <?php if (in_array('cluster.update', $perms)): ?>
                 <button id="cluster-updates-btn" class="btn btn-link p-0 d-none d-flex flex-column align-items-center" title="Updates available"
@@ -125,6 +130,7 @@ $perms = $user['permissions'];
         </div>
     </nav>
 
+    <div class="mobile-sidebar-backdrop" id="mobile-backdrop" onclick="App.toggleMobileSidebar()"></div>
     <div class="d-flex" id="wrapper">
         <!-- Sidebar -->
         <nav id="sidebar">
