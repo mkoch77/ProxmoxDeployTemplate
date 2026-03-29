@@ -878,11 +878,21 @@ body {
     /* Hide desktop sidebar toggle, show hamburger */
     .sidebar-toggle-btn { display: none !important; }
 
+    /* Navbar: ensure single row on mobile */
+    .glass-nav { height: 56px; }
+    body { padding-top: 56px; }
+    #sidebar { top: 56px; }
+    .filter-bar { top: 56px; }
+
     /* Navbar right section: compact on tablet */
     .conn-text { display: none; }
-    .nav-actions { gap: 0.4rem; }
-    .nav-alert-btn { font-size: 0.95rem; }
+    .nav-actions { gap: 0.35rem; flex-shrink: 0; }
+    .nav-alert-btn { font-size: 0.9rem; }
     .nav-alert-badge { display: none; }
+
+    /* Brand: allow shrink */
+    .navbar-brand { overflow: hidden; flex-shrink: 1; min-width: 0; }
+    .glass-nav .container-fluid { padding: 0 0.5rem !important; gap: 0.5rem; }
 
     /* Full-width main content */
     #main-content { margin-left: 0 !important; width: 100% !important; }

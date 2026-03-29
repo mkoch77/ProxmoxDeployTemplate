@@ -72,7 +72,7 @@ $perms = $user['permissions'];
 <body>
     <!-- Navbar -->
     <nav class="navbar fixed-top glass-nav">
-        <div class="container-fluid px-4">
+        <div class="container-fluid px-4 d-flex align-items-center justify-content-between flex-nowrap">
             <div class="d-flex align-items-center gap-2">
                 <button class="btn btn-link p-0 d-md-none mobile-hamburger" onclick="App.toggleMobileSidebar()" style="font-size:1.3rem;color:var(--text-secondary);line-height:1">
                     <i class="bi bi-list"></i>
@@ -84,7 +84,7 @@ $perms = $user['permissions'];
                 <div>
                     <span class="brand-text">ProxmoxVE</span>
                     <span class="brand-sub d-none d-sm-inline">Datacenter Manager</span>
-                    <span class="badge bg-secondary ms-2" style="font-size:0.6rem;vertical-align:middle">v0.2</span>
+                    <span class="badge bg-secondary ms-2 d-none d-md-inline" style="font-size:0.6rem;vertical-align:middle">v0.2</span>
                 </div>
             </a>
             </div>
