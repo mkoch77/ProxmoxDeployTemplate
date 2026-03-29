@@ -878,6 +878,10 @@ body {
     /* Hide desktop sidebar toggle, show hamburger */
     .sidebar-toggle-btn { display: none !important; }
 
+    /* Navbar right section: compact on tablet */
+    .conn-text { display: none; }
+    .glass-nav .container-fluid > .d-flex:last-child { gap: 0.5rem !important; }
+
     /* Full-width main content */
     #main-content { margin-left: 0 !important; width: 100% !important; }
 
@@ -928,8 +932,10 @@ body {
         grid-template-columns: 1fr;
     }
 
-    /* Tables: horizontal scroll */
+    /* ALL tables: horizontal scroll on tablet */
+    .guest-table,
     .table-responsive-mobile {
+        display: block;
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
     }
@@ -981,6 +987,15 @@ body {
     .brand-text { font-size: 0.95rem; }
     .brand-icon { width: 32px; height: 32px; font-size: 0.95rem; }
     .glass-nav .container-fluid { padding: 0 0.75rem; }
+
+    /* Navbar right: compact */
+    .glass-nav .container-fluid > .d-flex:last-child { gap: 0.4rem !important; }
+    #cluster-info-btn span,
+    #cluster-warnings-btn span,
+    #cluster-updates-btn span { display: none; }
+    #cluster-info-btn,
+    #cluster-warnings-btn,
+    #cluster-updates-btn { font-size: 0.95rem !important; }
 
     /* Reduce page padding */
     #page-content { padding: 0.75rem !important; }
