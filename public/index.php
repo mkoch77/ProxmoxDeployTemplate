@@ -88,23 +88,23 @@ $perms = $user['permissions'];
                 </div>
             </a>
             </div>
-            <div class="d-flex align-items-center gap-3">
+            <div class="d-flex align-items-center nav-actions">
                 <?php if (in_array('cluster.update', $perms)): ?>
-                <button id="cluster-updates-btn" class="btn btn-link p-0 d-none d-flex flex-column align-items-center" title="Updates available"
-                    onclick="location.hash='maintenance';setTimeout(()=>{if(typeof Maintenance!=='undefined')Maintenance.showTab('updates')},100)" style="font-size:1.1rem;line-height:1;color:var(--bs-success)">
+                <button id="cluster-updates-btn" class="btn btn-link p-0 d-none nav-alert-btn" title="Updates available"
+                    onclick="location.hash='maintenance';setTimeout(()=>{if(typeof Maintenance!=='undefined')Maintenance.showTab('updates')},100)" style="color:var(--bs-success)">
                     <i class="bi bi-arrow-down-circle-fill"></i>
-                    <span id="cluster-updates-count" class="badge bg-success" style="font-size:0.55rem;margin-top:2px"></span>
+                    <span id="cluster-updates-count" class="badge bg-success nav-alert-badge"></span>
                 </button>
                 <?php endif; ?>
-                <button id="cluster-info-btn" class="btn btn-link p-0 d-none d-flex flex-column align-items-center" title="Cluster Info"
-                    onclick="App.showClusterWarnings('info')" style="font-size:1.1rem;line-height:1;color:var(--bs-info)">
+                <button id="cluster-info-btn" class="btn btn-link p-0 d-none nav-alert-btn" title="Cluster Info"
+                    onclick="App.showClusterWarnings('info')" style="color:var(--bs-info)">
                     <i class="bi bi-info-circle-fill"></i>
-                    <span id="cluster-info-count" class="badge bg-info text-dark" style="font-size:0.55rem;margin-top:2px"></span>
+                    <span id="cluster-info-count" class="badge bg-info text-dark nav-alert-badge"></span>
                 </button>
-                <button id="cluster-warnings-btn" class="btn btn-link p-0 d-none d-flex flex-column align-items-center" title="Cluster Alerts"
-                    onclick="App.showClusterWarnings()" style="font-size:1.1rem;line-height:1">
+                <button id="cluster-warnings-btn" class="btn btn-link p-0 d-none nav-alert-btn" title="Cluster Alerts"
+                    onclick="App.showClusterWarnings()">
                     <i class="bi bi-exclamation-triangle-fill"></i>
-                    <span id="cluster-warnings-count" class="badge" style="font-size:0.55rem;margin-top:2px"></span>
+                    <span id="cluster-warnings-count" class="badge nav-alert-badge"></span>
                 </button>
                 <span id="connection-status" class="conn-badge connecting">
                     <span class="conn-dot"></span>

@@ -880,7 +880,9 @@ body {
 
     /* Navbar right section: compact on tablet */
     .conn-text { display: none; }
-    .glass-nav .container-fluid > .d-flex:last-child { gap: 0.5rem !important; }
+    .nav-actions { gap: 0.4rem; }
+    .nav-alert-btn { font-size: 0.95rem; }
+    .nav-alert-badge { display: none; }
 
     /* Full-width main content */
     #main-content { margin-left: 0 !important; width: 100% !important; }
@@ -987,15 +989,6 @@ body {
     .brand-text { font-size: 0.95rem; }
     .brand-icon { width: 32px; height: 32px; font-size: 0.95rem; }
     .glass-nav .container-fluid { padding: 0 0.75rem; }
-
-    /* Navbar right: compact */
-    .glass-nav .container-fluid > .d-flex:last-child { gap: 0.4rem !important; }
-    #cluster-info-btn span,
-    #cluster-warnings-btn span,
-    #cluster-updates-btn span { display: none; }
-    #cluster-info-btn,
-    #cluster-warnings-btn,
-    #cluster-updates-btn { font-size: 0.95rem !important; }
 
     /* Reduce page padding */
     #page-content { padding: 0.75rem !important; }
@@ -1342,6 +1335,22 @@ body {
 
 .stat-card-centered .stat-icon {
     margin: 0 auto 0.85rem;
+}
+
+/* ===== Navbar Alert Buttons ===== */
+.nav-actions {
+    gap: 0.75rem;
+}
+.nav-alert-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-size: 1.1rem;
+    line-height: 1;
+}
+.nav-alert-badge {
+    font-size: 0.55rem;
+    margin-top: 2px;
 }
 
 /* ===== Mobile Hamburger ===== */
